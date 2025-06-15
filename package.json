@@ -70,6 +70,12 @@
         "path": "./syntaxes/twbl.tmLanguage.json"
       }
     ],
+    "snippets": [
+      {
+        "language": "twbl",
+        "path": "./snippets/twbl.json"
+      }
+    ],
     "problemMatchers": [
       {
         "name": "twbl",

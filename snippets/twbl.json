@@ -1,0 +1,540 @@
+{
+  "---": "TABLEAU BASIC CALCULATIONS",
+  "ifStatement": {
+    "prefix": "if",
+    "body": [
+      "IF ${1:condition} THEN ${2:value}",
+      "ELSE ${3:value}",
+      "END"
+    ],
+    "description": "Basic IF-THEN-ELSE statement"
+  },
+  "ifElseif": {
+    "prefix": "ifelseif",
+    "body": [
+      "IF ${1:condition} THEN ${2:value}",
+      "ELSEIF ${3:condition} THEN ${4:value}",
+      "ELSE ${5:value}",
+      "END"
+    ],
+    "description": "IF-ELSEIF-ELSE statement"
+  },
+  "nestedIf": {
+    "prefix": "nestedif",
+    "body": [
+      "IF ${1:condition} THEN",
+      "    IF ${2:condition} THEN ${3:value}",
+      "    ELSE ${4:value}",
+      "    END",
+      "ELSE ${5:value}",
+      "END"
+    ],
+    "description": "Nested IF statement"
+  },
+  "caseStatement": {
+    "prefix": "case",
+    "body": [
+      "CASE ${1:field}",
+      "    WHEN '${2:value}' THEN ${3:result}",
+      "    WHEN '${4:value}' THEN ${5:result}",
+      "    ELSE ${6:default}",
+      "END"
+    ],
+    "description": "CASE statement"
+  },
+  "caseWhen": {
+    "prefix": "casewhen",
+    "body": [
+      "CASE",
+      "    WHEN ${1:condition} THEN ${2:result}",
+      "    WHEN ${3:condition} THEN ${4:result}",
+      "    ELSE ${5:default}",
+      "END"
+    ],
+    "description": "CASE WHEN statement"
+  },
+
+  "---2": "AGGREGATE FUNCTIONS",
+  "sum": {
+    "prefix": "sum",
+    "body": "SUM(${1:[Field]})",
+    "description": "SUM aggregate function"
+  },
+  "avg": {
+    "prefix": "avg",
+    "body": "AVG(${1:[Field]})",
+    "description": "AVG aggregate function"
+  },
+  "count": {
+    "prefix": "count",
+    "body": "COUNT(${1:[Field]})",
+    "description": "COUNT aggregate function"
+  },
+  "countd": {
+    "prefix": "countd",
+    "body": "COUNTD(${1:[Field]})",
+    "description": "COUNT DISTINCT function"
+  },
+  "min": {
+    "prefix": "min",
+    "body": "MIN(${1:[Field]})",
+    "description": "MIN aggregate function"
+  },
+  "max": {
+    "prefix": "max",
+    "body": "MAX(${1:[Field]})",
+    "description": "MAX aggregate function"
+  },
+  "median": {
+    "prefix": "median",
+    "body": "MEDIAN(${1:[Field]})",
+    "description": "MEDIAN aggregate function"
+  },
+  "stdev": {
+    "prefix": "stdev",
+    "body": "STDEV(${1:[Field]})",
+    "description": "Standard deviation function"
+  },
+  "var": {
+    "prefix": "var",
+    "body": "VAR(${1:[Field]})",
+    "description": "Variance function"
+  },
+
+  "---3": "DATE FUNCTIONS",
+  "datepart": {
+    "prefix": "datepart",
+    "body": "DATEPART('${1|year,quarter,month,week,day,weekday,hour,minute,second|}', ${2:[Date Field]})",
+    "description": "DATEPART function to extract date parts"
+  },
+  "dateadd": {
+    "prefix": "dateadd",
+    "body": "DATEADD('${1|year,quarter,month,week,day,hour,minute,second|}', ${2:number}, ${3:[Date Field]})",
+    "description": "DATEADD function to add time intervals"
+  },
+  "datediff": {
+    "prefix": "datediff",
+    "body": "DATEDIFF('${1|year,quarter,month,week,day,hour,minute,second|}', ${2:[Start Date]}, ${3:[End Date]})",
+    "description": "DATEDIFF function to calculate date differences"
+  },
+  "datetrunc": {
+    "prefix": "datetrunc",
+    "body": "DATETRUNC('${1|year,quarter,month,week,day,hour,minute,second|}', ${2:[Date Field]})",
+    "description": "DATETRUNC function to truncate dates"
+  },
+  "today": {
+    "prefix": "today",
+    "body": "TODAY()",
+    "description": "TODAY function - current date"
+  },
+  "now": {
+    "prefix": "now",
+    "body": "NOW()",
+    "description": "NOW function - current date and time"
+  },
+  "makedate": {
+    "prefix": "makedate",
+    "body": "MAKEDATE(${1:year}, ${2:month}, ${3:day})",
+    "description": "MAKEDATE function to create a date"
+  },
+  "isdate": {
+    "prefix": "isdate",
+    "body": "ISDATE(${1:string})",
+    "description": "ISDATE function to check if value is a date"
+  },
+  "year": {
+    "prefix": "year",
+    "body": "YEAR(${1:[Date Field]})",
+    "description": "Extract year from date"
+  },
+  "month": {
+    "prefix": "month",
+    "body": "MONTH(${1:[Date Field]})",
+    "description": "Extract month from date"
+  },
+  "day": {
+    "prefix": "day",
+    "body": "DAY(${1:[Date Field]})",
+    "description": "Extract day from date"
+  },
+
+  "---4": "STRING FUNCTIONS",
+  "left": {
+    "prefix": "left",
+    "body": "LEFT(${1:[String Field]}, ${2:number})",
+    "description": "LEFT function - extract leftmost characters"
+  },
+  "right": {
+    "prefix": "right",
+    "body": "RIGHT(${1:[String Field]}, ${2:number})",
+    "description": "RIGHT function - extract rightmost characters"
+  },
+  "mid": {
+    "prefix": "mid",
+    "body": "MID(${1:[String Field]}, ${2:start}, ${3:length})",
+    "description": "MID function - extract middle characters"
+  },
+  "len": {
+    "prefix": "len",
+    "body": "LEN(${1:[String Field]})",
+    "description": "LEN function - string length"
+  },
+  "upper": {
+    "prefix": "upper",
+    "body": "UPPER(${1:[String Field]})",
+    "description": "UPPER function - convert to uppercase"
+  },
+  "lower": {
+    "prefix": "lower",
+    "body": "LOWER(${1:[String Field]})",
+    "description": "LOWER function - convert to lowercase"
+  },
+  "trim": {
+    "prefix": "trim",
+    "body": "TRIM(${1:[String Field]})",
+    "description": "TRIM function - remove leading/trailing spaces"
+  },
+  "ltrim": {
+    "prefix": "ltrim",
+    "body": "LTRIM(${1:[String Field]})",
+    "description": "LTRIM function - remove leading spaces"
+  },
+  "rtrim": {
+    "prefix": "rtrim",
+    "body": "RTRIM(${1:[String Field]})",
+    "description": "RTRIM function - remove trailing spaces"
+  },
+  "contains": {
+    "prefix": "contains",
+    "body": "CONTAINS(${1:[String Field]}, '${2:substring}')",
+    "description": "CONTAINS function - check if string contains substring"
+  },
+  "startswith": {
+    "prefix": "startswith",
+    "body": "STARTSWITH(${1:[String Field]}, '${2:prefix}')",
+    "description": "STARTSWITH function - check if string starts with prefix"
+  },
+  "endswith": {
+    "prefix": "endswith",
+    "body": "ENDSWITH(${1:[String Field]}, '${2:suffix}')",
+    "description": "ENDSWITH function - check if string ends with suffix"
+  },
+  "replace": {
+    "prefix": "replace",
+    "body": "REPLACE(${1:[String Field]}, '${2:old}', '${3:new}')",
+    "description": "REPLACE function - replace substring"
+  },
+  "substitute": {
+    "prefix": "substitute",
+    "body": "SUBSTITUTE(${1:[String Field]}, '${2:old}', '${3:new}')",
+    "description": "SUBSTITUTE function - substitute substring"
+  },
+  "split": {
+    "prefix": "split",
+    "body": "SPLIT(${1:[String Field]}, '${2:delimiter}', ${3:position})",
+    "description": "SPLIT function - split string by delimiter"
+  },
+
+  "---5": "LOGICAL FUNCTIONS",
+  "isnull": {
+    "prefix": "isnull",
+    "body": "ISNULL(${1:[Field]})",
+    "description": "ISNULL function - check if value is null"
+  },
+  "ifnull": {
+    "prefix": "ifnull",
+    "body": "IFNULL(${1:[Field]}, ${2:replacement})",
+    "description": "IFNULL function - replace null values"
+  },
+  "zn": {
+    "prefix": "zn",
+    "body": "ZN(${1:[Field]})",
+    "description": "ZN function - convert null to zero"
+  },
+  "isna": {
+    "prefix": "isna",
+    "body": "ISNA(${1:[Field]})",
+    "description": "ISNA function - check if value is not available"
+  },
+  "and": {
+    "prefix": "and",
+    "body": "${1:condition} AND ${2:condition}",
+    "description": "AND logical operator"
+  },
+  "or": {
+    "prefix": "or",
+    "body": "${1:condition} OR ${2:condition}",
+    "description": "OR logical operator"
+  },
+  "not": {
+    "prefix": "not",
+    "body": "NOT ${1:condition}",
+    "description": "NOT logical operator"
+  },
+  "in": {
+    "prefix": "in",
+    "body": "${1:[Field]} IN (${2:value1}, ${3:value2})",
+    "description": "IN operator for value lists"
+  },
+
+  "---6": "MATH FUNCTIONS",
+  "abs": {
+    "prefix": "abs",
+    "body": "ABS(${1:[Number Field]})",
+    "description": "ABS function - absolute value"
+  },
+  "round": {
+    "prefix": "round", 
+    "body": "ROUND(${1:[Number Field]}, ${2:decimals})",
+    "description": "ROUND function - round to specified decimals"
+  },
+  "ceiling": {
+    "prefix": "ceiling",
+    "body": "CEILING(${1:[Number Field]})",
+    "description": "CEILING function - round up to integer"
+  },
+  "floor": {
+    "prefix": "floor",
+    "body": "FLOOR(${1:[Number Field]})",
+    "description": "FLOOR function - round down to integer"
+  },
+  "sqrt": {
+    "prefix": "sqrt",
+    "body": "SQRT(${1:[Number Field]})",
+    "description": "SQRT function - square root"
+  },
+  "power": {
+    "prefix": "power",
+    "body": "POWER(${1:[Number Field]}, ${2:exponent})",
+    "description": "POWER function - raise to power"
+  },
+  "exp": {
+    "prefix": "exp",
+    "body": "EXP(${1:[Number Field]})",
+    "description": "EXP function - exponential (e^x)"
+  },
+  "log": {
+    "prefix": "log",
+    "body": "LOG(${1:[Number Field]})",
+    "description": "LOG function - natural logarithm"
+  },
+  "log10": {
+    "prefix": "log10",
+    "body": "LOG10(${1:[Number Field]})",
+    "description": "LOG10 function - base-10 logarithm"
+  },
+  "sign": {
+    "prefix": "sign",
+    "body": "SIGN(${1:[Number Field]})",
+    "description": "SIGN function - sign of number (-1, 0, 1)"
+  },
+
+  "---7": "LEVEL OF DETAIL (LOD) EXPRESSIONS",
+  "fixed": {
+    "prefix": "fixed",
+    "body": "{ FIXED ${1:[Dimension]} : ${2:AGG([Measure])} }",
+    "description": "FIXED LOD expression - compute at specific dimension level"
+  },
+  "include": {
+    "prefix": "include",
+    "body": "{ INCLUDE ${1:[Dimension]} : ${2:AGG([Measure])} }",
+    "description": "INCLUDE LOD expression - include additional dimension"
+  },
+  "exclude": {
+    "prefix": "exclude",
+    "body": "{ EXCLUDE ${1:[Dimension]} : ${2:AGG([Measure])} }",
+    "description": "EXCLUDE LOD expression - exclude dimension from view level"
+  },
+  "fixedMultiple": {
+    "prefix": "fixedmulti",
+    "body": "{ FIXED ${1:[Dimension1]}, ${2:[Dimension2]} : ${3:AGG([Measure])} }",
+    "description": "FIXED LOD with multiple dimensions"
+  },
+
+  "---8": "TABLE CALCULATIONS",
+  "runningSum": {
+    "prefix": "runningsum",
+    "body": "RUNNING_SUM(${1:SUM([Measure])})",
+    "description": "Running sum calculation"
+  },
+  "runningAvg": {
+    "prefix": "runningavg",
+    "body": "RUNNING_AVG(${1:AVG([Measure])})",
+    "description": "Running average calculation"
+  },
+  "runningCount": {
+    "prefix": "runningcount",
+    "body": "RUNNING_COUNT(${1:COUNT([Measure])})",
+    "description": "Running count calculation"
+  },
+  "totalSum": {
+    "prefix": "totalsum",
+    "body": "TOTAL(${1:SUM([Measure])})",
+    "description": "Total sum across partition"
+  },
+  "windowSum": {
+    "prefix": "windowsum",
+    "body": "WINDOW_SUM(${1:SUM([Measure])}, ${2:start}, ${3:end})",
+    "description": "Window sum calculation"
+  },
+  "windowAvg": {
+    "prefix": "windowavg",
+    "body": "WINDOW_AVG(${1:AVG([Measure])}, ${2:start}, ${3:end})",
+    "description": "Window average calculation"
+  },
+  "percentOfTotal": {
+    "prefix": "percenttotal",
+    "body": "${1:SUM([Measure])} / TOTAL(${1:SUM([Measure])})",
+    "description": "Percent of total calculation"
+  },
+  "percentChange": {
+    "prefix": "percentchange",
+    "body": "(${1:SUM([Measure])} - LOOKUP(${1:SUM([Measure])}, -1)) / LOOKUP(${1:SUM([Measure])}, -1)",
+    "description": "Percent change calculation"
+  },
+  "rank": {
+    "prefix": "rank",
+    "body": "RANK(${1:SUM([Measure])})",
+    "description": "Rank calculation"
+  },
+  "denseRank": {
+    "prefix": "denserank",
+    "body": "RANK_DENSE(${1:SUM([Measure])})",
+    "description": "Dense rank calculation"
+  },
+  "index": {
+    "prefix": "index",
+    "body": "INDEX()",
+    "description": "Index table calculation"
+  },
+  "size": {
+    "prefix": "size",
+    "body": "SIZE()",
+    "description": "Size table calculation"
+  },
+  "first": {
+    "prefix": "first",
+    "body": "FIRST()",
+    "description": "First table calculation"
+  },
+  "last": {
+    "prefix": "last",
+    "body": "LAST()",
+    "description": "Last table calculation"
+  },
+  "lookup": {
+    "prefix": "lookup",
+    "body": "LOOKUP(${1:expression}, ${2:offset})",
+    "description": "Lookup table calculation"
+  },
+
+  "---9": "COMMON CALCULATION PATTERNS",
+  "profitRatio": {
+    "prefix": "profitratio",
+    "body": "SUM([Profit]) / SUM([Sales])",
+    "description": "Standard profit ratio calculation"
+  },
+  "growthRate": {
+    "prefix": "growthrate",
+    "body": "(${1:SUM([Current])} - ${2:SUM([Previous])}) / ${2:SUM([Previous])}",
+    "description": "Growth rate calculation"
+  },
+  "yearOverYear": {
+    "prefix": "yoy",
+    "body": [
+      "IF YEAR([Order Date]) = YEAR(TODAY()) THEN ${1:SUM([Sales])}",
+      "ELSEIF YEAR([Order Date]) = YEAR(TODAY()) - 1 THEN ${2:SUM([Sales])}",
+      "ELSE 0",
+      "END"
+    ],
+    "description": "Year-over-year comparison"
+  },
+  "customerSegmentation": {
+    "prefix": "customerseg",
+    "body": [
+      "IF ${1:SUM([Sales])} > 100000 THEN 'Premium'",
+      "ELSEIF ${1:SUM([Sales])} > 50000 THEN 'Standard'",
+      "ELSE 'Basic'",
+      "END"
+    ],
+    "description": "Customer segmentation based on sales"
+  },
+  "weekdayWeekend": {
+    "prefix": "weekdayweekend",
+    "body": [
+      "IF DATEPART('weekday', ${1:[Date Field]}) IN (1, 7) THEN 'Weekend'",
+      "ELSE 'Weekday'",
+      "END"
+    ],
+    "description": "Classify weekday vs weekend"
+  },
+  "currentYearSales": {
+    "prefix": "currentyear",
+    "body": [
+      "IF DATETRUNC('year', ${1:[Order Date]}) = DATETRUNC('year', TODAY())",
+      "THEN ${2:SUM([Sales])}",
+      "ELSE 0",
+      "END"
+    ],
+    "description": "Current year sales filter"
+  },
+  "ageGroup": {
+    "prefix": "agegroup",
+    "body": [
+      "IF ${1:[Age]} < 25 THEN '18-24'",
+      "ELSEIF ${1:[Age]} < 35 THEN '25-34'", 
+      "ELSEIF ${1:[Age]} < 45 THEN '35-44'",
+      "ELSEIF ${1:[Age]} < 55 THEN '45-54'",
+      "ELSE '55+'",
+      "END"
+    ],
+    "description": "Age group categorization"
+  },
+
+  "---10": "FIELD REFERENCES",
+  "fieldReference": {
+    "prefix": "field",
+    "body": "[${1:Field Name}]",
+    "description": "Field reference bracket notation"
+  },
+  "calculatedField": {
+    "prefix": "calc",
+    "body": [
+      "// ${1:Calculation Name}",
+      "${2:calculation_expression}"
+    ],
+    "description": "Calculated field template with comment"
+  },
+  "parameterReference": {
+    "prefix": "param",
+    "body": "[Parameters].[${1:Parameter Name}]",
+    "description": "Parameter reference"
+  },
+
+  "---11": "COMMENTS",
+  "singleComment": {
+    "prefix": "//",
+    "body": "// ${1:comment}",
+    "description": "Single line comment"
+  },
+  "multiComment": {
+    "prefix": "/*",
+    "body": [
+      "/*",
+      " * ${1:comment}",
+      " */"
+    ],
+    "description": "Multi-line comment block"
+  },
+  "docComment": {
+    "prefix": "/**",
+    "body": [
+      "/**",
+      " * ${1:description}",
+      " * @param ${2:parameter} ${3:description}",
+      " * @returns ${4:description}",
+      " */"
+    ],
+    "description": "Documentation comment block"
+  }
+}
