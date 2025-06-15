@@ -1,0 +1,24 @@
+/**
+ * A logical operator that returns `TRUE` if both conditions are true.
+ */
+IF DATEPART('weekday',[Last Review]) IN (1, 7) THEN 'Weekend day'
+ELSE 'Working day'
+END
+
+// Customer_Headers
+CASE [Select Column 1 Heading]
+    WHEN 'Customer Name' THEN [Customer Name]
+    WHEN 'Customer Segment' THEN [Customer Segment]
+    WHEN 'Region' THEN [Region]
+    WHEN 'Department' THEN [Department]
+    WHEN 'Category' THEN [Category]
+ELSE ''
+END
+
+/*
+Multi-line comment
+that spans several lines
+should be preserved
+*/
+IF [Sales] > 100 THEN "High" ELSE "Low" END
+

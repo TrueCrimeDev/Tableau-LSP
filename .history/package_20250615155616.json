@@ -1,0 +1,197 @@
+{
+  "name": "tableau-language-support",
+  "displayName": "Tableau Language Support",
+  "description": "Complete language support for Tableau calculation language with syntax highlighting, IntelliSense, validation, and formatting",
+  "version": "1.0.0",
+  "publisher": "YOUR_PUBLISHER_NAME",
+  "icon": "images/tableau-icon.png",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOUR_USERNAME/tableau-language-support"
+  },
+  "homepage": "https://github.com/YOUR_USERNAME/tableau-language-support#readme",
+  "bugs": {
+    "url": "https://github.com/YOUR_USERNAME/tableau-language-support/issues"
+  },
+  "keywords": [
+    "tableau",
+    "calculation",
+    "language",
+    "syntax",
+    "highlighting",
+    "intellisense",
+    "autocomplete",
+    "validation",
+    "formatting",
+    "lsp",
+    "language-server"
+  ],
+  "galleryBanner": {
+    "color": "#1f77b4",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Language Packs",
+    "Snippets",
+    "Formatters",
+    "Linters"
+  ],
+  "main": "./out/extension",
+  "contributes": {
+    "configurationDefaults": {
+      "[twbl]": {
+        "editor.formatOnSave": false,
+        "editor.stickyScroll.defaultModel": "foldingProviderModel",
+        "files.eol": "\n"
+      }
+    },
+    "languages": [
+      {
+        "id": "twbl",
+        "extensions": [
+          ".twbl"
+        ],
+        "aliases": [
+          "Tableau",
+          "TabLang"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "twbl",
+        "scopeName": "source.twbl",
+        "path": "./syntaxes/twbl.tmLanguage.json"
+      }
+    ],
+    "problemMatchers": [
+      {
+        "name": "twbl",
+        "owner": "tableau",
+        "fileLocation": [
+          "relative",
+          "${workspaceFolder}"
+        ],
+        "pattern": {
+          "regexp": "([^\\s]*):(\\d+):(\\d+):\\s+(?:fatal\\s+)?(note|error):\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "message": 5
+        }
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Tableau",
+      "properties": {
+        "tableau.enableHover": {
+          "scope": "resource",
+          "type": "boolean",
+          "description": "Enable hover tooltips for Tableau functions and keywords",
+          "default": true
+        },
+        "tableau.enableCompletion": {
+          "scope": "resource",
+          "type": "boolean",
+          "description": "Enable auto-completion for Tableau functions",
+          "default": true
+        },
+        "tableau.enableDiagnostics": {
+          "scope": "resource",
+          "type": "boolean",
+          "description": "Enable syntax validation and error reporting",
+          "default": true
+        },
+        "tableau.trace.server": {
+          "scope": "window",
+          "type": "string",
+          "description": "Traces the communication between VS Code and the Tableau language server.",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off"
+        },
+        "tableau.enableSnippets": {
+          "scope": "resource",
+          "type": "boolean",
+          "description": "Enable snippet completions for Tableau functions",
+          "default": true
+        },
+        "tableau.semanticTokens": {
+          "scope": "resource",
+          "type": "string",
+          "description": "Set level of semantic tokens for Tableau syntax highlighting",
+          "enum": [
+            "none",
+            "partial",
+            "full"
+          ],
+          "default": "full"
+        },
+        "tableau.enableFormatting": {
+          "scope": "resource",
+          "type": "boolean",
+          "description": "Enable automatic formatting for Tableau expressions",
+          "default": false
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "tableau.lsp.restart",
+        "title": "Restart Language Server",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau.hello",
+        "title": "Hello Tableau",
+        "category": "Tableau"
+      }
+    ],
+    "keybindings": []
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build-base -- --minify",
+    "build-base": "esbuild --bundle --external:vscode src/extension.ts --outdir=out --platform=node --target=node20 --format=cjs",
+    "build": "npm run build-base -- --sourcemap",
+    "watch": "npm run build-base -- --sourcemap --watch",
+    "test": "npm run compile && node ./node_modules/vscode/bin/test",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint"
+  },
+  "devDependencies": {
+    "@types/libsodium-wrappers": "^0.7.14",
+    "@types/lodash-es": "^4.17.12",
+    "@types/node": "^20.0.0",
+    "@types/semver": "^7.5.8",
+    "@types/vscode": "^1.80.0",
+    "@types/which": "^2.0.1",
+    "@vscode/vsce": "^2.24.0",
+    "esbuild": "^0.25.0",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "3.2.5",
+    "typescript": "^5.4.3",
+    "typescript-eslint": "^8.0.0"
+  },
+  "dependencies": {
+    "camelcase": "^7.0.1",
+    "libsodium-wrappers": "^0.7.15",
+    "lodash-es": "^4.17.21",
+    "semver": "^7.5.2",
+    "vscode-languageclient": "10.0.0-next.15",
+    "which": "^3.0.0"
+  }
+}

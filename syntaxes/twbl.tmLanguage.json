@@ -1,0 +1,198 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Tableau Calculation Language",
+  "scopeName": "source.twbl",
+  "fileTypes": ["twbl"],
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#lod-expressions"
+    },
+    {
+      "include": "#field-references"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#functions"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#numbers"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.twbl",
+          "begin": "//",
+          "end": "$"
+        },
+        {
+          "name": "comment.block.twbl",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.twbl",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.twbl",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.twbl",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.twbl",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "lod-expressions": {
+      "patterns": [
+        {
+          "name": "meta.lod-expression.twbl",
+          "begin": "\\{\\s*(FIXED|INCLUDE|EXCLUDE)\\b",
+          "end": "\\}",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.lod.twbl"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#field-references"
+            },
+            {
+              "include": "#functions"
+            },
+            {
+              "include": "#operators"
+            },
+            {
+              "match": ":",
+              "name": "punctuation.separator.colon.twbl"
+            }
+          ]
+        }
+      ]
+    },
+    "field-references": {
+      "patterns": [
+        {
+          "name": "variable.other.field.twbl",
+          "match": "\\[[^\\]]+\\]"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.conditional.twbl",
+          "match": "\\b(IF|THEN|ELSE|ELSEIF|END|CASE|WHEN)\\b"
+        },
+        {
+          "name": "keyword.operator.logical.twbl",
+          "match": "\\b(AND|OR|NOT|IN)\\b"
+        },
+        {
+          "name": "keyword.control.lod.twbl",
+          "match": "\\b(FIXED|INCLUDE|EXCLUDE)\\b"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "support.function.aggregate.twbl",
+          "match": "\\b(SUM|AVG|COUNT|MIN|MAX|MEDIAN|STDEV|STDEVP|VAR|VARP|PERCENTILE)\\b"
+        },
+        {
+          "name": "support.function.date.twbl",
+          "match": "\\b(DATEADD|DATEDIFF|DATEPART|DATETRUNC|TODAY|NOW|YEAR|MONTH|DAY|HOUR|MINUTE|SECOND|WEEKDAY|QUARTER)\\b"
+        },
+        {
+          "name": "support.function.string.twbl",
+          "match": "\\b(LEFT|RIGHT|MID|LEN|CONTAINS|STARTSWITH|ENDSWITH|REPLACE|SUBSTITUTE|TRIM|LTRIM|RTRIM|UPPER|LOWER|PROPER|SPLIT|FIND|REGEXP_EXTRACT|REGEXP_MATCH|REGEXP_REPLACE)\\b"
+        },
+        {
+          "name": "support.function.logical.twbl",
+          "match": "\\b(ISNULL|IFNULL|IIF|ISDATE|ISEMPTY|ZN)\\b"
+        },
+        {
+          "name": "support.function.math.twbl",
+          "match": "\\b(ABS|ACOS|ASIN|ATAN|ATAN2|CEILING|COS|COT|DEGREES|EXP|FLOOR|HEXBINX|HEXBINY|LN|LOG|PI|POWER|RADIANS|ROUND|SIGN|SIN|SQRT|SQUARE|TAN)\\b"
+        },
+        {
+          "name": "support.function.type-conversion.twbl",
+          "match": "\\b(BOOL|DATE|DATETIME|FLOAT|INT|STR)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arithmetic.twbl",
+          "match": "[+\\-*/%]"
+        },
+        {
+          "name": "keyword.operator.comparison.twbl",
+          "match": "([<>]=?|[!=]=)"
+        },
+        {
+          "name": "keyword.operator.assignment.twbl",
+          "match": "="
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.twbl",
+          "match": "\\b(TRUE|FALSE)\\b"
+        },
+        {
+          "name": "constant.language.null.twbl",
+          "match": "\\bNULL\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.decimal.twbl",
+          "match": "\\b\\d+\\.\\d+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.twbl",
+          "match": "\\b\\d+\\b"
+        }
+      ]
+    }
+  }
+}
