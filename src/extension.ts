@@ -24,11 +24,22 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Register code lens provider
     TableauCodeLensProvider.registerCommands(context);
+    const codeLensProvider = new TableauCodeLensProvider();
     context.subscriptions.push(
         vscode.languages.registerCodeLensProvider(
             { language: "twbl", scheme: "file" },
-            new TableauCodeLensProvider()
+            codeLensProvider
         )
+    );
+
+    // Listen for configuration changes to refresh code lenses
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration((event) => {
+            if (event.affectsConfiguration('tableau.codeLens')) {
+                // Trigger refresh of code lenses
+                codeLensProvider.refresh();
+            }
+        })
     );
 
     // Register restart command

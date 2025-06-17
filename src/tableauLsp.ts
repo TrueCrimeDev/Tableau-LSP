@@ -67,6 +67,15 @@ function startClient(context: vscode.ExtensionContext): void {
                     tableauProvider
                 )
             );
+
+            // Register signature help provider
+            context.subscriptions.push(
+                vscode.languages.registerSignatureHelpProvider(
+                    TABLEAU_MODE,
+                    tableauProvider,
+                    '(', ','
+                )
+            );
         }
 
         outputChannel.info('Tableau Language Server started successfully (in-process mode)');

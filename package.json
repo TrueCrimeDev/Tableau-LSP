@@ -110,6 +110,12 @@
           "description": "Enable auto-completion for Tableau functions",
           "default": true
         },
+        "tableau.enableSignatureHelp": {
+          "scope": "resource",
+          "type": "boolean",
+          "description": "Enable intelligent parameter hints for Tableau functions",
+          "default": true
+        },
         "tableau.enableDiagnostics": {
           "scope": "resource",
           "type": "boolean",
@@ -149,6 +155,36 @@
           "type": "boolean",
           "description": "Enable automatic formatting for Tableau expressions",
           "default": false
+        },
+        "tableau.codeLens.enabled": {
+          "scope": "resource",
+          "type": "boolean",
+          "description": "Enable all code lens features",
+          "default": true
+        },
+        "tableau.codeLens.formatExpression": {
+          "scope": "resource",
+          "type": "boolean",
+          "description": "Show 'Format Expression' code lens on IF and CASE statements",
+          "default": false
+        },
+        "tableau.codeLens.explainLOD": {
+          "scope": "resource",
+          "type": "boolean",
+          "description": "Show 'Explain LOD' code lens on Level of Detail expressions",
+          "default": false
+        },
+        "tableau.codeLens.showFunctionHelp": {
+          "scope": "resource",
+          "type": "boolean",
+          "description": "Show 'Show Function Help' code lens on aggregate functions",
+          "default": false
+        },
+        "tableau.codeLens.copyWithComment": {
+          "scope": "resource",
+          "type": "boolean",
+          "description": "Show 'Copy with Comment' code lens on all expressions",
+          "default": true
         }
       }
     },
