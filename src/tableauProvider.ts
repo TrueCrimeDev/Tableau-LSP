@@ -22,7 +22,8 @@ export class TableauProvider implements
     vscode.HoverProvider,
     vscode.CompletionItemProvider,
     vscode.DefinitionProvider,
-    vscode.DocumentSymbolProvider {
+    vscode.DocumentSymbolProvider,
+    vscode.SignatureHelpProvider {
     private symbols = new Map<string, TableauSymbol>();
     private context: vscode.ExtensionContext;
     private initialized = false;
@@ -62,38 +63,70 @@ export class TableauProvider implements
     private parseSymbolDefinitions(content: string): void {
         const lines = content.split('\n');
         let currentDescription = '';
+        let inJsDocComment = false;
         
         for (const line of lines) {
             const trimmedLine = line.trim();
             
-            // Skip empty lines
+            // Skip empty lines but don't clear description if we're in a JSDoc comment
             if (!trimmedLine) {
-                currentDescription = '';
+                if (!inJsDocComment) {
+                    currentDescription = '';
+                }
                 continue;
             }
 
             // Parse JSDoc comments
             if (trimmedLine.startsWith('/**')) {
                 currentDescription = '';
+                inJsDocComment = true;
                 continue;
             } else if (trimmedLine.startsWith('*') && !trimmedLine.startsWith('*/')) {
-                const desc = trimmedLine.replace(/^\s*\*\s?/, '');
-                if (desc) {
-                    currentDescription += (currentDescription ? ' ' : '') + desc;
+                if (inJsDocComment) {
+                    const desc = trimmedLine.replace(/^\s*\*\s?/, '');
+                    if (desc) {
+                        currentDescription += (currentDescription ? ' ' : '') + desc;
+                    }
                 }
                 continue;
             } else if (trimmedLine.startsWith('*/')) {
+                inJsDocComment = false;
                 continue;
             }
 
-            // Parse single-line comments for descriptions
+            // Parse single-line comments for descriptions  
             if (trimmedLine.startsWith('//')) {
-                currentDescription = trimmedLine.replace(/^\/\/\s?/, '');
+                // Only use single-line comments if we don't already have a JSDoc description
+                if (!currentDescription) {
+                    const newDesc = trimmedLine.replace(/^\/\/\s?/, '');
+                    currentDescription += (currentDescription ? ' ' : '') + newDesc;
+                }
                 continue;
             }
 
-            // Parse symbol definitions (name: type format)
-            const match = /^([A-Z_][A-Z0-9_]*|\[[^\]]+\]|[+\-*/%=<>!]+|AND|OR|NOT):\s*(\w+)$/i.exec(trimmedLine);
+            // Parse function signatures with parameters - e.g., "SUM(expression: Number) => Number"
+            const funcMatch = /^([A-Z_][A-Z0-9_]*)\s*\(([^)]*)\)\s*=>\s*(\w+)$/i.exec(trimmedLine);
+            if (funcMatch) {
+                const [, name, paramString, returnType] = funcMatch;
+                const parameters = this.parseParameters(paramString);
+                
+                const symbol: TableauSymbol = {
+                    name,
+                    type: 'function',
+                    description: currentDescription || undefined,
+                    parameters: parameters,
+                    returnType: returnType,
+                    category: this.getSymbolCategory(name)
+                };
+                
+                this.symbols.set(name.toUpperCase(), symbol);
+                currentDescription = '';
+                inJsDocComment = false;
+                continue;
+            }
+
+            // Parse simple symbol definitions - improved regex to handle operators and complex patterns
+            const match = /^([A-Z_][A-Z0-9_]*|\[[^\]]+\]|[+\-*/%=<>!]+|<=|>=|AND|OR|NOT|IN|BETWEEN):\s*(\w+)$/i.exec(trimmedLine);
             if (match) {
                 const [, name, type] = match;
                 const symbol: TableauSymbol = {
@@ -105,8 +138,35 @@ export class TableauProvider implements
                 
                 this.symbols.set(name.toUpperCase(), symbol);
                 currentDescription = '';
+                inJsDocComment = false;
             }
         }
+    }
+
+    /** Parse parameter string into TableauParameter objects */
+    private parseParameters(paramString: string): TableauParameter[] {
+        if (!paramString.trim()) return [];
+        
+        const parameters: TableauParameter[] = [];
+        const paramParts = paramString.split(',');
+        
+        for (const part of paramParts) {
+            const trimmed = part.trim();
+            if (!trimmed) continue;
+            
+            // Parse parameter format: "name: type" or "name?: type" for optional
+            const paramMatch = /^(\w+)(\?)?:\s*(\w+)$/i.exec(trimmed);
+            if (paramMatch) {
+                const [, name, optional, type] = paramMatch;
+                parameters.push({
+                    name,
+                    type,
+                    optional: !!optional
+                });
+            }
+        }
+        
+        return parameters;
     }
 
     /** Initialize basic symbols if file loading fails */
@@ -352,5 +412,164 @@ export class TableauProvider implements
         }
         
         return symbols;
+    }
+
+    /** Provide signature help for function parameters */
+    provideSignatureHelp(
+        document: vscode.TextDocument,
+        position: vscode.Position,
+        _token: vscode.CancellationToken,
+        _context: vscode.SignatureHelpContext
+    ): vscode.ProviderResult<vscode.SignatureHelp> {
+        // Check if signature help is enabled
+        const config = vscode.workspace.getConfiguration('tableau');
+        if (!config.get<boolean>('enableSignatureHelp', true)) {
+            return null;
+        }
+        const line = document.lineAt(position.line).text;
+        const textBeforePosition = line.substring(0, position.character);
+        
+        // Find function call pattern before cursor
+        const functionMatch = /(\w+)\s*\(\s*([^)]*?)$/i.exec(textBeforePosition);
+        if (!functionMatch) return null;
+        
+        const functionName = functionMatch[1].toUpperCase();
+        const symbol = this.getSymbol(functionName);
+        
+        if (!symbol || symbol.type !== 'function') return null;
+        
+        // Count parameters by counting commas
+        const paramText = functionMatch[2];
+        const parameterIndex = paramText ? paramText.split(',').length - 1 : 0;
+        
+        // Create signature information
+        const signature = new vscode.SignatureInformation(
+            this.buildSignatureLabel(symbol),
+            symbol.description
+        );
+        
+        // Add parameter information if available
+        if (symbol.parameters) {
+            signature.parameters = symbol.parameters.map(param => 
+                new vscode.ParameterInformation(
+                    param.name,
+                    param.description || `${param.type} parameter`
+                )
+            );
+        } else {
+            // Create basic parameter info for common functions
+            signature.parameters = this.getBasicParameterInfo(functionName);
+        }
+        
+        const signatureHelp = new vscode.SignatureHelp();
+        signatureHelp.signatures = [signature];
+        signatureHelp.activeSignature = 0;
+        signatureHelp.activeParameter = Math.min(parameterIndex, signature.parameters.length - 1);
+        
+        return signatureHelp;
+    }
+
+    /** Build a signature label for display */
+    private buildSignatureLabel(symbol: TableauSymbol): string {
+        if (symbol.parameters && symbol.parameters.length > 0) {
+            const params = symbol.parameters.map(p => 
+                p.optional ? `[${p.name}]` : p.name
+            ).join(', ');
+            return `${symbol.name}(${params})`;
+        }
+        
+        // Fallback for functions without detailed parameter info
+        return this.getBasicSignature(symbol.name);
+    }
+
+    /** Get basic signature for common functions */
+    private getBasicSignature(functionName: string): string {
+        const signatures: Record<string, string> = {
+            'SUM': 'SUM(expression)',
+            'AVG': 'AVG(expression)',
+            'COUNT': 'COUNT(expression)',
+            'MIN': 'MIN(expression)',
+            'MAX': 'MAX(expression)',
+            'DATEPART': 'DATEPART(date_part, date)',
+            'DATEADD': 'DATEADD(date_part, interval, date)',
+            'DATEDIFF': 'DATEDIFF(date_part, start_date, end_date)',
+            'LEFT': 'LEFT(string, number)',
+            'RIGHT': 'RIGHT(string, number)',
+            'MID': 'MID(string, start, length)',
+            'LEN': 'LEN(string)',
+            'CONTAINS': 'CONTAINS(string, substring)',
+            'REPLACE': 'REPLACE(string, old_text, new_text)',
+            'IF': 'IF condition THEN value1 ELSE value2 END',
+            'ISNULL': 'ISNULL(expression)',
+            'IFNULL': 'IFNULL(expression, replacement)',
+            'ROUND': 'ROUND(number, [decimals])',
+            'ABS': 'ABS(number)',
+            'CEILING': 'CEILING(number)',
+            'FLOOR': 'FLOOR(number)'
+        };
+        
+        return signatures[functionName] || `${functionName}(...)`;
+    }
+
+    /** Get basic parameter information for common functions */
+    private getBasicParameterInfo(functionName: string): vscode.ParameterInformation[] {
+        const paramInfo: Record<string, vscode.ParameterInformation[]> = {
+            'SUM': [new vscode.ParameterInformation('expression', 'The expression to sum')],
+            'AVG': [new vscode.ParameterInformation('expression', 'The expression to average')],
+            'COUNT': [new vscode.ParameterInformation('expression', 'The expression to count')],
+            'MIN': [new vscode.ParameterInformation('expression', 'The expression to find minimum')],
+            'MAX': [new vscode.ParameterInformation('expression', 'The expression to find maximum')],
+            'DATEPART': [
+                new vscode.ParameterInformation('date_part', 'Part of date to extract: "year", "month", "day", etc.'),
+                new vscode.ParameterInformation('date', 'The date expression')
+            ],
+            'DATEADD': [
+                new vscode.ParameterInformation('date_part', 'Part of date to add: "year", "month", "day", etc.'),
+                new vscode.ParameterInformation('interval', 'Number to add'),
+                new vscode.ParameterInformation('date', 'The date expression')
+            ],
+            'DATEDIFF': [
+                new vscode.ParameterInformation('date_part', 'Part of date to calculate difference: "year", "month", "day", etc.'),
+                new vscode.ParameterInformation('start_date', 'The start date'),
+                new vscode.ParameterInformation('end_date', 'The end date')
+            ],
+            'LEFT': [
+                new vscode.ParameterInformation('string', 'The string to extract from'),
+                new vscode.ParameterInformation('number', 'Number of characters from the left')
+            ],
+            'RIGHT': [
+                new vscode.ParameterInformation('string', 'The string to extract from'),
+                new vscode.ParameterInformation('number', 'Number of characters from the right')
+            ],
+            'MID': [
+                new vscode.ParameterInformation('string', 'The string to extract from'),
+                new vscode.ParameterInformation('start', 'Starting position (1-based)'),
+                new vscode.ParameterInformation('length', 'Number of characters to extract')
+            ],
+            'LEN': [new vscode.ParameterInformation('string', 'The string to measure')],
+            'CONTAINS': [
+                new vscode.ParameterInformation('string', 'The string to search in'),
+                new vscode.ParameterInformation('substring', 'The substring to find')
+            ],
+            'REPLACE': [
+                new vscode.ParameterInformation('string', 'The original string'),
+                new vscode.ParameterInformation('old_text', 'The text to replace'),
+                new vscode.ParameterInformation('new_text', 'The replacement text')
+            ],
+            'ISNULL': [new vscode.ParameterInformation('expression', 'The expression to test for null')],
+            'IFNULL': [
+                new vscode.ParameterInformation('expression', 'The expression to test'),
+                new vscode.ParameterInformation('replacement', 'Value to use if expression is null')
+            ],
+            'ROUND': [
+                new vscode.ParameterInformation('number', 'The number to round'),
+                new vscode.ParameterInformation('decimals', 'Number of decimal places (optional)')
+            ],
+            'ABS': [new vscode.ParameterInformation('number', 'The number to get absolute value')],
+            'CEILING': [new vscode.ParameterInformation('number', 'The number to round up')],
+            'FLOOR': [new vscode.ParameterInformation('number', 'The number to round down')]
+        };
+        
+        return paramInfo[functionName] || [];
     }
 }
