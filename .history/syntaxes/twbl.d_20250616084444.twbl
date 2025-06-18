@@ -120,6 +120,7 @@ IIF(test: Boolean, then: Any, else: Any, unknown_value?: Any) => Any
 CASE expression: Any
   WHEN value1: Any THEN return1: Any
   WHEN value2: Any THEN return2: Any
+  ...
   ELSE default_return: Any
 END
 
@@ -830,3 +831,6 @@ WINDOW_AVG(expression: Aggregate, start?: Integer, end?: Integer) => Aggregate
  * @example { EXCLUDE [Month] : SUM([Sales]) } calculates without monthly breakdown
  */
 { EXCLUDE [Dimension 1], [Dimension 2] : Aggregate(expression) }
+
+
+There's a few code  that pop up over the expression that say things like "Show Function Help" or " Explaid LOD" can you create one of those that copies the expression to the clipboard including the comment above it? 

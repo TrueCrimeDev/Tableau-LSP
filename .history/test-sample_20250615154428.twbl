@@ -18,8 +18,8 @@ LEN([Customer Name])
 CONTAINS([Product Name], "Office")
 
 // LOD expressions
-{ FIXED [Region] : SUM([Sales]) }
-{ INCLUDE [Category] : AVG([Profit]) }
+{FIXED [Region] : SUM([Sales])}
+{INCLUDE [Category] : AVG([Profit])}
 
 // CASE statement
 CASE [Region]

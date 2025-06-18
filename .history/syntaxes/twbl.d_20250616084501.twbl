@@ -120,6 +120,7 @@ IIF(test: Boolean, then: Any, else: Any, unknown_value?: Any) => Any
 CASE expression: Any
   WHEN value1: Any THEN return1: Any
   WHEN value2: Any THEN return2: Any
+  ...
   ELSE default_return: Any
 END
 

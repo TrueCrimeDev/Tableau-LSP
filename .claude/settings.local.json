@@ -103,7 +103,15 @@
       "Bash(gh:*)",
       "Bash(ssh:*)",
       "Bash(npm:*)",
-      "Bash(./node_modules/.bin/vsce:*)"
+      "Bash(./node_modules/.bin/vsce:*)",
+      "Bash(tsc --noEmit)",
+      "Bash(tsc:*)",
+      "Bash(vsce package:*)",
+      "Bash(vsce:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:code.visualstudio.com)",
+      "Bash(/usr/bin/node:*)",
+      "Bash(pkill:*)"
     ],
     "deny": []
   }
