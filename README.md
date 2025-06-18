@@ -1,130 +1,97 @@
-# Tableau Language Support
+<div align="center">
+  <h1>Tableau Language Support</h1>
+</div>
 
-A comprehensive Visual Studio Code extension that provides complete language support for Tableau calculation language. Write, edit, and validate Tableau calculations with professional IDE features including syntax highlighting, IntelliSense, real-time validation, and smart formatting.
+<div align="center">
+  <img src="./images/tableau-icon.png" alt="Tableau Icon" width="64" height="64">
+</div>
 
-![Tableau Language Support](./images/example.png)
+This is a work in-progress, and I am not a professional software developer, or any kind of developer at that.
 
-## ✨ Features
+Visual Studio Code extension for Tableau calculation language that brings IDE features like common programming languages have. Write, validate, and format Tableau calculations with syntax highlighting, IntelliSense, real-time error checking, and code completion.
 
-### 🎨 **Syntax Highlighting**
-- Complete syntax highlighting for Tableau calculation language
-- Support for all Tableau functions, operators, and keywords
-- Proper highlighting for field references `[Field Name]`
-- LOD expression highlighting `{FIXED/INCLUDE/EXCLUDE}`
+Traditional syntax highlighting:
 
-### 🧠 **IntelliSense & Auto-completion**
-- Intelligent auto-completion for 100+ Tableau functions
-- Context-aware suggestions for keywords and operators
-- Function parameter hints and documentation
-- Snippet completions for common patterns
+<img src="./images/example2.png" alt="Additional Example" width="600">
 
-### 🔍 **Real-time Validation**
-- Live syntax checking and error reporting
-- Validation of IF/THEN/END and CASE/WHEN structures
-- Bracket matching and balance checking
-- Function name validation
+Formatting mode with code lens:
 
-### 📖 **Documentation & Help**
-- Hover tooltips with function descriptions
-- Inline documentation for all Tableau functions
-- Code lens with formatting and explanation actions
-- Quick help for complex expressions
+<img src="./images/Example.png" alt="Example Usage" width="600">
 
-### 🛠️ **Smart Formatting**
-- Automatic code formatting for Tableau expressions
-- Proper indentation for nested structures
-- Keyword capitalization and spacing
-- Customizable formatting options
+## Features
 
-### 🧪 **Expression Testing**
-- Built-in test runner for validating expressions
-- Expression validation with detailed error messages
-- Support for complex multi-line calculations
+**Syntax Highlighting**
+- Complete syntax coloring for Tableau functions, operators, and keywords
+- Field reference highlighting: `[Sales Amount]`, `[Customer Name]`
+- LOD expression support: `{FIXED [Region] : SUM([Sales])}`
+- Comment highlighting for `//` and `/* */`
 
-## 🚀 Getting Started
+**IntelliSense & Completion**
+- Auto-completion for 100+ Tableau functions with descriptions
+- Parameter hints showing function signatures
+- Snippet completion for common calculation patterns
+- Context-aware keyword suggestions
 
-1. **Install the extension** from the VS Code marketplace
-2. **Create a new file** with `.twbl` extension
-3. **Start writing** Tableau calculations with full language support!
+**Real-time Validation**
+- Live syntax checking with error highlights
+- Bracket matching and balance validation
+- IF/THEN/END and CASE/WHEN structure validation
+- Function name verification
+
+**Code Actions**
+- Format expressions with proper indentation
+- Copy calculations with explanatory comments
+- Quick fixes for common syntax errors
+- Code lens actions for complex expressions
+
+## Getting Started
+
+1. Install the extension from VS Code marketplace
+2. Create a file with `.twbl` extension
+3. Start writing Tableau calculations
 
 ```tableau
-// Example Tableau calculation
+// Example calculation
 IF [Sales] > 1000 THEN
-    "High Value Customer"
-ELSEIF [Sales] > 500 THEN
-    "Medium Value Customer"
+    "High Value"
+ELSEIF [Sales] > 500 THEN  
+    "Medium Value"
 ELSE
-    "Low Value Customer"
+    "Low Value"
 END
 ```
 
-## 📋 Supported Language Features
+## Supported Functions
 
-### 🔧 **Control Flow**
-- `IF/THEN/ELSE/ELSEIF/END` conditional statements
-- `CASE/WHEN/ELSE/END` multi-way branching
-- `AND/OR/NOT` logical operators
+**Aggregate**: `SUM`, `AVG`, `COUNT`, `MIN`, `MAX`, `MEDIAN`, `STDEV`
+**Date**: `DATEPART`, `DATEADD`, `DATEDIFF`, `TODAY`, `NOW`, `YEAR`, `MONTH`
+**String**: `LEN`, `LEFT`, `RIGHT`, `CONTAINS`, `TRIM`, `UPPER`, `LOWER`
+**Math**: `ABS`, `ROUND`, `CEILING`, `FLOOR`, `SQRT`, `POWER`
+**Logical**: `ISNULL`, `IFNULL`, `IIF`, `ZN`, `ISDATE`
 
-### 📊 **Function Categories**
-- **Aggregate Functions**: `SUM`, `AVG`, `COUNT`, `MIN`, `MAX`, `MEDIAN`, `STDEV`
-- **Date Functions**: `DATEPART`, `DATEADD`, `DATEDIFF`, `TODAY`, `NOW`, `YEAR`, `MONTH`
-- **String Functions**: `LEN`, `LEFT`, `RIGHT`, `CONTAINS`, `TRIM`, `UPPER`, `LOWER`
-- **Math Functions**: `ABS`, `ROUND`, `CEILING`, `FLOOR`, `SQRT`, `POWER`, `EXP`
-- **Logical Functions**: `ISNULL`, `IFNULL`, `IIF`, `ZN`, `ISDATE`
-- **Type Conversion**: `STR`, `INT`, `FLOAT`, `DATE`, `DATETIME`
+## Configuration
 
-### 🎯 **Tableau-Specific Syntax**
-- **Field References**: `[Sales Amount]`, `[Customer Name]`, `[Order Date]`
-- **LOD Expressions**: `{FIXED [Region] : SUM([Sales])}`, `{INCLUDE [Category] : AVG([Profit])}`
-- **Parameters**: `[Parameter Name]`
-- **Comments**: Single-line `//` and multi-line `/* */`
+Access settings via **File > Preferences > Settings** and search for "Tableau":
 
-## ⚙️ Configuration
+- **Enable Hover**: Show function descriptions on hover
+- **Enable Completion**: Auto-complete suggestions
+- **Enable Diagnostics**: Real-time error checking
+- **Semantic Tokens**: Advanced syntax highlighting
+- **Code Lens**: Show inline actions and hints
 
-Customize the extension behavior through VS Code settings:
+## Commands
 
-```json
-{
-  "tableau.enableHover": true,
-  "tableau.enableCompletion": true,
-  "tableau.enableDiagnostics": true,
-  "tableau.enableSnippets": true,
-  "tableau.semanticTokens": "full",
-  "tableau.enableFormatting": false,
-  "tableau.trace.server": "off"
-}
-```
+- **Tableau: Restart Language Server** - Restart language features
+- **Tableau: Hello Tableau** - Test extension activation
 
-### Available Settings
+## File Support
 
-| Setting | Description | Default |
-|---------|-------------|---------|
-| `tableau.enableHover` | Enable hover tooltips for functions | `true` |
-| `tableau.enableCompletion` | Enable auto-completion | `true` |
-| `tableau.enableDiagnostics` | Enable syntax validation | `true` |
-| `tableau.enableSnippets` | Enable code snippets | `true` |
-| `tableau.semanticTokens` | Semantic highlighting level | `"full"` |
-| `tableau.enableFormatting` | Enable code formatting | `false` |
+Works with `.twbl` files (Tableau Language files).
 
-## 🎮 Commands
+## Contributing
 
-- **Tableau: Restart Language Server** - Restart the language server
-- **Tableau: Hello Tableau** - Test command
+Submit issues and pull requests on GitHub. Contributions welcome!
 
-## 📝 File Extensions
+## License
 
-This extension activates for files with the `.twbl` extension (Tableau Language files).
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit issues and pull requests.
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- Built with the VS Code Extension API
-- Uses the Language Server Protocol for robust language support
-- Inspired by the Tableau community's need for better development tools
+MIT License - see LICENSE file for details.

@@ -23,10 +23,26 @@ export class TableauProvider implements
     vscode.CompletionItemProvider,
     vscode.DefinitionProvider,
     vscode.DocumentSymbolProvider,
-    vscode.SignatureHelpProvider {
+    vscode.SignatureHelpProvider,
+    vscode.DocumentSemanticTokensProvider,
+    vscode.DocumentFormattingEditProvider {
     private symbols = new Map<string, TableauSymbol>();
     private context: vscode.ExtensionContext;
     private initialized = false;
+
+    // Semantic Tokens Configuration (must match CLAUDE.md specification)
+    static readonly tokenTypes = [
+        'keyword',    // IF, THEN, ELSE, CASE, WHEN, END
+        'function',   // SUM, AVG, DATEPART, LEN, CONTAINS
+        'variable',   // [Field Name], calculated fields  
+        'constant',   // Numbers, TRUE, FALSE, NULL
+        'operator',   // +, -, *, /, =, >, <, AND, OR
+        'string',     // 'text', "text"  
+        'comment'     // //, /* */
+    ];
+    
+    static readonly tokenModifiers: string[] = [];
+    private tokenLegend = new vscode.SemanticTokensLegend(TableauProvider.tokenTypes, TableauProvider.tokenModifiers);
 
     constructor(context: vscode.ExtensionContext) {
         this.context = context;
@@ -309,7 +325,373 @@ export class TableauProvider implements
         this.initialized = false;
     }
 
+    // Triple-Layer Exclusion Logic (CRITICAL FOR CORRECTNESS)
+    
+    /** Layer 1: Document-level range detection */
+    private findExcludedRanges(document: vscode.TextDocument): vscode.Range[] {
+        const excludedRanges: vscode.Range[] = [];
+        const text = document.getText();
+        let pos = 0;
+        let line = 0;
+        let character = 0;
+
+        while (pos < text.length) {
+            const char = text[pos];
+            
+            // Handle newlines
+            if (char === '\n') {
+                line++;
+                character = 0;
+                pos++;
+                continue;
+            }
+
+            // Handle single-line comments
+            if (char === '/' && pos + 1 < text.length && text[pos + 1] === '/') {
+                const start = new vscode.Position(line, character);
+                // Find end of line
+                let endPos = pos;
+                while (endPos < text.length && text[endPos] !== '\n') {
+                    endPos++;
+                }
+                const endLine = line;
+                const endChar = character + (endPos - pos);
+                const end = new vscode.Position(endLine, endChar);
+                excludedRanges.push(new vscode.Range(start, end));
+                
+                pos = endPos;
+                continue;
+            }
+
+            // Handle multi-line comments
+            if (char === '/' && pos + 1 < text.length && text[pos + 1] === '*') {
+                const start = new vscode.Position(line, character);
+                pos += 2; // Skip /*
+                character += 2;
+                
+                // Find closing */
+                while (pos + 1 < text.length) {
+                    if (text[pos] === '\n') {
+                        line++;
+                        character = 0;
+                    } else {
+                        character++;
+                    }
+                    
+                    if (text[pos] === '*' && pos + 1 < text.length && text[pos + 1] === '/') {
+                        pos += 2; // Skip */
+                        character += 2;
+                        break;
+                    }
+                    pos++;
+                }
+                
+                const end = new vscode.Position(line, character);
+                excludedRanges.push(new vscode.Range(start, end));
+                continue;
+            }
+
+            // Handle strings
+            if (char === '"' || char === "'") {
+                const quote = char;
+                const start = new vscode.Position(line, character);
+                pos++; // Skip opening quote
+                character++;
+                
+                // Find closing quote
+                while (pos < text.length) {
+                    const currentChar = text[pos];
+                    if (currentChar === '\n') {
+                        line++;
+                        character = 0;
+                    } else {
+                        character++;
+                    }
+                    
+                    if (currentChar === quote) {
+                        pos++; // Skip closing quote
+                        character++;
+                        break;
+                    }
+                    
+                    // Handle escaped quotes
+                    if (currentChar === '\\' && pos + 1 < text.length) {
+                        pos++; // Skip escaped character
+                        character++;
+                    }
+                    pos++;
+                }
+                
+                const end = new vscode.Position(line, character);
+                excludedRanges.push(new vscode.Range(start, end));
+                continue;
+            }
+
+            character++;
+            pos++;
+        }
+
+        return excludedRanges;
+    }
+
+    /** Layer 3: Provider-level filtering */
+    private isInExcludedRange(document: vscode.TextDocument, position: vscode.Position): boolean {
+        const excludedRanges = this.findExcludedRanges(document);
+        return excludedRanges.some(range => range.contains(position));
+    }
+
+    // Semantic Tokens Public Methods
+
+    /** Get the semantic tokens legend for registration */
+    public getSemanticTokensLegend(): vscode.SemanticTokensLegend {
+        return this.tokenLegend;
+    }
+
     // VS Code Language Provider Interface Methods
+
+    /** Provide semantic tokens for syntax highlighting */
+    provideDocumentSemanticTokens(
+        document: vscode.TextDocument,
+        _token: vscode.CancellationToken
+    ): vscode.ProviderResult<vscode.SemanticTokens> {
+        const tokensBuilder = new vscode.SemanticTokensBuilder(this.tokenLegend);
+        const text = document.getText();
+        
+        // Tokenize the entire document
+        this.tokenizeDocument(text, tokensBuilder);
+        
+        return tokensBuilder.build();
+    }
+
+    /** Tokenize Tableau document content */
+    private tokenizeDocument(text: string, tokensBuilder: vscode.SemanticTokensBuilder): void {
+        const lines = text.split('\n');
+        
+        for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            const line = lines[lineIndex];
+            this.tokenizeLine(line, lineIndex, tokensBuilder);
+        }
+    }
+
+    /** Tokenize a single line of Tableau code */
+    private tokenizeLine(line: string, lineIndex: number, tokensBuilder: vscode.SemanticTokensBuilder): void {
+        let pos = 0;
+        const length = line.length;
+
+        while (pos < length) {
+            const char = line[pos];
+
+            // Skip whitespace
+            if (/\s/.test(char)) {
+                pos++;
+                continue;
+            }
+
+            // Handle single-line comments
+            if (char === '/' && pos + 1 < length && line[pos + 1] === '/') {
+                tokensBuilder.push(lineIndex, pos, length - pos, this.getTokenType('comment'), 0);
+                break; // Rest of line is comment
+            }
+
+            // Handle multi-line comments (start)
+            if (char === '/' && pos + 1 < length && line[pos + 1] === '*') {
+                const endPos = this.findCommentEnd(line, pos + 2);
+                if (endPos !== -1) {
+                    tokensBuilder.push(lineIndex, pos, endPos - pos + 2, this.getTokenType('comment'), 0);
+                    pos = endPos + 2;
+                } else {
+                    tokensBuilder.push(lineIndex, pos, length - pos, this.getTokenType('comment'), 0);
+                    break;
+                }
+                continue;
+            }
+
+            // Handle strings
+            if (char === '"' || char === "'") {
+                const endPos = this.findStringEnd(line, pos + 1, char);
+                if (endPos !== -1) {
+                    tokensBuilder.push(lineIndex, pos, endPos - pos + 1, this.getTokenType('string'), 0);
+                    pos = endPos + 1;
+                } else {
+                    tokensBuilder.push(lineIndex, pos, length - pos, this.getTokenType('string'), 0);
+                    break;
+                }
+                continue;
+            }
+
+            // Handle field references [Field Name]
+            if (char === '[') {
+                const endPos = this.findFieldEnd(line, pos + 1);
+                if (endPos !== -1) {
+                    tokensBuilder.push(lineIndex, pos, endPos - pos + 1, this.getTokenType('variable'), 0);
+                    pos = endPos + 1;
+                    continue;
+                }
+            }
+
+            // Handle numbers
+            if (/\d/.test(char)) {
+                const numberMatch = line.slice(pos).match(/^\d+(\.\d+)?/);
+                if (numberMatch) {
+                    tokensBuilder.push(lineIndex, pos, numberMatch[0].length, this.getTokenType('constant'), 0);
+                    pos += numberMatch[0].length;
+                    continue;
+                }
+            }
+
+            // Handle operators
+            const operatorMatch = this.matchOperator(line, pos);
+            if (operatorMatch) {
+                tokensBuilder.push(lineIndex, pos, operatorMatch.length, this.getTokenType('operator'), 0);
+                pos += operatorMatch.length;
+                continue;
+            }
+
+            // Handle identifiers (keywords, functions, etc.)
+            const identifierMatch = line.slice(pos).match(/^[A-Za-z_][A-Za-z0-9_]*/);
+            if (identifierMatch) {
+                const identifier = identifierMatch[0].toUpperCase();
+                const tokenType = this.classifyIdentifier(identifier);
+                tokensBuilder.push(lineIndex, pos, identifierMatch[0].length, this.getTokenType(tokenType), 0);
+                pos += identifierMatch[0].length;
+                continue;
+            }
+
+            // Skip unrecognized characters
+            pos++;
+        }
+    }
+
+    /** Find the end of a comment block */
+    private findCommentEnd(line: string, startPos: number): number {
+        for (let i = startPos; i < line.length - 1; i++) {
+            if (line[i] === '*' && line[i + 1] === '/') {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** Find the end of a string */
+    private findStringEnd(line: string, startPos: number, quote: string): number {
+        for (let i = startPos; i < line.length; i++) {
+            if (line[i] === quote) {
+                return i;
+            }
+            if (line[i] === '\\' && i + 1 < line.length) {
+                i++; // Skip escaped character
+            }
+        }
+        return -1;
+    }
+
+    /** Find the end of a field reference */
+    private findFieldEnd(line: string, startPos: number): number {
+        for (let i = startPos; i < line.length; i++) {
+            if (line[i] === ']') {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** Match operators at current position */
+    private matchOperator(line: string, pos: number): string | null {
+        const operators = ['<=', '>=', '<>', '==', '<', '>', '=', '+', '-', '*', '/', '%', '(', ')', '{', '}', ','];
+        for (const op of operators) {
+            if (line.slice(pos, pos + op.length) === op) {
+                return op;
+            }
+        }
+        return null;
+    }
+
+    /** Classify an identifier as keyword, function, or variable */
+    private classifyIdentifier(identifier: string): string {
+        // Check if it's a function in our symbol table
+        if (this.symbols.has(identifier)) {
+            const symbol = this.symbols.get(identifier)!;
+            return symbol.type;
+        }
+
+        // Check keywords
+        const keywords = ['IF', 'THEN', 'ELSE', 'ELSEIF', 'END', 'CASE', 'WHEN', 'AND', 'OR', 'NOT', 'IN', 'BETWEEN', 'IS', 'TRUE', 'FALSE', 'NULL'];
+        if (keywords.includes(identifier)) {
+            return 'keyword';
+        }
+
+        // Default to variable
+        return 'variable';
+    }
+
+    /** Get token type index */
+    private getTokenType(tokenType: string): number {
+        const index = TableauProvider.tokenTypes.indexOf(tokenType);
+        return index >= 0 ? index : 0; // Default to first token type if not found
+    }
+
+    /** Provide document formatting */
+    provideDocumentFormattingEdits(
+        document: vscode.TextDocument,
+        options: vscode.FormattingOptions,
+        _token: vscode.CancellationToken
+    ): vscode.ProviderResult<vscode.TextEdit[]> {
+        const config = vscode.workspace.getConfiguration("tableau");
+        const formattingEnabled = config.get<boolean>("enableFormatting", false);
+        
+        if (!formattingEnabled) {
+            return [];
+        }
+
+        const text = document.getText();
+        const formattedText = this.formatTableauCode(text, options);
+        
+        if (formattedText === text) {
+            return []; // No changes needed
+        }
+
+        // Return edit that replaces entire document
+        const entireRange = new vscode.Range(
+            document.positionAt(0),
+            document.positionAt(text.length)
+        );
+        
+        return [vscode.TextEdit.replace(entireRange, formattedText)];
+    }
+
+    /** Format Tableau code with proper indentation and spacing */
+    private formatTableauCode(text: string, options: vscode.FormattingOptions): string {
+        const lines = text.split('\n');
+        const formattedLines: string[] = [];
+        let indentLevel = 0;
+        const indentString = options.insertSpaces ? ' '.repeat(options.tabSize) : '\t';
+
+        for (const line of lines) {
+            const trimmedLine = line.trim();
+            
+            // Skip empty lines
+            if (!trimmedLine) {
+                formattedLines.push('');
+                continue;
+            }
+
+            // Decrease indent for END, ELSE, ELSEIF, WHEN
+            if (/^(END|ELSE|ELSEIF|WHEN)\b/i.test(trimmedLine)) {
+                indentLevel = Math.max(0, indentLevel - 1);
+            }
+
+            // Apply current indentation
+            const formattedLine = indentString.repeat(indentLevel) + trimmedLine;
+            formattedLines.push(formattedLine);
+
+            // Increase indent for IF, CASE, THEN, ELSE, ELSEIF, WHEN
+            if (/\b(IF|CASE|THEN|ELSE|ELSEIF|WHEN)\b/i.test(trimmedLine) && !/\bEND\b/i.test(trimmedLine)) {
+                indentLevel++;
+            }
+        }
+
+        return formattedLines.join('\n');
+    }
 
     /** Provide hover information */
     provideHover(
@@ -317,6 +699,11 @@ export class TableauProvider implements
         position: vscode.Position,
         _token: vscode.CancellationToken
     ): vscode.ProviderResult<vscode.Hover> {
+        // Triple-layer exclusion logic: Skip hover inside comments/strings
+        if (this.isInExcludedRange(document, position)) {
+            return null;
+        }
+
         const range = document.getWordRangeAtPosition(position);
         if (!range) return null;
 
