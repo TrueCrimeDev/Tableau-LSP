@@ -466,17 +466,34 @@ export class TableauProvider implements
     /** Tokenize Tableau document content */
     private tokenizeDocument(text: string, tokensBuilder: vscode.SemanticTokensBuilder): void {
         const lines = text.split('\n');
+        let inBlockComment = false;
         
         for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
             const line = lines[lineIndex];
-            this.tokenizeLine(line, lineIndex, tokensBuilder);
+            inBlockComment = this.tokenizeLine(line, lineIndex, tokensBuilder, inBlockComment);
         }
     }
 
     /** Tokenize a single line of Tableau code */
-    private tokenizeLine(line: string, lineIndex: number, tokensBuilder: vscode.SemanticTokensBuilder): void {
+    private tokenizeLine(line: string, lineIndex: number, tokensBuilder: vscode.SemanticTokensBuilder, inBlockComment: boolean): boolean {
         let pos = 0;
         const length = line.length;
+        let blockCommentState = inBlockComment;
+
+        // If we're already inside a block comment, check for end
+        if (blockCommentState) {
+            const endPos = this.findCommentEnd(line, 0);
+            if (endPos !== -1) {
+                // Found end of block comment
+                tokensBuilder.push(lineIndex, 0, endPos + 2, this.getTokenType('comment'), 0);
+                pos = endPos + 2;
+                blockCommentState = false;
+            } else {
+                // Entire line is part of block comment
+                tokensBuilder.push(lineIndex, 0, length, this.getTokenType('comment'), 0);
+                return true; // Still in block comment
+            }
+        }
 
         while (pos < length) {
             const char = line[pos];
@@ -497,10 +514,13 @@ export class TableauProvider implements
             if (char === '/' && pos + 1 < length && line[pos + 1] === '*') {
                 const endPos = this.findCommentEnd(line, pos + 2);
                 if (endPos !== -1) {
+                    // Block comment ends on same line
                     tokensBuilder.push(lineIndex, pos, endPos - pos + 2, this.getTokenType('comment'), 0);
                     pos = endPos + 2;
                 } else {
+                    // Block comment continues to next line
                     tokensBuilder.push(lineIndex, pos, length - pos, this.getTokenType('comment'), 0);
+                    blockCommentState = true;
                     break;
                 }
                 continue;
@@ -560,6 +580,8 @@ export class TableauProvider implements
             // Skip unrecognized characters
             pos++;
         }
+        
+        return blockCommentState;
     }
 
     /** Find the end of a comment block */

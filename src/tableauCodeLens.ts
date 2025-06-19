@@ -179,33 +179,38 @@ async function showFunctionHelp(uri: vscode.Uri, lineIndex: number) {
 }
 
 async function copyExpressionWithComment(uri: vscode.Uri, lineIndex: number) {
-    const document = await vscode.workspace.openTextDocument(uri);
-    const lines = document.getText().split('\n');
-    const textToCopy: string[] = [];
-    
-    // Look for comments above the current line
-    let currentIndex = lineIndex - 1;
-    while (currentIndex >= 0) {
-        const line = lines[currentIndex].trim();
-        if (line.startsWith('//') || line.startsWith('/*') || line.includes('*/')) {
-            textToCopy.unshift(lines[currentIndex]);
-            currentIndex--;
-        } else if (line.length === 0) {
-            // Skip empty lines but don't add them to the beginning
-            currentIndex--;
-        } else {
-            // Found a non-comment, non-empty line, stop looking
-            break;
+    try {
+        const document = await vscode.workspace.openTextDocument(uri);
+        const lines = document.getText().split('\n');
+        const textToCopy: string[] = [];
+        
+        // Look for comments above the current line
+        let currentIndex = lineIndex - 1;
+        while (currentIndex >= 0) {
+            const line = lines[currentIndex].trim();
+            if (line.startsWith('//') || line.startsWith('/*') || line.includes('*/')) {
+                textToCopy.unshift(lines[currentIndex]);
+                currentIndex--;
+            } else if (line.length === 0) {
+                // Skip empty lines but don't add them to the beginning
+                currentIndex--;
+            } else {
+                // Found a non-comment, non-empty line, stop looking
+                break;
+            }
         }
+        
+        // Add the current expression line
+        textToCopy.push(lines[lineIndex]);
+        
+        // Copy to clipboard with proper error handling
+        const finalText = textToCopy.join('\n');
+        await vscode.env.clipboard.writeText(finalText);
+        
+        // Show confirmation
+        vscode.window.showInformationMessage("Expression with comment copied to clipboard!");
+    } catch (error) {
+        console.error('Error copying to clipboard:', error);
+        vscode.window.showErrorMessage("Failed to copy to clipboard");
     }
-    
-    // Add the current expression line
-    textToCopy.push(lines[lineIndex]);
-    
-    // Copy to clipboard
-    const finalText = textToCopy.join('\n');
-    await vscode.env.clipboard.writeText(finalText);
-    
-    // Show confirmation
-    vscode.window.showInformationMessage("Expression with comment copied to clipboard!");
 }
