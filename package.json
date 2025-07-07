@@ -2,7 +2,7 @@
   "name": "tableau-language-support",
   "displayName": "Tableau Language Support",
   "description": "Complete language support for Tableau calculation language with syntax highlighting, IntelliSense, validation, and formatting",
-  "version": "1.3.0",
+  "version": "1.4.1",
   "publisher": "TrueCrimeAudit",
   "icon": "images/tableau-icon.png",
   "license": "MIT",
@@ -41,16 +41,14 @@
     "Formatters",
     "Linters"
   ],
-  "activationEvents": [
-    "onLanguage:twbl"
-  ],
   "main": "./out/extension",
   "contributes": {
     "configurationDefaults": {
       "[twbl]": {
         "editor.formatOnSave": false,
         "editor.stickyScroll.defaultModel": "foldingProviderModel",
-        "files.eol": "\n"
+        "files.eol": "\n",
+        "editor.semanticHighlighting.enabled": true
       }
     },
     "languages": [
@@ -73,10 +71,44 @@
         "path": "./syntaxes/twbl.tmLanguage.json"
       }
     ],
+    "semanticTokenTypes": [
+      {
+        "id": "keyword",
+        "description": "Tableau keywords like IF, THEN, CASE"
+      },
+      {
+        "id": "function",
+        "description": "Tableau functions like SUM, AVG, DATEPART"
+      },
+      {
+        "id": "variable",
+        "description": "Field references and calculated fields"
+      },
+      {
+        "id": "constant",
+        "description": "Numbers, TRUE, FALSE, NULL"
+      },
+      {
+        "id": "operator",
+        "description": "Mathematical and logical operators"
+      },
+      {
+        "id": "string",
+        "description": "String literals"
+      },
+      {
+        "id": "comment",
+        "description": "Comments (single-line and multi-line)"
+      }
+    ],
     "snippets": [
       {
         "language": "twbl",
         "path": "./snippets/twbl.json"
+      },
+      {
+        "language": "twbl",
+        "path": "./snippets/slash-commands.json"
       }
     ],
     "problemMatchers": [
@@ -201,20 +233,41 @@
         "command": "tableau.hello",
         "title": "Hello Tableau",
         "category": "Tableau"
+      },
+      {
+        "command": "tableau-lsp.runTests",
+        "title": "Run Tableau LSP Tests",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau.insertSnippet",
+        "title": "Insert Snippet",
+        "category": "Tableau"
       }
     ],
-    "keybindings": []
+    "keybindings": [
+      {
+        "command": "tableau.insertSnippet",
+        "key": "ctrl+shift+s",
+        "mac": "cmd+shift+s",
+        "when": "editorTextFocus && resourceExtname == .twbl"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run build-base -- --minify",
-    "build-base": "esbuild --bundle --external:vscode src/extension.ts --outdir=out --platform=node --target=node20 --format=cjs",
+    "build-base": "esbuild --bundle --external:vscode src/extension.ts --outdir=out --platform=node --target=node20 --format=cjs && esbuild --bundle --external:vscode src/server.ts --outdir=out --platform=node --target=node20 --format=cjs",
     "build": "npm run build-base -- --sourcemap",
     "watch": "npm run build-base -- --sourcemap --watch",
-    "test": "npm run compile && node ./node_modules/vscode/bin/test",
+    "test": "npm run compile && node ./node_modules/@vscode/test-electron/out/runTest.js",
+    "test:hover": "node ./test-runner.js",
+    "test:hover:compile": "npm run build && npm run test:hover",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "eslint"
+    "lint": "eslint",
+    "compile": "tsc --outDir out",
+    "clean": "rimraf out"
   },
   "devDependencies": {
     "@types/libsodium-wrappers": "^0.7.14",
@@ -223,16 +276,17 @@
     "@types/semver": "^7.5.8",
     "@types/vscode": "^1.80.0",
     "@types/which": "^2.0.1",
+    "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^2.24.0",
     "esbuild": "^0.25.0",
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^9.1.0",
     "prettier": "3.2.5",
+    "rimraf": "^6.0.1",
     "typescript": "^5.4.3",
     "typescript-eslint": "^8.0.0"
   },
   "dependencies": {
-    "@esbuild/linux-x64": "^0.25.5",
     "camelcase": "^7.0.1",
     "libsodium-wrappers": "^0.7.15",
     "lodash-es": "^4.17.21",

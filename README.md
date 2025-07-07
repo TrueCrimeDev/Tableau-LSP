@@ -1,97 +1,89 @@
-<div align="center">
-  <h1>Tableau Language Support</h1>
-</div>
+# Tableau Language Server Protocol (LSP) for VS Code
 
-<div align="center">
-  <img src="./images/tableau-icon.png" alt="Tableau Icon" width="64" height="64">
-</div>
-
-This is a work in-progress, and I am not a professional software developer, or any kind of developer at that.
-
-Visual Studio Code extension for Tableau calculation language that brings IDE features like common programming languages have. Write, validate, and format Tableau calculations with syntax highlighting, IntelliSense, real-time error checking, and code completion.
-
-Traditional syntax highlighting:
-
-<img src="./images/example2.png" alt="Additional Example" width="600">
-
-Formatting mode with code lens:
-
-<img src="./images/Example.png" alt="Example Usage" width="600">
+A VS Code extension that provides language server features for Tableau calculation expressions.
 
 ## Features
 
-**Syntax Highlighting**
-- Complete syntax coloring for Tableau functions, operators, and keywords
-- Field reference highlighting: `[Sales Amount]`, `[Customer Name]`
-- LOD expression support: `{FIXED [Region] : SUM([Sales])}`
-- Comment highlighting for `//` and `/* */`
+- **Syntax Highlighting**: Highlights Tableau calculation syntax including functions, keywords, operators, and field references.
+- **Hover Information**: Shows detailed, context-aware information when hovering over Tableau functions, fields, and keywords.
+- **Code Completion**: Suggests functions, fields, and keywords as you type.
+- **Signature Help**: Displays function signatures and parameter information when typing function calls.
+- **Document Symbols**: Lists all functions and expressions in the current document.
+- **Validation**: Validates Tableau expressions for syntax errors and provides diagnostics.
 
-**IntelliSense & Completion**
-- Auto-completion for 100+ Tableau functions with descriptions
-- Parameter hints showing function signatures
-- Snippet completion for common calculation patterns
-- Context-aware keyword suggestions
+## Enhanced Features
 
-**Real-time Validation**
-- Live syntax checking with error highlights
-- Bracket matching and balance validation
-- IF/THEN/END and CASE/WHEN structure validation
-- Function name verification
+### Enhanced Document Model
 
-**Code Actions**
-- Format expressions with proper indentation
-- Copy calculations with explanatory comments
-- Quick fixes for common syntax errors
-- Code lens actions for complex expressions
+The document model has been significantly improved to:
 
-## Getting Started
+- **Parse Multi-line Expressions**: Properly handles complex expressions that span multiple lines.
+- **Support Different Expression Types**: Recognizes and processes IF, CASE, LOD, function calls, and field references.
+- **Extract Symbol Context**: Understands the context in which symbols are used for better hover information and validation.
+- **Manage Document Lifecycle**: Efficiently caches and updates document models as needed.
 
-1. Install the extension from VS Code marketplace
-2. Create a file with `.twbl` extension
-3. Start writing Tableau calculations
+### Context-Aware Hover Information
 
-```tableau
-// Example calculation
-IF [Sales] > 1000 THEN
-    "High Value"
-ELSEIF [Sales] > 500 THEN  
-    "Medium Value"
-ELSE
-    "Low Value"
-END
-```
+The hover provider now offers rich, context-aware information:
 
-## Supported Functions
+- **Function Hover**: Shows function signature, parameter details, return type, description, and examples.
+- **Field Hover**: Shows field type and description.
+- **Keyword Hover**: Shows usage context and description based on the expression type (IF, CASE, LOD).
+- **Operator Hover**: Shows operator type and description.
+- **Performance Optimized**: Implements caching for faster hover responses.
 
-**Aggregate**: `SUM`, `AVG`, `COUNT`, `MIN`, `MAX`, `MEDIAN`, `STDEV`
-**Date**: `DATEPART`, `DATEADD`, `DATEDIFF`, `TODAY`, `NOW`, `YEAR`, `MONTH`
-**String**: `LEN`, `LEFT`, `RIGHT`, `CONTAINS`, `TRIM`, `UPPER`, `LOWER`
-**Math**: `ABS`, `ROUND`, `CEILING`, `FLOOR`, `SQRT`, `POWER`
-**Logical**: `ISNULL`, `IFNULL`, `IIF`, `ZN`, `ISDATE`
+### Improved Validation
 
-## Configuration
+The validation system has been enhanced to:
 
-Access settings via **File > Preferences > Settings** and search for "Tableau":
+- **Validate Multi-line Expressions**: Checks syntax across complex multi-line expressions.
+- **Apply Expression-Specific Rules**: Uses different validation rules based on expression type.
+- **Check Parameter Counts**: Validates function calls with the correct number of parameters.
+- **Provide Detailed Diagnostics**: Gives specific error messages for different types of issues.
 
-- **Enable Hover**: Show function descriptions on hover
-- **Enable Completion**: Auto-complete suggestions
-- **Enable Diagnostics**: Real-time error checking
-- **Semantic Tokens**: Advanced syntax highlighting
-- **Code Lens**: Show inline actions and hints
+### Testing Framework
 
-## Commands
+A comprehensive testing framework has been added:
 
-- **Tableau: Restart Language Server** - Restart language features
-- **Tableau: Hello Tableau** - Test extension activation
+- **Hover Testing**: Tests hover functionality for different symbol types.
+- **Document Model Testing**: Tests parsing and symbol extraction.
+- **Validation Testing**: Tests validation rules for different expression types.
+- **Performance Testing**: Measures and compares performance metrics.
 
-## File Support
+## Usage
 
-Works with `.twbl` files (Tableau Language files).
+1. Open a `.twbl` file in VS Code.
+2. Write Tableau calculation expressions.
+3. Hover over functions, fields, or keywords to see detailed information.
+4. Use code completion to get suggestions as you type.
+5. View validation errors and warnings in the Problems panel.
 
-## Contributing
+## Requirements
 
-Submit issues and pull requests on GitHub. Contributions welcome!
+- Visual Studio Code 1.60.0 or higher
 
-## License
+## Extension Settings
 
-MIT License - see LICENSE file for details.
+This extension contributes the following settings:
+
+* `tableau.enableFormatting`: Enable/disable formatting for Tableau expressions.
+* `tableau.enableSignatureHelp`: Enable/disable signature help for Tableau functions.
+
+## Known Issues
+
+- Complex nested expressions may not be fully validated.
+- Some advanced Tableau features may not be fully supported.
+
+## Release Notes
+
+### 2.0.0
+
+- Added enhanced document model with multi-line expression support
+- Implemented context-aware hover information with rich formatting
+- Improved validation with expression-specific rules
+- Added comprehensive testing framework
+- Optimized performance with caching mechanisms
+
+### 1.0.0
+
+- Initial release with basic language server features

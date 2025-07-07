@@ -111,7 +111,12 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:code.visualstudio.com)",
       "Bash(/usr/bin/node:*)",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "Bash(./node_modules/.bin/tsc:*)",
+      "Bash(claude mcp:*)",
+      "Bash(NODE_OPTIONS=\"\" /usr/bin/node /usr/bin/npx esbuild --bundle --external:vscode client/extension.ts --outdir=out --platform=node --target=node20 --format=cjs)",
+      "Bash(./node_modules/.bin/esbuild --bundle --external:vscode src/extension.ts --outdir=out --platform=node --target=node20 --format=cjs --sourcemap)",
+      "Bash(./node_modules/.bin/esbuild --bundle --external:vscode src/server.ts --outdir=out --platform=node --target=node20 --format=cjs --sourcemap)"
     ],
     "deny": []
   }

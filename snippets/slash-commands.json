@@ -1,0 +1,71 @@
+{
+  "ifStatement": {
+    "prefix": "/if",
+    "body": [
+      "IF ${1:condition} THEN ${2:value}",
+      "ELSE ${3:value}",
+      "END"
+    ],
+    "description": "Generate basic IF-THEN-ELSE statement"
+  },
+  "caseStatement": {
+    "prefix": "/case",
+    "body": [
+      "CASE ${1:field}",
+      "    WHEN '${2:value1}' THEN ${3:result1}",
+      "    WHEN '${4:value2}' THEN ${5:result2}",
+      "    ELSE ${6:default}",
+      "END"
+    ],
+    "description": "Generate CASE statement with multiple conditions"
+  },
+  "caseWhen": {
+    "prefix": "/when",
+    "body": [
+      "CASE",
+      "    WHEN ${1:condition1} THEN ${2:result1}",
+      "    WHEN ${3:condition2} THEN ${4:result2}",
+      "    ELSE ${5:default}",
+      "END"
+    ],
+    "description": "Generate CASE WHEN statement with conditions"
+  },
+  "lodExpression": {
+    "prefix": "/lod",
+    "body": [
+      "{ ${1|FIXED,INCLUDE,EXCLUDE|} ${2:[Dimension]} : ${3:AGG([Measure])} }"
+    ],
+    "description": "Generate Level of Detail (LOD) expression"
+  },
+  "nestedIif": {
+    "prefix": "/iif",
+    "body": [
+      "IIF(${1:condition1}, ${2:value1},",
+      "IIF(${3:condition2}, ${4:value2},",
+      "IIF(${5:condition3}, ${6:value3},",
+      "${7:default_value})))"
+    ],
+    "description": "Generate nested IIF statement template"
+  },
+  "runningCalculation": {
+    "prefix": "/running",
+    "body": [
+      "RUNNING_${1|SUM,AVG,COUNT,MAX,MIN|}(${2:expression})"
+    ],
+    "description": "Generate running calculation"
+  },
+  "windowCalculation": {
+    "prefix": "/window",
+    "body": [
+      "WINDOW_${1|SUM,AVG,COUNT,MAX,MIN|}(${2:expression}, ${3:start}, ${4:end})"
+    ],
+    "description": "Generate window calculation"
+  },
+  "dateCalculation": {
+    "prefix": "/date",
+    "body": [
+      "DATEPART('${1|year,quarter,month,week,day,weekday,hour,minute,second|}', ${2:[Date Field]})"
+    ],
+    "description": "Generate date part extraction"
+  }
+}

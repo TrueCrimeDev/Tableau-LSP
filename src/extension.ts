@@ -1,142 +1,70 @@
-import vscode from "vscode";
+import { ExtensionContext, commands, window, languages } from 'vscode';
+import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/node';
+import { SlashCommandProvider } from './slashCommandProvider';
 
-import { registerDocumentFormatting } from "./tableauFormat";
-import { setupTableau, tableauProvider } from "./tableauSetup";
-import TableauCodeLensProvider from "./tableauCodeLens";
-import TableauDiagnosticsProvider from "./tableauDiagnosticsProvider";
-import TableauValidationProvider from "./tableauValidationProvider";
+let client: LanguageClient;
 
-const TABLEAU_MODE = [
-    { language: "twbl", scheme: "file" },
-    { language: "twbl", scheme: "untitled" },
-];
+export function activate(context: ExtensionContext) {
+    const serverModule = context.asAbsolutePath('out/server.js');
 
-let outputChannel: vscode.LogOutputChannel;
-let disposables: vscode.Disposable[] = [];
+    const serverOptions: ServerOptions = {
+        run: { module: serverModule, transport: TransportKind.ipc },
+        debug: {
+            module: serverModule,
+            transport: TransportKind.ipc,
+        },
+    };
 
-export async function activate(context: vscode.ExtensionContext) {
-    // Create output channel for logging
-    outputChannel = vscode.window.createOutputChannel("Tableau Language Server", { log: true });
-    context.subscriptions.push(outputChannel);
+    const clientOptions: LanguageClientOptions = {
+        documentSelector: [{ scheme: 'file', language: 'twbl' }],
+    };
 
-    // Setup Tableau providers and status (creates single TableauProvider instance)
-    await setupTableau(context);
-
-    // Register ALL language providers using the single TableauProvider instance
-    if (tableauProvider) {
-        // Register hover provider
-        disposables.push(
-            vscode.languages.registerHoverProvider(TABLEAU_MODE, tableauProvider)
-        );
-
-        // Register completion provider  
-        disposables.push(
-            vscode.languages.registerCompletionItemProvider(
-                TABLEAU_MODE, 
-                tableauProvider, 
-                '(', ',', ' '
-            )
-        );
-
-        // Register definition provider
-        disposables.push(
-            vscode.languages.registerDefinitionProvider(TABLEAU_MODE, tableauProvider)
-        );
-
-        // Register document symbol provider
-        disposables.push(
-            vscode.languages.registerDocumentSymbolProvider(TABLEAU_MODE, tableauProvider)
-        );
-
-        // Register signature help provider
-        disposables.push(
-            vscode.languages.registerSignatureHelpProvider(
-                TABLEAU_MODE, 
-                tableauProvider, 
-                '(', ','
-            )
-        );
-
-        // Register semantic tokens provider (CRITICAL - was missing!)
-        disposables.push(
-            vscode.languages.registerDocumentSemanticTokensProvider(
-                TABLEAU_MODE, 
-                tableauProvider, 
-                tableauProvider.getSemanticTokensLegend()
-            )
-        );
-
-        // Register document formatting provider (CRITICAL - was missing!)
-        disposables.push(
-            vscode.languages.registerDocumentFormattingEditProvider(
-                TABLEAU_MODE, 
-                tableauProvider
-            )
-        );
-
-        // Add all provider disposables to context
-        context.subscriptions.push(...disposables);
-
-        outputChannel.info('Tableau Language Server started successfully (consolidated architecture)');
-    } else {
-        outputChannel.error('Failed to initialize TableauProvider');
-        throw new Error('Failed to initialize TableauProvider');
-    }
-
-    // Initialize Tableau diagnostics provider
-    const diagnosticsProvider = new TableauDiagnosticsProvider();
-    diagnosticsProvider.activate(context.subscriptions);
-
-    // Initialize validation provider
-    const validationProvider = new TableauValidationProvider();
-    validationProvider.activate(context.subscriptions);
-
-    // Register formatting provider
-    context.subscriptions.push(registerDocumentFormatting());
-
-    // Register code lens provider
-    TableauCodeLensProvider.registerCommands(context);
-    const codeLensProvider = new TableauCodeLensProvider();
-    context.subscriptions.push(
-        vscode.languages.registerCodeLensProvider(
-            { language: "twbl", scheme: "file" },
-            codeLensProvider
-        )
+    client = new LanguageClient(
+        'tableauLanguageServer',
+        'Tableau Language Server',
+        serverOptions,
+        clientOptions
     );
 
-    // Listen for configuration changes to refresh code lenses
-    context.subscriptions.push(
-        vscode.workspace.onDidChangeConfiguration((event) => {
-            if (event.affectsConfiguration('tableau.codeLens')) {
-                // Trigger refresh of code lenses
-                codeLensProvider.refresh();
-            }
-        })
+    // Register the insert snippet command
+    const insertSnippetCommand = commands.registerCommand('tableau.insertSnippet', async () => {
+        const editor = window.activeTextEditor;
+        if (!editor) {
+            window.showErrorMessage('No active editor found');
+            return;
+        }
+
+        // Check if the current document is a Tableau file
+        if (editor.document.languageId !== 'twbl') {
+            window.showErrorMessage('This command can only be used in Tableau calculation files (.twbl)');
+            return;
+        }
+
+        // Execute the built-in insert snippet command which will show the snippet picker
+        try {
+            await commands.executeCommand('editor.action.insertSnippet');
+        } catch (error) {
+            window.showErrorMessage('Failed to open snippet picker: ' + error);
+        }
+    });
+
+    // Register the slash command completion provider
+    const slashCommandProvider = new SlashCommandProvider();
+    const slashCommandDisposable = languages.registerCompletionItemProvider(
+        { scheme: 'file', language: 'twbl' },
+        slashCommandProvider,
+        '/' // Trigger character
     );
 
-    // Register restart command
-    context.subscriptions.push(
-        vscode.commands.registerCommand("tableau.lsp.restart", async () => {
-            // Dispose current providers
-            disposables.forEach(d => d.dispose());
-            disposables = [];
-            
-            // Re-initialize
-            await tableauProvider?.initialize();
-            vscode.window.showInformationMessage("Tableau Language Server restarted");
-        })
-    );
+    // Add all disposables to the context subscriptions
+    context.subscriptions.push(insertSnippetCommand, slashCommandDisposable);
+
+    client.start();
 }
 
-export function deactivate() {
-    // Dispose all provider registrations
-    disposables.forEach(d => d.dispose());
-    disposables = [];
-    
-    // Dispose tableau provider
-    if (tableauProvider) {
-        tableauProvider.dispose();
+export function deactivate(): Thenable<void> | undefined {
+    if (!client) {
+        return undefined;
     }
-    
-    outputChannel?.info('Tableau Language Server deactivated');
+    return client.stop();
 }

@@ -2,7 +2,10 @@
 // This file tests various Tableau language features
 
 // Simple IF statement
-IF [Sales] > 1000 THEN "High" ELSE "Low" END
+IF [Sales] > 1000 
+    THEN "High" 
+    ELSE "Low" 
+END
 
 // Aggregate functions
 SUM([Sales])
