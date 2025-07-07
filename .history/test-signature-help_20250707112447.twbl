@@ -1,0 +1,51 @@
+// Test aggregate functions
+SUM([Sales])
+AVG([Profit])
+COUNT([Order ID])
+MIN([Sales])
+
+// Test date functions
+DATEPART('month', [Order Date])
+DATEADD('day', 7, [Order Date])
+DATEDIFF('day', [Order Date], TODAY())
+DATENAME('month', [Order Date])
+
+// Test string functions  
+LEFT([Customer Name], 5)
+RIGHT([Product Name], 10)
+MID([Description], 1, 20)
+CONTAINS([Category], 'Tech')
+REPLACE([Name], 'Inc', 'Incorporated')
+
+// Test logical functions
+ISNULL([Commission])
+IFNULL([Bonus], 0)
+
+
+/**
+ * Tests a series of expressions and returns a value for the first one that is TRUE.
+ * This is a control flow structure, not a function.
+ */
+IF test_expression: Boolean THEN
+  value_if_true: Any
+ELSEIF another_test_expression: Boolean THEN
+  another_value_if_true: Any
+ELSE
+  value_if_false: Any
+END
+
+// Total_Sales
+IF [Sales] > 1000 THEN
+  'High Sales'
+ELSEIF [Sales] > 500 THEN
+  'Medium Sales'
+ELSE
+  IF [Sales] > 1000 THEN
+  'High Sales'
+ELSEIF [Sales] > 500 THEN
+  'Medium Sales'
+ELSE
+  'Low Sales'
+END
+
+END

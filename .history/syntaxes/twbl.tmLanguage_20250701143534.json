@@ -1,0 +1,485 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Tableau Calculation Language",
+  "scopeName": "source.twbl",
+  "fileTypes": ["twbl"],
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#lod-expressions"
+    },
+    {
+      "include": "#field-references"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#functions"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#numbers"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.block.jsdoc.twbl",
+          "begin": "(?<=^\\s*)(\\/\\*\\*)(?!\\/)",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.comment.begin.twbl"
+            }
+          },
+          "end": "(^\\s*\\*\\/|\\*\\/(?=\\s*$)|(?<=\\G.*)\\*\\/(?=\\s+;))",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.comment.end.twbl"
+            }
+          },
+          "patterns": [
+            {
+              "match": "(?<=\\G.*\\s);.*",
+              "name": "comment.line.twbl"
+            },
+            {
+              "include": "#docblock"
+            }
+          ]
+        },
+        {
+          "name": "comment.block.twbl",
+          "begin": "(?<=^\\s*)(\\/\\*)",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.comment.begin.twbl"
+            }
+          },
+          "end": "(^\\s*\\*\\/|\\*\\/(?=\\s*$)|(?<=\\G.*)\\*\\/(?=\\s+;))",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.comment.end.twbl"
+            }
+          },
+          "patterns": [
+            {
+              "match": "(?<=\\G.*\\s);.*",
+              "name": "comment.line.twbl"
+            }
+          ]
+        },
+        {
+          "name": "comment.line.double-slash.twbl",
+          "begin": "//",
+          "end": "$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.twbl",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.twbl",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.twbl",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.twbl",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "lod-expressions": {
+      "patterns": [
+        {
+          "name": "meta.lod-expression.twbl",
+          "begin": "\\{\\s*(FIXED|INCLUDE|EXCLUDE)\\b",
+          "end": "\\}",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.lod.twbl"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#field-references"
+            },
+            {
+              "include": "#functions"
+            },
+            {
+              "include": "#operators"
+            },
+            {
+              "match": ":",
+              "name": "punctuation.separator.colon.twbl"
+            }
+          ]
+        }
+      ]
+    },
+    "field-references": {
+      "patterns": [
+        {
+          "begin": "\\[",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.bracket.twbl" }
+          },
+          "end": "\\]",
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.bracket.twbl" }
+          },
+          "name": "variable.other.field.twbl",
+          "patterns": [
+            {
+              "match": "[^\\]]+",
+              "name": "variable.other.fieldname.twbl"
+            }
+          ]
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.conditional.twbl",
+          "match": "\\b(IF|THEN|ELSE|ELSEIF|END|CASE|WHEN)\\b"
+        },
+        {
+          "name": "keyword.control.lod.twbl",
+          "match": "\\b(AND|OR|NOT|IN)\\b"
+        },
+        {
+          "name": "keyword.control.lod.twbl",
+          "match": "\\b(FIXED|INCLUDE|EXCLUDE)\\b"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "support.function.aggregate.twbl",
+          "match": "\\b(SUM|AVG|COUNT|COUNTD|MIN|MAX|MEDIAN|STDEV|STDEVP|VAR|VARP|PERCENTILE|ATTR)\\b"
+        },
+        {
+          "name": "support.function.date.twbl",
+          "match": "\\b(DATEADD|DATEDIFF|DATEPART|DATETRUNC|TODAY|NOW|YEAR|MONTH|DAY|HOUR|MINUTE|SECOND|WEEKDAY|QUARTER|DATENAME|MAKEDATE|MAKEDATETIME|MAKETIME)\\b"
+        },
+        {
+          "name": "support.function.string.twbl",
+          "match": "\\b(LEFT|RIGHT|MID|LEN|CONTAINS|STARTSWITH|ENDSWITH|REPLACE|SUBSTITUTE|TRIM|LTRIM|RTRIM|UPPER|LOWER|PROPER|SPLIT|FIND|FINDNTH|REGEXP_EXTRACT|REGEXP_MATCH|REGEXP_REPLACE|ASCII|CHAR)\\b"
+        },
+        {
+          "name": "support.function.logical.twbl",
+          "match": "\\b(ISNULL|IFNULL|IIF|ISDATE|ISEMPTY|ZN)\\b"
+        },
+        {
+          "name": "support.function.math.twbl",
+          "match": "\\b(ABS|ACOS|ASIN|ATAN|ATAN2|CEILING|COS|COT|DEGREES|EXP|FLOOR|HEXBINX|HEXBINY|LN|LOG|PI|POWER|RADIANS|ROUND|SIGN|SIN|SQRT|SQUARE|TAN|DIV)\\b"
+        },
+        {
+          "name": "support.function.table-calculation.twbl",
+          "match": "\\b(FIRST|INDEX|LAST|LOOKUP|PREVIOUS_VALUE|RANK|RANK_DENSE|RANK_UNIQUE|RUNNING_AVG|RUNNING_COUNT|RUNNING_MAX|RUNNING_MIN|RUNNING_SUM|SIZE|TOTAL|WINDOW_AVG|WINDOW_COUNT|WINDOW_MAX|WINDOW_MIN|WINDOW_SUM)\\b"
+        },
+        {
+          "name": "support.function.type-conversion.twbl",
+          "match": "\\b(BOOL|DATE|DATETIME|FLOAT|INT|STR)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arithmetic.twbl",
+          "match": "[+\\-*/%]"
+        },
+        {
+          "name": "keyword.operator.comparison.twbl",
+          "match": "([<>]=?|[!=]=)"
+        },
+        {
+          "name": "keyword.operator.assignment.twbl",
+          "match": "="
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.twbl",
+          "match": "\\b(TRUE|FALSE)\\b"
+        },
+        {
+          "name": "constant.language.null.twbl",
+          "match": "\\bNULL\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.decimal.twbl",
+          "match": "\\b\\d+\\.\\d+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.twbl",
+          "match": "\\b\\d+\\b"
+        }
+      ]
+    },
+    "docblock": {
+      "patterns": [
+        {
+          "match": "(?x)\n((@)(?:access|api))\n\\s+\n(private|protected|public)\n\\b",
+          "captures": {
+            "1": {
+              "name": "storage.type.class.jsdoc"
+            },
+            "2": {
+              "name": "punctuation.definition.block.tag.jsdoc"
+            },
+            "3": {
+              "name": "constant.language.access-type.jsdoc"
+            }
+          }
+        },
+        {
+          "match": "(?x)\n((@)author)\n\\s+\n(\n  [^@\\s<>*/]\n  (?:[^@<>*/]|\\*[^/])*\n)\n(?:\n  \\s*\n  (<)\n  ([^>\\s]+)\n  (>)\n)?",
+          "captures": {
+            "1": {
+              "name": "storage.type.class.jsdoc"
+            },
+            "2": {
+              "name": "punctuation.definition.block.tag.jsdoc"
+            },
+            "3": {
+              "name": "entity.name.type.instance.jsdoc"
+            },
+            "4": {
+              "name": "punctuation.definition.bracket.angle.begin.jsdoc"
+            },
+            "5": {
+              "name": "constant.other.email.link.underline.jsdoc"
+            },
+            "6": {
+              "name": "punctuation.definition.bracket.angle.end.jsdoc"
+            }
+          }
+        },
+        {
+          "name": "meta.embedded.twbl meta.example.jsdoc",
+          "begin": "((@)example)\\s+",
+          "end": "(?=@|\\*+/)",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.class.jsdoc"
+            },
+            "2": {
+              "name": "punctuation.definition.block.tag.jsdoc"
+            }
+          },
+          "patterns": [
+            {
+              "match": "^\\s*\\*\\s+",
+              "name": "comment.block.twbl"
+            },
+            {
+              "include": "$base"
+            }
+          ]
+        },
+        {
+          "begin": "((@)(?:arg|argument|const|constant|member|namespace|param|prop|property|var))\\s+(?=[\\[{]|(?!\\d)\\w)",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.class.jsdoc"
+            },
+            "2": {
+              "name": "punctuation.definition.block.tag.jsdoc"
+            }
+          },
+          "end": "(?=\\s|\\*/|[^{}\\[\\]\\w])",
+          "patterns": [
+            {
+              "include": "#jsdoctype"
+            },
+            {
+              "name": "variable.other.jsdoc",
+              "match": "((?!\\d)\\w[\\w.\\[\\]]*)"
+            },
+            {
+              "name": "variable.other.jsdoc",
+              "match": "(?x)\n(\\[)\\s*\n\\w+\n(?:\n  (?:\\[\\])?                                        # Foo[ ].bar properties within an array\n  \\.                                                # Foo.Bar namespaced parameter\n  [\\w$]+\n)*\n(?:\n  \\s*\n  (=)                                                # [foo=bar] Default parameter value\n  \\s*\n  (\n    # The inner regexes are to stop the match early at */ and to not stop at escaped quotes\n    (?>\n      \"(?:(?:\\*(?!/))|(?:\\\\(?!\"))|[^*\\\\])*?\" |                      # [foo=\"bar\"] Double-quoted\n      '(?:(?:\\*(?!/))|(?:\\\\(?!'))|[^*\\\\])*?' |                      # [foo='bar'] Single-quoted\n      \\[ (?:(?:\\*(?!/))|[^*])*? \\] |                                # [foo=[1,2]] Array literal\n      (?:(?:\\*(?!/))|\\s(?!\\s*\\])|\\[.*?(?:\\]|(?=\\*/))|[^*\\s\\[\\]])*   # Everything else\n    )*\n  )\n)?\n\\s*(?:(\\])((?:[^*\\s]|\\*[^\\s/])+)?|(?=\\*/))",
+              "captures": {
+                "1": {
+                  "name": "punctuation.definition.optional-value.begin.bracket.square.jsdoc"
+                },
+                "2": {
+                  "name": "keyword.operator.assignment.jsdoc"
+                },
+                "3": {
+                  "name": "meta.embedded.twbl"
+                },
+                "4": {
+                  "name": "punctuation.definition.optional-value.end.bracket.square.jsdoc"
+                },
+                "5": {
+                  "name": "invalid.illegal.syntax.jsdoc"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "begin": "(?x)\n(\n  (@)\n  (?:define|enum|exception|export|extends|lends|implements|modifies\n  |namespace|private|protected|returns?|suppress|this|throws|type\n  |yields?)\n)\n\\s+(?={)",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.class.jsdoc"
+            },
+            "2": {
+              "name": "punctuation.definition.block.tag.jsdoc"
+            }
+          },
+          "end": "(?=\\s|\\*/|[^{}\\[\\]A-Za-z_$])",
+          "patterns": [
+            {
+              "include": "#jsdoctype"
+            }
+          ]
+        },
+        {
+          "match": "(?x)\n(\n  (@)\n  (?:alias|augments|callback|constructs|emits|event|fires|exports?\n  |extends|external|function|func|host|lends|listens|interface|memberof!?\n  |module|mixes|mixin|name|requires|see|this|typedef|uses)\n)\n\\s+\n(\n  (?:\n    [^{}@\\s*] | \\*[^/]\n  )+\n)",
+          "captures": {
+            "1": {
+              "name": "storage.type.class.jsdoc"
+            },
+            "2": {
+              "name": "punctuation.definition.block.tag.jsdoc"
+            },
+            "3": {
+              "name": "entity.name.type.instance.jsdoc"
+            }
+          }
+        },
+        {
+          "match": "((@)(?:default(?:value)?|license|tutorial|variation|version))\\s+([^\\s*]+)",
+          "captures": {
+            "1": {
+              "name": "storage.type.class.jsdoc"
+            },
+            "2": {
+              "name": "punctuation.definition.block.tag.jsdoc"
+            },
+            "3": {
+              "name": "variable.other.jsdoc"
+            }
+          }
+        },
+        {
+          "name": "storage.type.class.jsdoc",
+          "match": "(?x) (@) (?:abstract|access|alias|api|arg|argument|async|attribute|augments|author|beta|borrows|bubbles |callback|chainable|class|classdesc|code|config|const|constant|constructor|constructs|copyright |default|defaultvalue|define|deprecated|desc|description|dict|emits|enum|event|example|exception |exports?|extends|extension(?:_?for)?|external|externs|file|fileoverview|final|fires|for|func |function|generator|global|hideconstructor|host|ignore|implements|implicitCast|inherit[Dd]oc |inner|instance|interface|internal|kind|lends|license|listens|main|member|memberof!?|method |mixes|mixins?|modifies|module|name|namespace|noalias|nocollapse|nocompile|nosideeffects |override|overview|package|param|polymer(?:Behavior)?|preserve|private|prop|property|protected |public|read[Oo]nly|record|require[ds]|returns?|see|since|static|struct|submodule|summary |suppress|template|this|throws|todo|tutorial|type|typedef|unrestricted|uses|var|variation |version|virtual|writeOnce|yields?) \\b",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.block.tag.jsdoc"
+            }
+          }
+        },
+        {
+          "match": "((@)(?:[_$[:alpha:]][_$[:alnum:]]*))(?=\\s+)",
+          "captures": {
+            "1": {
+              "name": "storage.type.class.jsdoc"
+            },
+            "2": {
+              "name": "punctuation.definition.block.tag.jsdoc"
+            }
+          }
+        }
+      ]
+    },
+    "jsdoctype": {
+      "patterns": [
+        {
+          "contentName": "meta.embedded.twbl entity.name.type.instance.jsdoc",
+          "begin": "\\G({)",
+          "beginCaptures": {
+            "0": {
+              "name": "entity.name.type.instance.jsdoc"
+            },
+            "1": {
+              "name": "punctuation.definition.bracket.curly.begin.jsdoc"
+            }
+          },
+          "end": "((}))\\s*|(?=\\*/)",
+          "endCaptures": {
+            "1": {
+              "name": "entity.name.type.instance.jsdoc"
+            },
+            "2": {
+              "name": "punctuation.definition.bracket.curly.end.jsdoc"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#brackets"
+            }
+          ]
+        }
+      ]
+    },
+    "brackets": {
+      "patterns": [
+        {
+          "match": "^\\s*\\*\\s+",
+          "name": "comment.block.twbl"
+        },
+        {
+          "match": "(['\"])(`\\1|.(?<!\\1))*\\1",
+          "name": "string.quoted.twbl"
+        },
+        {
+          "begin": "{",
+          "end": "}|(?=\\*/)",
+          "patterns": [
+            {
+              "include": "#brackets"
+            }
+          ]
+        },
+        {
+          "begin": "\\[",
+          "end": "\\]|(?=\\*/)",
+          "patterns": [
+            {
+              "include": "#brackets"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

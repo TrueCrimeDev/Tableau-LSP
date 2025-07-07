@@ -1,0 +1,308 @@
+import vscode from "vscode";
+
+// Simple throttle implementation to avoid lodash dependency
+function throttle(
+    func: (change: vscode.TextDocumentChangeEvent) => void,
+    wait: number,
+    options?: { trailing?: boolean }
+): (change: vscode.TextDocumentChangeEvent) => void {
+    let timeout: NodeJS.Timeout | null = null;
+    let previous = 0;
+    const trailing = options?.trailing ?? true;
+
+    return (change: vscode.TextDocumentChangeEvent) => {
+        const now = Date.now();
+        if (now - previous > wait) {
+            if (timeout) {
+                clearTimeout(timeout);
+                timeout = null;
+            }
+            previous = now;
+            func(change);
+            return;
+        }
+        if (!timeout && trailing) {
+            timeout = setTimeout(() => {
+                previous = Date.now();
+                timeout = null;
+                func(change);
+            }, wait - (now - previous));
+        }
+    };
+}
+
+export default class TableauDiagnosticsProvider {
+    private syntaxDiagnostics!: vscode.DiagnosticCollection;
+    private dirtyChange = new WeakMap<vscode.Uri, boolean>();
+
+    private doSyntaxCheck: (change: vscode.TextDocumentChangeEvent) => void;
+
+    constructor() {
+        this.doSyntaxCheck = throttle(
+            (change: vscode.TextDocumentChangeEvent) => {
+                this._doSyntaxCheck(change.document);
+            },
+            500, // Check syntax after 500ms of inactivity
+            {
+                trailing: true,
+            },
+        );
+    }
+
+    public activate(subscriptions: vscode.Disposable[]) {
+        this.syntaxDiagnostics = vscode.languages.createDiagnosticCollection("tableau");
+
+        subscriptions.push(
+            this.syntaxDiagnostics,
+            vscode.workspace.onDidChangeTextDocument((change) => {
+                this.maybeDoSyntaxCheck(change);
+            }),
+            vscode.workspace.onDidSaveTextDocument((document) => {
+                this.onDocumentSave(document);
+            }),
+        );
+    }
+
+    maybeDoSyntaxCheck(change: vscode.TextDocumentChangeEvent) {
+        if (change.document.languageId !== "twbl") {
+            return;
+        }
+        
+        // If LSP client is running, let it handle diagnostics
+        // Note: Using in-process providers, so we always handle diagnostics here
+        
+        if (change.document.isClosed) {
+            this.syntaxDiagnostics.delete(change.document.uri);
+            return;
+        }
+
+        this.doSyntaxCheck(change);
+    }
+
+    onDocumentSave(document: vscode.TextDocument) {
+        if (document.languageId !== "twbl") return;
+        if (document.isUntitled) return;
+
+        this.dirtyChange.set(document.uri, document.isDirty);
+    }
+
+    private _doSyntaxCheck(textDocument: vscode.TextDocument) {
+        // Basic Tableau syntax validation
+        const diagnostics: vscode.Diagnostic[] = [];
+        const text = textDocument.getText();
+        const lines = text.split('\n');
+        const ignoredRanges = this.getIgnoredRanges(textDocument);
+
+        for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            const line = lines[lineIndex];
+            const lineNumber = lineIndex;
+
+            // Check for common Tableau syntax issues
+            this.checkBracketMatching(line, lineNumber, diagnostics, ignoredRanges);
+            this.checkIFThenEndStructure(lines, lineIndex, diagnostics, ignoredRanges);
+            this.checkCaseWhenStructure(lines, lineIndex, diagnostics, ignoredRanges);
+            this.checkFieldReferences(line, lineNumber, diagnostics, ignoredRanges);
+            this.checkLODExpressions(line, lineNumber, diagnostics, ignoredRanges);
+        }
+
+        this.syntaxDiagnostics.set(textDocument.uri, diagnostics);
+    }
+
+    private isRangeIgnored(range: vscode.Range, ignoredRanges: vscode.Range[]): boolean {
+        for (const ignored of ignoredRanges) {
+            if (ignored.contains(range)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private getIgnoredRanges(textDocument: vscode.TextDocument): vscode.Range[] {
+        const ignored: vscode.Range[] = [];
+        const text = textDocument.getText();
+
+        // Find string literals
+        const stringRegex = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g;
+        let match;
+        while ((match = stringRegex.exec(text)) !== null) {
+            ignored.push(new vscode.Range(
+                textDocument.positionAt(match.index),
+                textDocument.positionAt(match.index + match[0].length)
+            ));
+        }
+
+        // Find bracketed field references
+        const fieldRefRegex = /\[[^\]]*\]/g;
+        while ((match = fieldRefRegex.exec(text)) !== null) {
+            ignored.push(new vscode.Range(
+                textDocument.positionAt(match.index),
+                textDocument.positionAt(match.index + match[0].length)
+            ));
+        }
+
+        return ignored;
+    }
+
+    private checkBracketMatching(line: string, lineNumber: number, diagnostics: vscode.Diagnostic[], ignoredRanges: vscode.Range[]) {
+        const brackets = { "[": "]", "(": ")", "{": "}" };
+        const stack: { char: string, pos: number }[] = [];
+        
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            const range = new vscode.Range(lineNumber, i, lineNumber, i + 1);
+            if (this.isRangeIgnored(range, ignoredRanges)) {
+                continue;
+            }
+            
+            if (Object.keys(brackets).includes(char)) {
+                stack.push({ char, pos: i });
+            } else if (Object.values(brackets).includes(char)) {
+                const last = stack.pop();
+                if (!last || brackets[last.char as keyof typeof brackets] !== char) {
+                    diagnostics.push(new vscode.Diagnostic(
+                        range,
+                        `Unmatched closing bracket '${char}'`,
+                        vscode.DiagnosticSeverity.Error
+                    ));
+                }
+            }
+        }
+        
+        // Check for unclosed brackets
+        stack.forEach(({ char, pos }) => {
+            const range = new vscode.Range(lineNumber, pos, lineNumber, pos + 1);
+            if (!this.isRangeIgnored(range, ignoredRanges)) {
+                diagnostics.push(new vscode.Diagnostic(
+                    range,
+                    `Unclosed bracket '${char}'`,
+                    vscode.DiagnosticSeverity.Error
+                ));
+            }
+        });
+    }
+
+    private checkIFThenEndStructure(lines: string[], lineIndex: number, diagnostics: vscode.Diagnostic[], ignoredRanges: vscode.Range[]) {
+        const line = lines[lineIndex];
+        const trimmedLine = line.trim().toUpperCase();
+        
+        if (trimmedLine.startsWith('IF ')) {
+            const range = new vscode.Range(lineIndex, line.indexOf('IF'), lineIndex, line.indexOf('IF') + 2);
+            if (this.isRangeIgnored(range, ignoredRanges)) {
+                return;
+            }
+
+            const fullExpression = this.getFullExpression(lines, lineIndex, ignoredRanges);
+            if (!fullExpression.includes('THEN')) {
+                diagnostics.push(new vscode.Diagnostic(
+                    new vscode.Range(lineIndex, 0, lineIndex, lines[lineIndex].length),
+                    'IF statement missing THEN clause',
+                    vscode.DiagnosticSeverity.Error
+                ));
+            }
+            if (!fullExpression.includes('END')) {
+                diagnostics.push(new vscode.Diagnostic(
+                    new vscode.Range(lineIndex, 0, lineIndex, lines[lineIndex].length),
+                    'IF statement missing END clause',
+                    vscode.DiagnosticSeverity.Error
+                ));
+            }
+        }
+    }
+
+    private checkCaseWhenStructure(lines: string[], lineIndex: number, diagnostics: vscode.Diagnostic[], ignoredRanges: vscode.Range[]) {
+        const line = lines[lineIndex];
+        const trimmedLine = line.trim().toUpperCase();
+        
+        if (trimmedLine.startsWith('CASE ')) {
+            const range = new vscode.Range(lineIndex, line.indexOf('CASE'), lineIndex, line.indexOf('CASE') + 4);
+            if (this.isRangeIgnored(range, ignoredRanges)) {
+                return;
+            }
+
+            const fullExpression = this.getFullExpression(lines, lineIndex, ignoredRanges);
+            if (!fullExpression.includes('WHEN')) {
+                diagnostics.push(new vscode.Diagnostic(
+                    new vscode.Range(lineIndex, 0, lineIndex, lines[lineIndex].length),
+                    'CASE statement missing WHEN clause',
+                    vscode.DiagnosticSeverity.Error
+                ));
+            }
+            if (!fullExpression.includes('END')) {
+                diagnostics.push(new vscode.Diagnostic(
+                    new vscode.Range(lineIndex, 0, lineIndex, lines[lineIndex].length),
+                    'CASE statement missing END clause',
+                    vscode.DiagnosticSeverity.Error
+                ));
+            }
+        }
+    }
+
+    private checkFieldReferences(line: string, lineNumber: number, diagnostics: vscode.Diagnostic[], ignoredRanges: vscode.Range[]) {
+        // This check is for malformed field references, which is still valid.
+        const fieldRefRegex = /\[([^\]]*)\]/g;
+        let match;
+        
+        while ((match = fieldRefRegex.exec(line)) !== null) {
+            const fieldName = match[1];
+            if (fieldName.trim() === '') {
+                const range = new vscode.Range(lineNumber, match.index, lineNumber, match.index + match[0].length);
+                if (!this.isRangeIgnored(range, ignoredRanges)) {
+                    diagnostics.push(new vscode.Diagnostic(
+                        range,
+                        'Empty field reference',
+                        vscode.DiagnosticSeverity.Warning
+                    ));
+                }
+            }
+        }
+    }
+
+    private checkLODExpressions(line: string, lineNumber: number, diagnostics: vscode.Diagnostic[], ignoredRanges: vscode.Range[]) {
+        // Check LOD expression syntax
+        const lodRegex = /\{(\s*(FIXED|INCLUDE|EXCLUDE)\s+[^:]*:[^}]*)\}/gi;
+        let match;
+        
+        while ((match = lodRegex.exec(line)) !== null) {
+            const range = new vscode.Range(lineNumber, match.index, lineNumber, match.index + match[0].length);
+            if (this.isRangeIgnored(range, ignoredRanges)) {
+                continue;
+            }
+
+            const lodContent = match[1];
+            if (!lodContent.includes(':')) {
+                diagnostics.push(new vscode.Diagnostic(
+                    range,
+                    'LOD expression missing colon (:) separator',
+                    vscode.DiagnosticSeverity.Error
+                ));
+            }
+        }
+    }
+
+    private getFullExpression(lines: string[], startIndex: number, ignoredRanges: vscode.Range[]): string {
+        // Get the full multi-line expression for context, ignoring text within strings and brackets
+        let expression = '';
+        let depth = 0;
+        
+        for (let i = startIndex; i < lines.length; i++) {
+            const line = lines[i];
+            let processedLine = '';
+            for (let j = 0; j < line.length; j++) {
+                const range = new vscode.Range(i, j, i, j + 1);
+                if (!this.isRangeIgnored(range, ignoredRanges)) {
+                    processedLine += line[j];
+                }
+            }
+            const upperLine = processedLine.toUpperCase();
+            expression += ' ' + upperLine;
+            
+            if (upperLine.includes('IF') || upperLine.includes('CASE')) depth++;
+            if (upperLine.includes('END')) {
+                depth--;
+                if (depth <= 0) break;
+            }
+        }
+        
+        return expression;
+    }
+}

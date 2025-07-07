@@ -1,0 +1,159 @@
+import vscode from "vscode";
+import { TableauSymbol } from "./tableauProvider";
+
+/**
+ * Represents a Tableau document with enhanced parsing and analysis capabilities
+ */
+export class TableauDocumentModel {
+    private document: vscode.TextDocument;
+    private _parsedExpressions: TableauExpression[] = [];
+    private _symbols: Map<string, TableauSymbolContext> = new Map();
+    private _dirty: boolean = true;
+
+    constructor(document: vscode.TextDocument) {
+        this.document = document;
+    }
+
+    /**
+     * Get all parsed expressions in the document
+     */
+    get expressions(): TableauExpression[] {
+        if (this._dirty) {
+            this.parse();
+        }
+        return this._parsedExpressions;
+    }
+
+    /**
+     * Get all symbols with their context
+     */
+    get symbols(): Map<string, TableauSymbolContext> {
+        if (this._dirty) {
+            this.parse();
+        }
+        return this._symbols;
+    }
+
+    /**
+     * Mark the document as dirty, requiring re-parsing
+     */
+    markDirty(): void {
+        this._dirty = true;
+    }
+
+    /**
+     * Parse the document to extract expressions and symbols
+     */
+    parse(): void {
+        this._parsedExpressions = [];
+        this._symbols.clear();
+        
+        const text = this.document.getText();
+        const lines = text.split('\n');
+        
+        // First pass: identify multi-line expressions
+        let currentExpression: TableauExpression | null = null;
+        
+        for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            const line = lines[lineIndex].trim();
+            
+            // Skip empty lines and comments
+            if (!line || line.startsWith('//') || line.startsWith('/*')) {
+                continue;
+            }
+            
+            // Check if this is the start of a new expression
+            if (!currentExpression) {
+                currentExpression = {
+                    startLine: lineIndex,
+                    endLine: lineIndex,
+                    text: line,
+                    type: this.determineExpressionType(line),
+                    symbols: []
+                };
+            } else {
+                // Append to current expression
+                currentExpression.text += '\n' + line;
+                currentExpression.endLine = lineIndex;
+                
+                // Check if this is the end of the expression
+                if (this.isExpressionEnd(line)) {
+                    this._parsedExpressions.push(currentExpression);
+                    currentExpression = null;
+                }
+            }
+        }
+        
+        // Add the last expression if it exists
+        if (currentExpression) {
+            this._parsedExpressions.push(currentExpression);
+        }
+        
+        // Second pass: extract symbols and their context
+        this.extractSymbols();
+        
+        this._dirty = false;
+    }
+    
+    /**
+     * Determine the type of a Tableau expression
+     */
+    private determineExpressionType(line: string): TableauExpressionType {
+        if (line.startsWith('IF ') || line === 'IF') {
+            return 'if';
+        } else if (line.startsWith('CASE ') || line === 'CASE') {
+            return 'case';
+        } else if (line.startsWith('{')) {
+            return 'lod';
+        } else if (/^[A-Z_][A-Z0-9_]*\s*\(/i.test(line)) {
+            return 'function';
+        } else if (line.startsWith('[') && line.includes(']')) {
+            return 'field';
+        } else {
+            return 'other';
+        }
+    }
+    
+    /**
+     * Check if a line represents the end of an expression
+     */
+    private isExpressionEnd(line: string): boolean {
+        return line.endsWith('END') || 
+               (line.includes('}') && !line.includes('{')) || 
+               (!line.includes('IF') && !line.includes('CASE') && !line.includes('{'));
+    }
+    
+    /**
+     * Extract symbols and their context from expressions
+     */
+    private extractSymbols(): void {
+        for (const expression of this._parsedExpressions) {
+            // Extract function calls
+            const functionMatches = expression.text.matchAll(/\b([A-Z_][A-Z0-9_]*)\s*\(/gi);
+            for (const match of functionMatches) {
+                const functionName = match[1].toUpperCase();
+                const context: TableauSymbolContext = {
+                    name: functionName,
+                    type: 'function',
+                    expressionType: expression.type,
+                    range: this.getRangeForMatch(expression, match[0], match.index || 0)
+                };
+                expression.symbols.push(context);
+                this._symbols.set(`${functionName}_${context.range.start.line}_${context.range.start.character}`, context);
+            }
+            
+            // Extract field references
+            const fieldMatches = expression.text.matchAll(/\[([^\]]+)\]/g);
+            for (const match of fieldMatches) {
+                const fieldName = match[1];
+                const context: TableauSymbolContext = {
+                    name: fieldName,
+                    type: 'field',
+                    expressionType: expression.type,
+                    range: this.getRangeForMatch(expression, match[0], match.index || 0)
+                };
+                expression.symbols.push(context);
+                this._symbols.set(`${fieldName}_${context.range.start.line}_${context.range.start.character}`, context);
+            }
+            
+            // Extract keywords

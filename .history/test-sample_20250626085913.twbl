@@ -1,0 +1,46 @@
+// Test Tableau calculation file
+// This file tests various Tableau language features
+
+// Simple IF statement
+IF [Sales] > 1000 
+THEN "High" 
+ELSE "Low" 
+END
+
+// Aggregate functions
+SUM([Sales])
+AVG([Profit])
+COUNT([Orders])
+
+// Date functions
+DATEPART('year', [Order Date])
+TODAY()
+
+// String functions
+LEN([Customer Name])
+CONTAINS([Product Name], "Office")
+
+// LOD expressions
+{ FIXED [Region] : SUM([Sales]) }
+{ INCLUDE [Category] : AVG([Profit]) }
+
+// CASE statement
+CASE [Region]
+    WHEN "East" THEN "Eastern Region"
+    WHEN "West" THEN "Western Region"
+    ELSE "Other Region"
+END
+
+// Field references
+[Sales Amount]
+[Customer ID]
+[Product Category]
+
+// Complex expression
+IF [Sales] > 1000 AND [Profit] > 100 THEN
+    "High Value"
+ELSEIF [Sales] > 500 THEN
+    "Medium Value"
+ELSE
+    "Low Value"
+END

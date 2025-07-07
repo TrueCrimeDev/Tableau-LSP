@@ -1,0 +1,403 @@
+
+		function parse_unresolved_typedef() {
+			for (const m of Object.values(comments)) {
+				if (m.data !== null || !/^[ \t]*\*?[ \t]*@typedef\s/m.test(m.content))
+					continue;
+				parse_jsdoc_detail(_this, m.content, {} as AhkSymbol);
+			}
+		}
+
+
+        
+		function find_d_ahk(path: string) {
+			if (path.startsWith('<'))
+				path = path.replace(/(\.d)?>$/i, '.d>');
+			else path = path.replace(/(\.d\.ahk)?$/i, '.d.ahk');
+			const m = findLibrary(path,
+				_this.libdirs, _this.scriptpath, true,
+				{ ...a_Vars, locale });
+			if (m && !statSync(m.path).isDirectory())
+				return m;
+		}
+
+		function join_markdown(s1: string, s2: string) {
+			if (s2)
+				return (s1 && (s1 + '\n\n')) + s2;
+			return s1;
+		}
+		function set_detail(sym: AhkSymbol, cm: Token) {
+			const comment = cm.content;
+			if (comment.startsWith(';')) {
+				sym.detail = (cm.data as string) ??= comment.replace(/^[ \t]*; ?/gm, '');
+				return;
+			}
+			if (!/^\/\*\*(?!\/)/.test(comment)) {
+				sym.detail = (cm.data as string) ??= comment.replace(
+					new RegExp(`^${input.substring(input.lastIndexOf('\n', cm.offset) + 1, cm.offset)}`, 'gm'), '')
+					.replace(/^\/\*\s*\n|\s*\*+\/$/g, '');
+				return;
+			}
+			if (!cm.data)
+				cm.data = parse_jsdoc_detail(_this, comment, sym);
+			else {
+				const { detail, tags, vars } = cm.data as JsDoc;
+				const v = vars && (vars[sym.name.toUpperCase()] ?? vars['']);
+				Object.assign(sym, tags);
+				sym.markdown_detail = join_markdown(v?.detail ?? '', detail);
+				if (v)
+					sym.type_annotations = v.type_annotations ??= resolveTypeAnnotation(v.type_str);
+			}
+		}
+
+		interface JsDoc {
+			detail: string
+			tags?: Partial<AhkSymbol>
+			vars?: {
+				[name: string]: {
+					detail: string,
+					type_annotations?: (string | AhkSymbol)[] | false,
+					type_str?: string
+				}
+			}
+		}
+
+		function parse_jsdoc_detail(lex: Lexer, detail: string, sym: AhkSymbol): JsDoc {
+			sym.detail = detail;
+			detail = detail.replace(/^[ \t]*(\*?[ \t]*(?=@)|\* ?)/gm, '')
+				.replace(/^\/\*+\s*|\s*\**\/$/g, '');
+			if (!detail)
+				return { detail: sym.markdown_detail = sym.detail = '' };
+			const details: string[] = [], ols: string[] = [];
+			let vars: {
+				[n: string]: {
+					detail: string,
+					type_annotations?: (string | AhkSymbol)[] | false,
+					type_str?: string
+				}
+			} | undefined, tags: Partial<AhkSymbol> | undefined, tp = '', t;
+			const fn = sym as FuncNode, objs: Record<string, ClassNode> = {}, params: Record<string, Variable> = {};
+			let get_param = (_: string) => undefined as Variable | undefined;
+			let m: RegExpMatchArray | null, vr: Variable | undefined, obj: ClassNode | undefined;
+			const kind = ({ [SymbolKind.Variable]: 'var', [SymbolKind.Property]: 'prop' } as Record<number, string>)[sym.kind];
+			if (fn.params) {
+				const _params = fn.params;
+				get_param = (name: string) => {
+					if (/^d/.test(name))
+						return;
+					return params[name] ??= _params.find(it => name === it.name.toUpperCase() && !(it.markdown_detail = '')) ??
+						((fn.overload_params ??= {})[name] = { type_annotations: false, markdown_detail: '' } as Variable);
+				};
+			}
+			for (let line of detail.split(/\n(?=@)/)) {
+				if (!(m = line.match(/^@(\w*)/))) {
+					details.push(line);
+					continue;
+				}
+				t = m[1].toLowerCase(), line = line.substring(t.length + 1);
+				obj && !t.startsWith('prop') && (obj = undefined);
+				switch (t) {
+					case 'arg':
+					case 'argument':
+						t = 'param';
+					// fall through
+					case 'param':
+					case 'prop':
+					case 'property':
+					case 'var':
+						line = parse_type(line);
+						if ((m = line.match(/^\s*(\[(\w|[^\x00-\x7f]|(\[\])?\.)*.*?\]|(\w|[^\x00-\x7f]|(\[\])?\.)*)/))) {
+							let defval = '', name = m[1] ??= '', opt = false;
+							const _name = () => opt ? `<u>\`${name}\`</u>` : `\`${name}\``;
+							line = line.substring(m[0].length);
+							if (name.startsWith('['))
+								name.slice(1, -1).replace(/^((\w|[^\x00-\x7f]|(\[\])?\.)*)(.*)$/, (...t) => {
+									if ((name = t[4].trimStart()).startsWith('='))
+										defval = name.substring(1).trim();
+									return name = t[1];
+								}), opt = true;
+							if (t === 'param') {
+								vr = get_param(name.replace(/(\[\])?\..*$/, '').toUpperCase());
+								if (vr?.name?.length === name.length) {
+									opt = vr.defaultVal !== undefined;
+									vr.type_annotations ??= resolveTypeAnnotation(tp);
+								} else if (vr?.name) {
+									const t = name.split('.');
+									add_prop(add_obj_type(vr, t.shift()!), t, tp,
+										`*@param* ${_name()}${tp && `: *\`${tp}\`*`}${line.trim() && `\n___\n${line}`}`);
+									if (!vr.markdown_detail)
+										vr = undefined;
+								}
+								t = `*@param* ${_name()}${tp && `: *\`${tp}\`*`}${defval && ` := \`${defval}\``}${join_detail(line)}`;
+								details.push(t), vr && (vr.markdown_detail += `${t}\n\n`);
+								continue;
+							} else if (t.startsWith('prop')) {
+								t = 'property'
+								obj ??= objs[''] ??= create_obj();
+								add_prop(add_obj_type(obj, obj.name), name.split('.'), tp,
+									`*@${t}* ${_name()}${tp && `: *\`${tp}\`*`}${defval && ` := \`${defval}\``}${line.trim() && `\n___\n${line}`}`);
+							} else if (kind === 'var') {
+								line = line.trimStart();
+								if (sym.name.toLowerCase() === name.toLowerCase()) {
+									sym.type_annotations ??= resolveTypeAnnotation(tp);
+									(vars ??= {})[name.toUpperCase()] ??= {
+										detail: line,
+										type_annotations: sym.type_annotations
+									};
+									sym.markdown_detail ??= line;
+								} else (vars ??= {})[name.toUpperCase()] ??= {
+									detail: line, type_str: tp
+								};
+								continue;
+							}
+							line = join_detail(line);
+							details.push(t = `*@${t}* \`${name}\`${tp && `: *\`${tp}\`*`}${defval && ` := \`${defval}\``}${line}`);
+						}
+						continue;
+					case 'return':
+					case 'returns':
+					case 'type':
+						line = parse_type(line);
+						details.push(`*@${t}*${tp && ` *\`${tp}\`*`}${join_detail(line)}`);
+						if (!kind || (sym as Property).get) {
+							if (kind || t !== 'type')
+								sym.type_annotations ??= resolveTypeAnnotation(tp);
+						} else if (t === 'type') {
+							(vars ??= {})[''] ??= {
+								detail: line,
+								type_annotations: resolveTypeAnnotation(tp)
+							};
+							details.pop();
+						}
+						continue;
+					case 'enum':
+					case 'throws':
+						line = parse_type(line);
+						details.push(`*@${t}*${tp && ` *\`${tp}\`*`}${join_detail(line)}`);
+						continue;
+					case 'typedef':
+						line = parse_type(line);
+						m = line.match(/^\s*(\$?(\w|[^\x00-\x7f])*)/)!;
+						if ((t = m[1]))
+							lex.typedef[t.toUpperCase()] ??= obj = {
+								name: t, kind: SymbolKind.TypeParameter,
+								range: ZERO_RANGE, selectionRange: ZERO_RANGE,
+								type_annotations: resolveTypeAnnotation(tp)
+							} as ClassNode;
+						details.push(`*@typedef* \`${t}\`: *\`${tp || 'Any'}\`*${join_detail(line.substring(m[0].length))}`);
+						continue;
+					case 'overload':
+						if (!(m = line.match(/^\s*(\w|[^\x00-\x7f])*(?=[([])/)))
+							break;
+						ols.push(`${sym.name || '_'}${line.substring(m[0].length).trimEnd()}`);
+						continue;
+					case 'override': (tags ??= {}).override = sym.override = true; break;
+					case 'example':
+						details.push('*@example*');
+						if ((line = line.replace(/^\s*<caption>(.*?)<\/caption>/, (s0, s1) => (details.push(s1), '')).replace(/^[ \t\r\n]+/, '')))
+							details.push('```ahk2\n' + line + '\n```');
+						continue;
+					case 'extends':
+						t = '*@extends* ';
+						if ((m = line.match(/^\s*{([^{}]+)}/))) {
+							if (sym.kind === SymbolKind.Class)
+								set_extends(sym as ClassNode, m[1]);
+							t += `\`${m[1]}\``, line = line.substring(m[0].length);
+						}
+						details.push(`${t}${join_detail(line)}`);
+						continue;
+					case 'ignore': (tags ??= {}).ignore = sym.ignore = true; break;
+					case 'deprecated': (tags ??= {}).tags = sym.tags = [1]; break;
+					case 'since':
+						if (!process.env.BROWSER && (_this.d & 2) && !versionMatch(line = line.trim()))
+							sym.since = line || 'unknown';
+						break;
+					case 'alias':
+						if (sym.kind === SymbolKind.Class && (tp = line.trim()).endsWith('>') && tp.startsWith(sym.name + '<')) {
+							const lex = new Lexer(TextDocument.create('', 'ahk2', 0, `class ${tp}{\n}`), undefined, 1);
+							lex.parseScript();
+							const params = (lex.declaration[sym.name.toUpperCase()] as ClassNode)?.type_params;;
+							if (params) {
+								(sym as ClassNode).type_params = params;
+								Object.values(params).forEach(it => it.range = it.selectionRange = ZERO_RANGE);
+							}
+						}
+						break;
+				}
+				details.push(`*@${t}*${join_detail(line)}`);
+			}
+			if (kind) {
+				let tt = vars?.['']?.type_annotations;
+				if (!tt && (t = objs['']))
+					((vars ??= {})[''] ??= { detail: '' }).type_annotations = tt = [t];
+				sym.type_annotations ??= tt;
+			} else if (fn.params && (t = ols.join('\n')))
+				(sym as FuncNode).overloads = t;
+			detail = details.join('\n\n');
+			sym.markdown_detail = join_markdown(sym.markdown_detail ?? '', detail);
+			return { detail, tags, vars };
+			function join_detail(str: string) {
+				str = str.replace(/^[ \t]*[-—]/, '');
+				let n = 0, ln = 0, i = 0;
+				for (let c of str) {
+					switch (i++, c) {
+						case '\n':
+							if (n > 1 || ++ln === 2)
+								return str;
+						// fall through
+						case '\t': n = 0; break;
+						case ' ': n++; break;
+						case '\r': break;
+						default:
+							if (ln) {
+								let newline = false;
+								if (c === '|' || c === '>' ||
+									'-+*'.includes(c) && ' \t'.includes(str[i]) ||
+									str.substring(i - 1, i + 2) === '```')
+									newline = true;
+								else if (c === '#') {
+									for (; str[i] === '#'; i++);
+									newline = ' \t'.includes(str[i]);
+								} else if (c !== '.') {
+									for (; c >= '0' && c <= '9'; c = str[i++]);
+									newline = c === '.' && ' \t'.includes(str[i]);
+								}
+								if (newline)
+									return `\n${str}`;
+							}
+							return ` — ${str}`;
+					}
+				}
+				return '';
+			}
+			function create_obj(name = ''): ClassNode {
+				return {
+					kind: SymbolKind.Class, name, full: '', extends: '', uri: '',
+					property: {}, range: ZERO_RANGE, selectionRange: ZERO_RANGE
+				};
+			}
+			function remove_types(tps: (string | AhkSymbol)[], remove: AhkSymbol[], add?: ClassNode) {
+				for (let i = tps.length - 1; i >= 0; i--)
+					remove.includes(tps[i] as AhkSymbol) && tps.splice(i, 1);
+				add && tps.push(add);
+				return add;
+			}
+			function add_obj_type(sym: AhkSymbol, name: string): ClassNode {
+				const is_arr = name.endsWith(']') && (name = name.slice(0, -2), true);
+				const o = objs[name = name.toUpperCase()] ??= remove_types(
+					sym.type_annotations ||= [], [OBJECT], create_obj(sym.name))!;
+				if (is_arr)
+					return objs[`${name}[]`] ??= (o.extends ||= 'Array',
+						remove_types(sym.type_annotations || [], [ARRAY]),
+						remove_types((o.generic_types ??= [])[0] ??= [], [OBJECT], create_obj())!);
+				return o;
+			}
+			function add_prop(obj: ClassNode, props: string[], tp: string, detail: string) {
+				let full = obj.name.toUpperCase(), l = props.length;
+				for (let name of props) {
+					let is_arr = 0, u: string;
+					while (name.endsWith(']'))
+						name = name.slice(0, -2), is_arr++;
+					full += `.${u = name.toUpperCase()}`, l--;
+					obj = objs[full] ??= (obj.property[u] ??= {
+						kind: SymbolKind.Property, name,
+						range: ZERO_RANGE, selectionRange: ZERO_RANGE
+					}) as ClassNode;
+					if (is_arr || l) {
+						do {
+							obj = objs[full + '.'] ??= remove_types(
+								obj.type_annotations ||= [], [OBJECT], create_obj())!;
+							if (is_arr) {
+								obj = objs[full += '[]'] ??= (obj.extends ||= 'Array', remove_types(
+									(obj.generic_types ??= [])[0] ??= [],
+									is_arr > 1 ? [OBJECT, ARRAY] : [OBJECT], create_obj())!);
+								is_arr--;
+							}
+						} while (is_arr);
+					}
+				}
+				if (!obj.property) {
+					obj.markdown_detail ??= detail;
+					obj.type_annotations ??= resolveTypeAnnotation(tp);
+				}
+			}
+			function parse_type(str: string) {
+				const m = str.match(/^\s*\{/);
+				tp = '';
+				if (!m) return str;
+				let n = 1, i = m[0].length;
+				const b = i;
+				while (n) {
+					switch (str[i++]) {
+						case '{': n++; continue;
+						case '}': n--; continue;
+						case undefined: return str;
+						case '"':
+						case "'": {
+							const q = str[i - 1];
+							let c: string;
+							while ((c = str[i++]) !== q) {
+								if (c === '`')
+									i++;
+								else if (!c || c === '\n')
+									return str;
+							}
+							break;
+						}
+					}
+				}
+				tp = str.substring(b, i - 1).trim();
+				return str.substring(i);
+			}
+		}
+
+		function make_range(offset: number, length: number): Range {
+			return Range.create(_this.document.positionAt(offset), _this.document.positionAt(offset + length));
+		}
+
+		function createToken(content: string, type: TokenType, offset: number, length: number, topofline: number): Token {
+			const c = input.charAt(offset - 1);
+			const tk: Token = { content, type, offset, length, topofline, previous_token: lst, next_token_offset: -1, prefix_is_whitespace: WHITESPACE.includes(c) ? c : undefined };
+			_this.tokens[offset] = tk;
+			lst.next_token_offset = offset;
+			return tk;
+		}
+
+		function create_flags(flags_base: Flag | undefined, mode: Mode) {
+			let indentation_level = 0, had_comment = 0, ternary_depth;
+			let last_text = '', last_word = '', array_style, object_style;
+			let in_expression = [Mode.ArrayLiteral, Mode.Expression, Mode.ObjectLiteral].includes(mode);
+			if (flags_base) {
+				indentation_level = flags_base.indentation_level;
+				had_comment = flags_base.had_comment;
+				last_text = flags_base.last_text;
+				last_word = flags_base.last_word;
+				in_expression ||= flags_base.in_expression;
+				array_style = flags_base.array_style;
+				object_style = flags_base.object_style;
+			}
+
+			const next_flags: Flag = {
+				array_style,
+				case_body: false,
+				catch_block: false,
+				declaration_statement: false,
+				else_block: false,
+				finally_block: false,
+				had_comment,
+				if_block: false,
+				in_case_statement: false,
+				in_case: false,
+				in_expression,
+				indentation_level,
+				last_text,
+				last_word,
+				loop_block: 0,
+				mode,
+				object_style,
+				parent: flags_base!,
+				start_line_index: output_lines.length,
+				ternary_depth,
+				try_block: false
+			};
+			return next_flags;
+		}

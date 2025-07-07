@@ -1,0 +1,26 @@
+// Test aggregate functions
+SUM([Sales])
+AVG([Profit])
+COUNT([Order ID])
+MIN([Sales])
+
+// Test date functions
+DATEPART('month', [Order Date])
+DATEADD('day', 7, [Order Date])
+DATEDIFF('day', [Order Date], TODAY())
+DATENAME('month', [Order Date])
+
+// Test string functions  
+LEFT([Customer Name], 5)
+RIGHT([Product Name], 10)
+MID([Description], 1, 20)
+CONTAINS([Category], 'Tech')
+REPLACE([Name], 'Inc', 'Incorporated')
+
+// Test logical functions
+ISNULL([Commission])
+IFNULL([Bonus], 0)
+
+
+
+IF 

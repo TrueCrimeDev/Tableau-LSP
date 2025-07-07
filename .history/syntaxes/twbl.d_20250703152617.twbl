@@ -1,0 +1,910 @@
+// Represents a column of data from your data source. The type can be Number, String, Date, DateTime, Boolean, or Spatial.
+// It is always enclosed in square brackets in a calculation.
+[Field Name]: Any
+
+// A workbook variable that can be used to replace constant values in calculations, filters, and reference lines.
+// The type can be Number, String, Date, DateTime, or Boolean. It is always enclosed in square brackets.
+[Parameter Name]: Any
+
+// A logical constant representing a true value.
+TRUE: Boolean
+
+// A logical constant representing a false value.
+FALSE: Boolean
+
+// A special value representing the absence of data. Any operation involving NULL results in NULL.
+NULL: Any
+
+/**
+ * A logical operator that returns TRUE if both conditions are true.
+ */
+AND: Operator
+
+/**
+ * A logical operator that returns TRUE if either condition is true.
+ */
+OR: Operator
+
+/**
+ * A logical operator that negates a condition, turning TRUE to FALSE and vice versa.
+ */
+NOT: Operator
+
+/**
+ * Addition operator for numeric values.
+ */
++: Operator
+
+/**
+ * Subtraction operator for numeric values.
+ */
+-: Operator
+
+/**
+ * Multiplication operator for numeric values.
+ */
+*: Operator
+
+/**
+ * Division operator for numeric values.
+ */
+/: Operator
+
+/**
+ * Equality comparison operator.
+ */
+=: Operator
+
+/**
+ * Not equal comparison operator.
+ */
+!=: Operator
+
+/**
+ * Less than comparison operator.
+ */
+<: Operator
+
+/**
+ * Greater than comparison operator.
+ */
+>: Operator
+
+/**
+ * Less than or equal comparison operator.
+ */
+<=: Operator
+
+/**
+ * Greater than or equal comparison operator.
+ */
+>=: Operator
+
+/**
+ * Tests if a value is in a list of values.
+ */
+IN: Operator
+
+/**
+ * Tests if a value is between two values (inclusive).
+ */
+BETWEEN: Operator
+
+/**
+ * Tests a series of expressions and returns a value for the first one that is TRUE or see something else.
+ * This is a control flow structure, not a function.
+ */
+IF test_expression: Boolean THEN
+  value_if_true: Any
+ELSEIF another_test_expression: Boolean THEN
+  another_value_if_true: Any
+ELSE
+  value_if_false: Any
+END
+
+/**
+ * A compact logical function that tests a condition and returns one of two values.
+ * @param test The boolean expression to evaluate
+ * @param then The value to return if the test is TRUE
+ * @param else The value to return if the test is FALSE
+ * @param unknown_value An optional value to return if the test is NULL
+ * @returns {Any} The appropriate value based on the test condition
+ * @example
+ * IIF([Sales] > 1000, "High", "Low")
+ */
+IIF(test: Boolean, then: Any, else: Any, unknown_value?: Any) => Any
+
+/**
+ * Goes through alternatives and returns a value for the first matching case.
+ * This is a control flow structure, not a function.
+ */
+CASE test_expression: Any
+  WHEN value1: Any THEN value_if_true: Any
+  WHEN value2: Any THEN value_if_true: Any
+  ELSE value_if_false: Any
+END
+
+/**
+ * Returns TRUE if the first expression is NULL.
+ * @param expression The expression to test for NULL
+ * @returns {Boolean} TRUE if the expression is NULL, FALSE otherwise
+ * @example
+ * ISNULL([Customer Phone])
+ */
+ISNULL(expression: Any) => Boolean
+
+/**
+ * Returns TRUE if the given date expression is a valid date.
+ * @param string The string to test for valid date format
+ * @returns {Boolean} TRUE if the string represents a valid date
+ * @example
+ * ISDATE("2023-01-01")
+ */
+ISDATE(string: String) => Boolean
+
+/**
+ * Returns the first expression if it is not NULL, otherwise returns the second.
+ * Useful for replacing NULL values with a default.
+ * @param expression1 The primary expression to return if not NULL
+ * @param expression2 The fallback value if expression1 is NULL
+ * @returns {Any} The first non-NULL expression
+ * @example
+ * IFNULL([Discount], 0)
+ */
+IFNULL(expression1: Any, expression2: Any) => Any
+
+/**
+ * Returns the absolute value of a number.
+ * @param number The number to get the absolute value of
+ * @returns {Number} The absolute value as a Number
+ * @example
+ * ABS(-5)
+ */
+ABS(number: Number) => Number
+
+/**
+ * Returns the arc cosine of a number. The result is in radians.
+ * @param number The number to calculate arc cosine for (must be between -1 and 1)
+ * @returns {Number} The arc cosine in radians
+ */
+ACOS(number: Number) => Number
+
+/**
+ * Returns the arc sine of a number. The result is in radians.
+ * @param number The number to calculate arc sine for (must be between -1 and 1)
+ * @returns {Number} The arc sine in radians
+ */
+ASIN(number: Number) => Number
+
+/**
+ * Returns the arc tangent of a number. The result is in radians.
+ * @param number The number to calculate arc tangent for
+ * @returns {Number} The arc tangent in radians
+ */
+ATAN(number: Number) => Number
+
+/**
+ * Returns the arc tangent of two numbers (y/x). The result is in radians.
+ * @param y The y coordinate
+ * @param x The x coordinate
+ * @returns {Number} The arc tangent of y/x in radians
+ */
+ATAN2(y: Number, x: Number) => Number
+
+/**
+ * Rounds a number up to the nearest integer.
+ * @param number The number to round up
+ * @returns {Integer} The smallest integer greater than or equal to the number
+ * @example
+ * CEILING(4.3)
+ */
+CEILING(number: Number) => Integer
+
+/**
+ * Returns the cosine of an angle given in radians.
+ * @param number The angle in radians
+ * @returns {Number} The cosine of the angle
+ */
+COS(number: Number) => Number
+
+/**
+ * Converts an angle from radians to degrees.
+ * @param number The angle in radians
+ * @returns {Number} The angle in degrees
+ */
+DEGREES(number: Number) => Number
+
+/**
+ * Returns the integer part of a division.
+ * @param integer1 The dividend
+ * @param integer2 The divisor
+ * @returns {Integer} The integer quotient of the division
+ * @example
+ * DIV(7, 3)
+ */
+DIV(integer1: Integer, integer2: Integer) => Integer
+
+/**
+ * Returns e raised to the power of the given number.
+ * @param number The exponent
+ * @returns {Number} e raised to the power of the number
+ */
+EXP(number: Number) => Number
+
+/**
+ * Rounds a number down to the nearest integer.
+ * @param number The number to round down
+ * @returns {Integer} The largest integer less than or equal to the number
+ * @example
+ * FLOOR(4.7)
+ */
+FLOOR(number: Number) => Integer
+
+/**
+ * Returns the natural logarithm of a number.
+ * @param number The number to calculate natural log for (must be positive)
+ * @returns {Number} The natural logarithm
+ */
+LN(number: Number) => Number
+
+/**
+ * Returns the logarithm of a number for a given base.
+ * @param number The number to calculate logarithm for (must be positive)
+ * @param base The base for the logarithm (optional, defaults to 10)
+ * @returns {Number} The logarithm of the number
+ */
+LOG(number: Number, base?: Number) => Number
+
+/**
+ * Returns the larger of two values (row-level function).
+ * @param a {Any} First value to compare
+ * @param b {Any} Second value to compare
+ * @returns {Any} The larger of the two values
+ * @example
+ * MAX(5, 10)
+ */
+MAX(a: Any, b: Any) => Any
+
+/**
+ * Returns the smaller of two values (row-level function).
+ * @param a {Any} First value to compare
+ * @param b {Any} Second value to compare
+ * @returns {Any} The smaller of the two values
+ * @example
+ * MIN(5, 10)
+ */
+MIN(a: Any, b: Any) => Any
+
+/**
+ * Returns the constant PI.
+ * @returns {Number} The mathematical constant PI (approximately 3.14159)
+ */
+PI() => Number
+
+/**
+ * Raises a number to a given power.
+ * @param number The base number
+ * @param power The exponent
+ * @returns {Number} The number raised to the power
+ * @example
+ * POWER(2, 3)
+ */
+POWER(number: Number, power: Number) => Number
+
+/**
+ * Converts an angle from radians to degrees.
+ * @param number The angle in radians
+ * @returns {Number} The angle in degrees
+ */
+RADIANS(number: Number) => Number
+
+/**
+ * Rounds a number to a specified number of decimal places.
+ * @param number The number to round
+ * @param decimals The number of decimal places (optional, defaults to 0)
+ * @returns {Number} The rounded number
+ * @example
+ * ROUND(3.14159, 2)
+ */
+ROUND(number: Number, decimals?: Integer) => Number
+
+/**
+ * Returns the sign of a number: -1 for negative, 0 for zero, 1 for positive.
+ * @param number The number to get the sign of
+ * @returns {Integer} -1, 0, or 1 indicating the sign
+ */
+SIGN(number: Number) => Integer
+
+/**
+ * Returns the sine of an angle given in radians.
+ * @param number The angle in radians
+ * @returns {Number} The sine of the angle
+ */
+SIN(number: Number) => Number
+
+/**
+ * Returns the square root of a number.
+ * @param number The number to calculate square root for (must be non-negative)
+ * @returns {Number} The square root of the number
+ * @example
+ * SQRT(16)
+ */
+SQRT(number: Number) => Number
+
+/**
+ * Returns the tangent of an angle given in radians.
+ * @param number The angle in radians
+ * @returns {Number} The tangent of the angle
+ */
+TAN(number: Number) => Number
+
+/**
+ * Returns the expression if it is not null, otherwise returns 0.
+ * Use this to convert NULL numeric values to zero.
+ * @param expression The numeric expression to test
+ * @returns {Number} The expression value or 0 if NULL
+ * @example
+ * ZN([Discount])
+ */
+ZN(expression: Number) => Number
+
+/**
+ * Returns the ASCII code for the first character in a string.
+ * @param string The string to get ASCII code from
+ * @returns {Integer} The ASCII code of the first character
+ * @example
+ * ASCII("A")
+ */
+ASCII(string: String) => Integer
+
+/**
+ * Returns the character for a given ASCII code.
+ * @param number The ASCII code
+ * @returns {String} The character corresponding to the ASCII code
+ * @example
+ * CHAR(65)
+ */
+CHAR(number: Integer) => String
+
+/**
+ * Returns true if the string contains the substring.
+ * @param string The string to search in
+ * @param substring The substring to search for
+ * @returns {Boolean} TRUE if substring is found, FALSE otherwise
+ * @example
+ * CONTAINS("Hello World", "World")
+ */
+CONTAINS(string: String, substring: String) => Boolean
+
+/**
+ * Returns true if the string ends with the substring.
+ * @param string The string to check
+ * @param substring The substring to look for at the end
+ * @returns {Boolean} TRUE if string ends with substring
+ * @example
+ * ENDSWITH("Hello World", "World")
+ */
+ENDSWITH(string: String, substring: String) => Boolean
+
+/**
+ * Returns the index position of a substring in a string, or 0 if not found.
+ * @param string The string to search in
+ * @param substring The substring to find
+ * @param start The starting position for the search (optional)
+ * @returns {Integer} The 1-based index position, or 0 if not found
+ * @example
+ * FIND("Hello World", "World")
+ */
+FIND(string: String, substring: String, start?: Integer) => Integer
+
+/**
+ * Returns the starting position of the Nth occurrence of a substring.
+ * @param string The string to search in
+ * @param substring The substring to find
+ * @param occurrence Which occurrence to find (1st, 2nd, etc.)
+ * @returns {Integer} The 1-based index position of the Nth occurrence
+ */
+FINDNTH(string: String, substring: String, occurrence: Integer) => Integer
+
+/**
+ * Returns the first n characters of a string.
+ * @param string The source string
+ * @param num_chars The number of characters to return from the left
+ * @returns {String} The leftmost characters
+ * @example
+ * LEFT("Hello", 3)
+ */
+LEFT(string: String, num_chars: Integer) => String
+
+/**
+ * Returns the number of characters in a string.
+ * @param string The string to measure
+ * @returns {Integer} The length of the string
+ * @example
+ * LEN("Hello")
+ */
+LEN(string: String) => Integer
+
+/**
+ * Converts a string to all lowercase characters.
+ * @param string The string to convert
+ * @returns {String} The string in lowercase
+ * @example
+ * LOWER("HELLO")
+ */
+LOWER(string: String) => String
+
+/**
+ * Returns the string with any leading spaces removed.
+ * @param string The string to trim
+ * @returns {String} The string without leading spaces
+ * @example
+ * LTRIM("  Hello")
+ */
+LTRIM(string: String) => String
+
+/**
+ * Returns a substring of a given length, starting from a specified position.
+ * @param string The source string
+ * @param start The starting position (1-based)
+ * @param length The number of characters to extract (optional)
+ * @returns {String} The extracted substring
+ * @example
+ * MID("Hello World", 7, 5)
+ */
+MID(string: String, start: Integer, length?: Integer) => String
+
+/**
+ * Replaces all occurrences of a substring with a replacement string.
+ * @param string The source string
+ * @param substring The substring to replace
+ * @param replacement The replacement string
+ * @returns {String} The string with replacements made
+ * @example
+ * REPLACE("Hello World", "World", "Universe")
+ */
+REPLACE(string: String, substring: String, replacement: String) => String
+
+/**
+ * Returns the last n characters of a string.
+ * @param string The source string
+ * @param num_chars The number of characters to return from the right
+ * @returns {String} The rightmost characters
+ * @example
+ * RIGHT("Hello", 3)
+ */
+RIGHT(string: String, num_chars: Integer) => String
+
+/**
+ * Returns the string with any trailing spaces removed.
+ * @param string The string to trim
+ * @returns {String} The string without trailing spaces
+ * @example
+ * RTRIM("Hello  ")
+ */
+RTRIM(string: String) => String
+
+/**
+ * Splits a string by a delimiter and returns the Nth token.
+ * @param string The string to split
+ * @param delimiter The delimiter to split on
+ * @param token_number Which token to return (1-based)
+ * @returns {String} The specified token
+ * @example
+ * SPLIT("A,B,C", ",", 2)
+ */
+SPLIT(string: String, delimiter: String, token_number: Integer) => String
+
+/**
+ * Returns true if the string starts with the substring.
+ * @param string The string to check
+ * @param substring The substring to look for at the beginning
+ * @returns {Boolean} TRUE if string starts with substring
+ * @example
+ * STARTSWITH("Hello World", "Hello")
+ */
+STARTSWITH(string: String, substring: String) => Boolean
+
+/**
+ * Returns the string with leading and trailing spaces removed.
+ * @param string The string to trim
+ * @returns {String} The string without leading or trailing spaces
+ * @example
+ * TRIM("  Hello  ")
+ */
+TRIM(string: String) => String
+
+/**
+ * Converts a string to all uppercase characters.
+ * @param string The string to convert
+ * @returns {String} The string in uppercase
+ * @example
+ * UPPER("hello")
+ */
+UPPER(string: String) => String
+
+/**
+ * Increments a date by a specified interval.
+ * @param date_part The part of the date to add to: 'year', 'quarter', 'month', 'day', 'hour', etc.
+ * @param interval The number of units of date_part to add
+ * @param date The starting date or datetime
+ * @returns {DateTime} The new date/datetime after adding the interval
+ * @example
+ * DATEADD('month', 3, [Order Date])
+ */
+DATEADD(date_part: String, interval: Integer, date: Date | DateTime) => DateTime
+
+/**
+ * Returns the difference between two dates in the specified units.
+ * @param date_part The unit of difference: 'year', 'quarter', 'month', 'day', 'hour', etc.
+ * @param start_date The first date
+ * @param end_date The second date
+ * @param start_of_week Optional day to start the week: 'sunday', 'monday', etc.
+ * @returns {Integer} The difference between the dates in the specified units
+ * @example
+ * DATEDIFF('day', [Order Date], [Ship Date])
+ */
+DATEDIFF(date_part: String, start_date: Date | DateTime, end_date: Date | DateTime, start_of_week?: String) => Integer
+
+/**
+ * Returns the specified date part as a string (e.g., 'January' for month).
+ * @param date_part The part of the date to extract: 'year', 'month', 'day', etc.
+ * @param date The date to extract from
+ * @param start_of_week Optional day to start the week
+ * @returns {String} The name of the date part as a string
+ * @example
+ * DATENAME('month', [Order Date])
+ */
+DATENAME(date_part: String, date: Date | DateTime, start_of_week?: String) => String
+
+/**
+ * Returns the specified date part as an integer.
+ * @param date_part The part of the date to extract: 'year', 'month', 'day', etc.
+ * @param date The date to extract from
+ * @param start_of_week Optional day to start the week
+ * @returns {Integer} The date part as an integer
+ * @example
+ * DATEPART('year', [Order Date])
+ */
+DATEPART(date_part: String, date: Date | DateTime, start_of_week?: String) => Integer
+
+/**
+ * Truncates a date to the accuracy of the specified date part.
+ * @param date_part The level to truncate to: 'year', 'month', 'day', etc.
+ * @param date The date to truncate
+ * @param start_of_week Optional day to start the week
+ * @returns {Date | DateTime} The truncated date
+ * @example
+ * DATETRUNC('month', [Order Date])
+ */
+DATETRUNC(date_part: String, date: Date | DateTime, start_of_week?: String) => Date | DateTime
+
+/**
+ * Returns the day of the month from a date.
+ * @param date The date to extract day from
+ * @returns {Integer} The day of the month (1-31)
+ * @example
+ * DAY([Order Date])
+ */
+DAY(date: Date | DateTime) => Integer
+
+/**
+ * Returns the month from a date.
+ * @param date The date to extract month from
+ * @returns {Integer} The month number (1-12)
+ * @example
+ * MONTH([Order Date]);
+ */
+MONTH(date: Date | DateTime) => Integer
+
+/**
+ * Returns the year from a date.
+ * @param date The date to extract year from
+ * @returns {Integer} The year as a four-digit number
+ * @example
+ * YEAR([Order Date])
+ */
+YEAR(date: Date | DateTime) => Integer
+
+/**
+ * Creates a date value from year, month, and day numbers.
+ * @param year The year (four digits)
+ * @param month The month (1-12)
+ * @param day The day (1-31)
+ * @returns {Date} A date constructed from the components
+ * @example
+ * MAKEDATE(2023, 12, 25)
+ */
+MAKEDATE(year: Integer, month: Integer, day: Integer) => Date
+
+/**
+ * Creates a datetime value from a date and a time string.
+ * @param date The date component
+ * @param time The time component as string or datetime
+ * @returns {DateTime} A datetime combining the date and time
+ * @example
+ * MAKEDATETIME([Order Date], "14:30:00")
+ */
+MAKEDATETIME(date: Date, time: String | DateTime) => DateTime
+
+/**
+ * Creates a time value from hour, minute, and second numbers.
+ * @param hour The hour (0-23)
+ * @param minute The minute (0-59)
+ * @param second The second (0-59)
+ * @returns {DateTime} A time value
+ * @example
+ * MAKETIME(14, 30, 0)
+ */
+MAKETIME(hour: Integer, minute: Integer, second: Integer) => DateTime
+
+/**
+ * Returns the current date and time.
+ * @returns {DateTime} The current datetime
+ * @example
+ * NOW()
+ */
+NOW() => DateTime
+
+/**
+ * Returns the current date.
+ * @returns {Date} The current date (without time)
+ * @example
+ * TODAY()
+ */
+TODAY() => Date
+
+/**
+ * Returns the average of the expression across all rows in the partition (aggregate function).
+ * @param expression The numeric expression to average
+ * @returns {Aggregate} The average value as an Aggregate
+ * @example
+ * AVG([Sales])
+ */
+AVG(expression: Number) => Aggregate
+
+/**
+ * Returns the number of non-null rows in the partition (aggregate function).
+ * @param expression The expression to count non-null values for
+ * @returns {Aggregate} The count as an Aggregate
+ * @example
+ * COUNT([Customer ID])
+ */
+COUNT(expression: Any) => Aggregate
+
+/**
+ * Returns the number of distinct (unique) items in the partition (aggregate function).
+ * @param expression The expression to count distinct values for
+ * @returns {Aggregate} The distinct count as an Aggregate
+ * @example
+ * COUNTD([Customer ID])
+ */
+COUNTD(expression: Any) => Aggregate
+
+/**
+ * Returns the maximum value of the expression in the partition (aggregate function).
+ * @param expression {Any} The expression to find maximum of
+ * @returns {Aggregate} The maximum value as an Aggregate
+ * @example
+ * MAX([Sales])
+ */
+MAX(expression: Any) => Aggregate
+
+/**
+ * Returns the minimum value of the expression in the partition (aggregate function).
+ * @param expression {Any} The expression to find minimum of
+ * @returns {Aggregate} The minimum value as an Aggregate
+ * @example
+ * MIN([Sales])
+ */
+MIN(expression: Any) => Aggregate
+
+/**
+ * Returns the sum of the expression across all rows in the partition (aggregate function).
+ * @param expression The numeric expression to sum
+ * @returns {Aggregate} The sum as an Aggregate
+ * @example
+ * SUM([Sales])
+ */
+SUM(expression: Number) => Aggregate
+
+/**
+ * Returns the sample standard deviation of the expression.
+ * @param expression The numeric expression to calculate standard deviation for
+ * @returns {Aggregate} The sample standard deviation as an Aggregate
+ */
+STDEV(expression: Number) => Aggregate
+
+/**
+ * Returns the population standard deviation of the expression.
+ * @param expression The numeric expression to calculate standard deviation for
+ * @returns {Aggregate} The population standard deviation as an Aggregate
+ */
+STDEVP(expression: Number) => Aggregate
+
+/**
+ * Returns the sample variance of the expression.
+ * @param expression The numeric expression to calculate variance for
+ * @returns {Aggregate} The sample variance as an Aggregate
+ */
+VAR(expression: Number) => Aggregate
+
+/**
+ * Returns the population variance of the expression.
+ * @param expression The numeric expression to calculate variance for
+ * @returns {Aggregate} The population variance as an Aggregate
+ */
+VARP(expression: Number) => Aggregate
+
+/**
+ * Represents an aggregated value. This is a conceptual type used for functions that return aggregated results.
+ * It can also be used as a function to explicitly aggregate an expression.
+ * @param expression The expression to aggregate.
+ * @returns {Aggregate} The aggregated value.
+ * @example
+ * AGGREGATE([Sales])
+ */
+AGGREGATE(expression: Any) => Aggregate
+
+/**
+ * Returns the value of the expression if it has a single value for all rows, otherwise returns an asterisk (*).
+ * @param expression The expression to check for consistency
+ * @returns {Aggregate} The single value or "*" if multiple values exist
+ * @example
+ * ATTR([Region])
+ */
+ATTR(expression: Any) => Aggregate
+
+/**
+ * Returns the index of the current row in the partition.
+ * @returns {Integer} The 1-based index of the current row
+ * @example
+ * INDEX()
+ */
+INDEX() => Integer
+
+/**
+ * Returns the number of rows from the current row to the first row.
+ * @returns {Integer} The number of rows to the first row
+ * @example
+ * FIRST()
+ */
+FIRST() => Integer
+
+/**
+ * Returns the number of rows from the current row to the last row.
+ * @returns {Integer} The number of rows to the last row
+ * @example
+ * LAST()
+ */
+LAST() => Integer
+
+/**
+ * Returns the value of the expression in a target row, specified as an offset from the current row.
+ * @param expression The expression to look up
+ * @param offset The number of rows to offset (optional, defaults to 0)
+ * @returns {Aggregate} The value from the target row
+ * @example
+ * LOOKUP(SUM([Sales]), -1)
+ */
+LOOKUP(expression: Aggregate, offset?: Integer) => Aggregate
+
+/**
+ * Returns the value of this calculation in the previous row.
+ * @param expression The expression to get previous value for
+ * @returns {Aggregate} The value from the previous calculation
+ * @example
+ * PREVIOUS_VALUE([Running Total])
+ */
+PREVIOUS_VALUE(expression: Aggregate) => Aggregate
+
+/**
+ * Returns the standard competition rank for the current row.
+ * @param expression The expression to rank by
+ * @param order The sort order: 'asc' or 'desc' (optional, defaults to 'desc')
+ * @returns {Integer} The rank of the current row
+ * @example
+ * RANK(SUM([Sales]))
+ */
+RANK(expression: Aggregate, order?: 'asc' | 'desc') => Integer
+
+/**
+ * Returns the dense rank for the current row.
+ * @param expression The expression to rank by
+ * @param order The sort order: 'asc' or 'desc' (optional, defaults to 'desc')
+ * @returns {Integer} The dense rank (no gaps in ranking)
+ * @example
+ * RANK_DENSE(SUM([Sales]))
+ */
+RANK_DENSE(expression: Aggregate, order?: 'asc' | 'desc') => Integer
+
+/**
+ * Returns the unique rank for the current row.
+ * @param expression The expression to rank by
+ * @param order The sort order: 'asc' or 'desc' (optional, defaults to 'desc')
+ * @returns {Integer} The unique rank (ties get different ranks)
+ * @example
+ * RANK_UNIQUE(SUM([Sales]))
+ */
+RANK_UNIQUE(expression: Aggregate, order?: 'asc' | 'desc') => Integer
+
+/**
+ * Returns the running sum of the expression from the first row to the current row.
+ * @param expression The expression to calculate running sum for
+ * @returns {Aggregate} The cumulative sum up to current row
+ * @example
+ * RUNNING_SUM(SUM([Sales]))
+ */
+RUNNING_SUM(expression: Aggregate) => Aggregate
+
+/**
+ * Returns the running average of the expression.
+ * @param expression The expression to calculate running average for
+ * @returns {Aggregate} The cumulative average up to current row
+ * @example
+ * RUNNING_AVG(SUM([Sales]))
+ */
+RUNNING_AVG(expression: Aggregate) => Aggregate
+
+/**
+ * Returns the number of rows in the partition.
+ * @returns {Integer} The total number of rows in the current partition
+ * @example
+ * SIZE()
+ */
+SIZE() => Integer
+
+/**
+ * Returns the total for the expression across the entire partition.
+ * @param expression The expression to total
+ * @returns {Aggregate} The grand total across all rows
+ * @example
+ * TOTAL(SUM([Sales]))
+ */
+TOTAL(expression: Aggregate) => Aggregate
+
+/**
+ * Returns the sum of the expression within a moving window.
+ * @param expression The expression to sum
+ * @param start The start offset of the window (optional)
+ * @param end The end offset of the window (optional)
+ * @returns {Aggregate} The sum within the specified window
+ * @example
+ * WINDOW_SUM(SUM([Sales]), -1, 1)
+ */
+WINDOW_SUM(expression: Aggregate, start?: Integer, end?: Integer) => Aggregate
+
+/**
+ * Returns the average of the expression within a moving window.
+ * @param expression The expression to average
+ * @param start The start offset of the window (optional)
+ * @param end The end offset of the window (optional)
+ * @returns {Aggregate} The average within the specified window
+ * @example
+ * WINDOW_AVG(SUM([Sales]), -2, 0)
+ */
+WINDOW_AVG(expression: Aggregate, start?: Integer, end?: Integer) => Aggregate
+
+/**
+ * Computes an aggregate using only the specified dimensions, regardless of other dimensions in the view.
+ * This is a special syntax structure for Level of Detail expressions.
+ * @example
+ * { FIXED [Region] : SUM([Sales]) }
+ */
+{ FIXED [Dimension 1], [Dimension 2] : Aggregate(expression) }
+
+/**
+ * @description Computes an aggregate at a finer level of detail by including the specified dimensions in addition to view dimensions.
+ * This is a special syntax structure for Level of Detail expressions.
+ * @example
+ * { INCLUDE [Product] : AVG([Sales]) }
+ */
+{ INCLUDE [Dimension 1], [Dimension 2] : Aggregate(expression) }
+
+/**
+ * @description Computes an aggregate at a coarser level of detail by excluding the specified dimensions from the view dimensions.
+ * This is a special syntax structure for Level of Detail expressions.
+ * @example
+ * { EXCLUDE [Month] : SUM([Sales]) }
+ */
+{ EXCLUDE [Dimension 1], [Dimension 2] : Aggregate(expression) }
