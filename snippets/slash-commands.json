@@ -36,7 +36,7 @@
       "{ ${1|FIXED,INCLUDE,EXCLUDE|} ${2:[Dimension]} : ${3:AGG([Measure])} }"
     ],
     "description": "Generate Level of Detail (LOD) expression"
-  },
+  },
   "nestedIif": {
     "prefix": "/iif",
     "body": [

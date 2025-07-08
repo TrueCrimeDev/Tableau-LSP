@@ -96,34 +96,47 @@ export function provideHover(params: HoverParams, document: TextDocument, fieldP
         }
     }
 
-    // If no symbol found, try word-at-position lookup for functions
+    // If no symbol found, try word-at-position lookup for functions and fields
     const wordRange = getWordRangeAtPosition(document, position);
     if (wordRange) {
-        const word = document.getText(wordRange).toUpperCase();
+        const word = document.getText(wordRange);
+        const upperWord = word.toUpperCase();
         console.log(`Found word at position: ${word}`);
+
+        // Check for field (inside brackets)
+        const lineText = document.getText({ start: { line: position.line, character: 0 }, end: { line: position.line, character: Number.MAX_SAFE_INTEGER } });
+        const fieldMatch = lineText.match(/\[([^\]]+)\]/);
+        if (fieldMatch && fieldParser) {
+            const fieldName = fieldMatch[1];
+            const customField = fieldParser.getField(fieldName);
+            if (customField) {
+                console.log(`Returning hover for field: ${fieldName}`);
+                return createCustomFieldHoverResponse(customField, wordRange);
+            }
+        }
         
-        // Try JSDoc parser first
+        // Try JSDoc parser first for functions
         if (jsDocParser) {
-            const jsDocSymbol = jsDocParser.getSymbol(word);
+            const jsDocSymbol = jsDocParser.getSymbol(upperWord);
             if (jsDocSymbol) {
-                console.log(`Returning JSDoc hover for word: ${word}`);
+                console.log(`Returning JSDoc hover for word: ${upperWord}`);
                 return createJSDocHoverResponse(jsDocSymbol, wordRange);
             }
             // Try typedefs
-            const jsDocType = jsDocParser.getType(word);
+            const jsDocType = jsDocParser.getType(upperWord);
             if (jsDocType) {
-                console.log(`Returning JSDoc typedef hover for word: ${word}`);
+                console.log(`Returning JSDoc typedef hover for word: ${upperWord}`);
                 return createJSDocTypeHoverResponse(jsDocType, wordRange);
             }
         }
         
         // Fallback to legacy symbol info map (will be removed later)
-        const symbolInfo = symbolInfoMap.get(word);
+        const symbolInfo = symbolInfoMap.get(upperWord);
         if (symbolInfo) {
-            console.log(`Returning legacy hover for word: ${word}`);
+            console.log(`Returning legacy hover for word: ${upperWord}`);
             return createHoverResponse(symbolInfo, wordRange);
         } else {
-            console.log(`No symbol info found for word: ${word}`);
+            console.log(`No symbol info found for word: ${upperWord}`);
         }
     } else {
         console.log(`No word found at position`);
