@@ -1,0 +1,57 @@
+/**
+ * This file is used to define custom fields and their types for the Tableau LSP.
+ * The LSP will use this information to provide type-aware hovers, semantic highlighting, and linting.
+ *
+ * The format is:
+ * [FieldName] = Type
+ *
+ * You can also add a description using a JSDoc-style comment block before the field definition.
+ */
+
+/**
+ * The date the record was created.
+ */
+[CREATED] = Date
+
+/**
+ * The date the record was last updated.
+ */
+[UPDATED] = DateTime
+
+/**
+ * The total amount for the record.
+ */
+[AMOUNT] = Number
+
+/**
+ * A flag indicating if the record is active.
+ */
+[IS_ACTIVE] = Boolean
+
+/**
+ * Tableau Sample Superstore fields (added for hinting)
+ * Types are assigned for hover and IntelliSense.
+ */
+[Person] = String
+[Region] = String
+[Returned] = Boolean
+[Order ID] = String
+[Row ID] = String
+[Order Date] = Date
+[Ship Date] = Date
+[Ship Mode] = String
+[Customer ID] = String
+[Customer Name] = String
+[Segment] = String
+[Country] = String
+[City] = String
+[State] = String
+[Postal Code] = String
+[Product ID] = String
+[Category] = String
+[Sub-Category] = String
+[Product Name] = String
+[Sales] = Number
+[Quantity] = Number
+[Discount] = Number
+[Profit] = Number

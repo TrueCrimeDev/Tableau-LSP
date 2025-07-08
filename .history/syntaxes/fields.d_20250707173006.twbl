@@ -1,0 +1,149 @@
+/**
+ * This file is used to define custom fields and their types for the Tableau LSP.
+ * The LSP will use this information to provide type-aware hovers, semantic highlighting, and linting.
+ *
+ * The format is:
+ * [FieldName] = Type
+ *
+ * You can also add a description using a JSDoc-style comment block before the field definition.
+ */
+
+/**
+ * The date the record was created.
+ */
+[CREATED] = Date
+
+/**
+ * The date the record was last updated.
+ */
+[UPDATED] = DateTime
+
+/**
+ * The total amount for the record.
+ */
+[AMOUNT] = Number
+
+/**
+ * A flag indicating if the record is active.
+ */
+[IS_ACTIVE] = Boolean
+
+/**
+ * Tableau Sample Superstore fields (added for hinting)
+ * Each field uses block comments and colon type syntax for hover support.
+ */
+
+/**
+ * Name of the person associated with the record.
+ */
+[Person]: String
+
+/**
+ * Geographic region for the order or customer.
+ */
+[Region]: String
+
+/**
+ * Whether the order was returned.
+ */
+[Returned]: Boolean
+
+/**
+ * Unique identifier for the order.
+ */
+[Order ID]: String
+
+/**
+ * Unique row identifier.
+ */
+[Row ID]: String
+
+/**
+ * Date the order was placed.
+ */
+[Order Date]: Date
+
+/**
+ * Date the order was shipped.
+ */
+[Ship Date]: Date
+
+/**
+ * Shipping mode for the order.
+ */
+[Ship Mode]: String
+
+/**
+ * Unique identifier for the customer.
+ */
+[Customer ID]: String
+
+/**
+ * Name of the customer.
+ */
+[Customer Name]: String
+
+/**
+ * Market segment for the order.
+ */
+[Segment]: String
+
+/**
+ * Country for the order or customer.
+ */
+[Country]: String
+
+/**
+ * City for the order or customer.
+ */
+[City]: String
+
+/**
+ * State or province for the order or customer.
+ */
+[State]: String
+
+/**
+ * Postal code for the order or customer.
+ */
+[Postal Code]: String
+
+/**
+ * Unique identifier for the product.
+ */
+[Product ID]: String
+
+/**
+ * Product category.
+ */
+[Category]: String
+
+/**
+ * Product sub-category.
+ */
+[Sub-Category]: String
+
+/**
+ * Name of the product.
+ */
+[Product Name]: String
+
+/**
+ * Sales amount for the order line.
+ */
+[Sales]: Number
+
+/**
+ * Quantity of items in the order line.
+ */
+[Quantity]: Number
+
+/**
+ * Discount applied to the order line.
+ */
+[Discount]: Number
+
+/**
+ * Profit for the order line.
+ */
+[Profit]: Number
