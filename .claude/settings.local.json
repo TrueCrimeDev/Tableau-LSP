@@ -116,7 +116,13 @@
       "Bash(claude mcp:*)",
       "Bash(NODE_OPTIONS=\"\" /usr/bin/node /usr/bin/npx esbuild --bundle --external:vscode client/extension.ts --outdir=out --platform=node --target=node20 --format=cjs)",
       "Bash(./node_modules/.bin/esbuild --bundle --external:vscode src/extension.ts --outdir=out --platform=node --target=node20 --format=cjs --sourcemap)",
-      "Bash(./node_modules/.bin/esbuild --bundle --external:vscode src/server.ts --outdir=out --platform=node --target=node20 --format=cjs --sourcemap)"
+      "Bash(./node_modules/.bin/esbuild --bundle --external:vscode src/server.ts --outdir=out --platform=node --target=node20 --format=cjs --sourcemap)",
+      "Bash(export NVM_DIR=\"$HOME/.nvm\")",
+      "Bash([ -s \"$NVM_DIR/nvm.sh\" ])",
+      "Bash(. \"$NVM_DIR/nvm.sh\")",
+      "Bash(nvm install:*)",
+      "Bash(nvm use:*)",
+      "Bash(export:*)"
     ],
     "deny": []
   }
