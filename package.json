@@ -42,6 +42,9 @@
     "Linters"
   ],
   "main": "./out/extension",
+  "activationEvents": [
+    "onLanguage:twbl"
+  ],
   "contributes": {
     "configurationDefaults": {
       "[twbl]": {
@@ -292,6 +295,8 @@
     "lodash-es": "^4.17.21",
     "semver": "^7.5.2",
     "vscode-languageclient": "10.0.0-next.15",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.12",
     "which": "^3.0.0"
   }
 }
