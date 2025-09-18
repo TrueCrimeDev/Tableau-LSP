@@ -1,0 +1,304 @@
+{
+  "---": "ADVANCED TABLEAU CALCULATION PATTERNS",
+  
+  "cohortAnalysis": {
+    "prefix": "cohort",
+    "body": [
+      "// Cohort Analysis - Customer Acquisition by Month",
+      "IF DATETRUNC('month', [First Purchase Date]) = DATETRUNC('month', [Order Date])",
+      "THEN COUNTD([Customer ID])",
+      "ELSE 0",
+      "END"
+    ],
+    "description": "Cohort analysis for customer acquisition tracking"
+  },
+  
+  "retentionRate": {
+    "prefix": "retention",
+    "body": [
+      "// Customer Retention Rate",
+      "COUNTD(IF [Order Date] >= DATEADD('month', -1, TODAY()) THEN [Customer ID] END) /",
+      "COUNTD(IF [Order Date] >= DATEADD('month', -2, TODAY()) AND [Order Date] < DATEADD('month', -1, TODAY()) THEN [Customer ID] END)"
+    ],
+    "description": "Customer retention rate calculation"
+  },
+  
+  "churnRate": {
+    "prefix": "churn",
+    "body": [
+      "// Customer Churn Rate",
+      "1 - (COUNTD(IF [Last Order Date] >= DATEADD('month', -3, TODAY()) THEN [Customer ID] END) /",
+      "COUNTD([Customer ID]))"
+    ],
+    "description": "Customer churn rate calculation"
+  },
+  
+  "customerLifetimeValue": {
+    "prefix": "clv",
+    "body": [
+      "// Customer Lifetime Value",
+      "{ FIXED [Customer ID] : SUM([Sales]) } *",
+      "{ FIXED [Customer ID] : DATEDIFF('day', MIN([Order Date]), MAX([Order Date])) } / 365 *",
+      "${1:average_customer_lifespan_years}"
+    ],
+    "description": "Customer Lifetime Value calculation"
+  },
+  
+  "rfmAnalysis": {
+    "prefix": "rfm",
+    "body": [
+      "// RFM Analysis - Recency, Frequency, Monetary",
+      "STR(CASE",
+      "    WHEN DATEDIFF('day', { FIXED [Customer ID] : MAX([Order Date]) }, TODAY()) <= 30 THEN 5",
+      "    WHEN DATEDIFF('day', { FIXED [Customer ID] : MAX([Order Date]) }, TODAY()) <= 60 THEN 4",
+      "    WHEN DATEDIFF('day', { FIXED [Customer ID] : MAX([Order Date]) }, TODAY()) <= 90 THEN 3",
+      "    WHEN DATEDIFF('day', { FIXED [Customer ID] : MAX([Order Date]) }, TODAY()) <= 180 THEN 2",
+      "    ELSE 1",
+      "END) +",
+      "STR(CASE",
+      "    WHEN { FIXED [Customer ID] : COUNTD([Order ID]) } >= 10 THEN 5",
+      "    WHEN { FIXED [Customer ID] : COUNTD([Order ID]) } >= 7 THEN 4",
+      "    WHEN { FIXED [Customer ID] : COUNTD([Order ID]) } >= 5 THEN 3",
+      "    WHEN { FIXED [Customer ID] : COUNTD([Order ID]) } >= 3 THEN 2",
+      "    ELSE 1",
+      "END) +",
+      "STR(CASE",
+      "    WHEN { FIXED [Customer ID] : SUM([Sales]) } >= 10000 THEN 5",
+      "    WHEN { FIXED [Customer ID] : SUM([Sales]) } >= 5000 THEN 4",
+      "    WHEN { FIXED [Customer ID] : SUM([Sales]) } >= 2000 THEN 3",
+      "    WHEN { FIXED [Customer ID] : SUM([Sales]) } >= 1000 THEN 2",
+      "    ELSE 1",
+      "END)"
+    ],
+    "description": "RFM (Recency, Frequency, Monetary) analysis scoring"
+  },
+  
+  "abcAnalysis": {
+    "prefix": "abc",
+    "body": [
+      "// ABC Analysis - Product Classification",
+      "IF RUNNING_SUM(SUM([Sales])) / TOTAL(SUM([Sales])) <= 0.8 THEN 'A'",
+      "ELSEIF RUNNING_SUM(SUM([Sales])) / TOTAL(SUM([Sales])) <= 0.95 THEN 'B'",
+      "ELSE 'C'",
+      "END"
+    ],
+    "description": "ABC analysis for product classification"
+  },
+  
+  "seasonalityIndex": {
+    "prefix": "seasonal",
+    "body": [
+      "// Seasonality Index",
+      "AVG(IF DATEPART('month', [Order Date]) = DATEPART('month', TODAY()) THEN [Sales] END) /",
+      "AVG([Sales])"
+    ],
+    "description": "Seasonality index calculation"
+  },
+  
+  "movingAverage": {
+    "prefix": "movingavg",
+    "body": [
+      "// ${1:3}-Period Moving Average",
+      "WINDOW_AVG(SUM([${2:Sales}]), -${3:2}, 0)"
+    ],
+    "description": "Moving average calculation"
+  },
+  
+  "exponentialSmoothing": {
+    "prefix": "expsmooth",
+    "body": [
+      "// Exponential Smoothing (Alpha = ${1:0.3})",
+      "IF INDEX() = 1 THEN SUM([${2:Sales}])",
+      "ELSE ${1:0.3} * SUM([${2:Sales}]) + (1 - ${1:0.3}) * LOOKUP(ATTR([Smoothed Value]), -1)",
+      "END"
+    ],
+    "description": "Exponential smoothing forecast"
+  },
+  
+  "zScore": {
+    "prefix": "zscore",
+    "body": [
+      "// Z-Score Calculation",
+      "(SUM([${1:Sales}]) - WINDOW_AVG(SUM([${1:Sales}]), FIRST(), LAST())) /",
+      "WINDOW_STDEV(SUM([${1:Sales}]), FIRST(), LAST())"
+    ],
+    "description": "Z-score standardization"
+  },
+  
+  "outlierDetection": {
+    "prefix": "outlier",
+    "body": [
+      "// Outlier Detection (IQR Method)",
+      "IF SUM([${1:Sales}]) < (WINDOW_PERCENTILE(SUM([${1:Sales}]), 0.25, FIRST(), LAST()) - 1.5 * ",
+      "(WINDOW_PERCENTILE(SUM([${1:Sales}]), 0.75, FIRST(), LAST()) - WINDOW_PERCENTILE(SUM([${1:Sales}]), 0.25, FIRST(), LAST())))",
+      "OR SUM([${1:Sales}]) > (WINDOW_PERCENTILE(SUM([${1:Sales}]), 0.75, FIRST(), LAST()) + 1.5 * ",
+      "(WINDOW_PERCENTILE(SUM([${1:Sales}]), 0.75, FIRST(), LAST()) - WINDOW_PERCENTILE(SUM([${1:Sales}]), 0.25, FIRST(), LAST())))",
+      "THEN 'Outlier'",
+      "ELSE 'Normal'",
+      "END"
+    ],
+    "description": "Outlier detection using IQR method"
+  },
+  
+  "correlationCoefficient": {
+    "prefix": "correlation",
+    "body": [
+      "// Correlation Coefficient",
+      "CORR(SUM([${1:Sales}]), SUM([${2:Profit}]))"
+    ],
+    "description": "Correlation coefficient between two measures"
+  },
+  
+  "percentileRank": {
+    "prefix": "percentilerank",
+    "body": [
+      "// Percentile Rank",
+      "RANK_PERCENTILE(SUM([${1:Sales}]), 'desc')"
+    ],
+    "description": "Percentile rank calculation"
+  },
+  
+  "cumulativeDistribution": {
+    "prefix": "cumulative",
+    "body": [
+      "// Cumulative Distribution",
+      "RUNNING_SUM(SUM([${1:Sales}])) / TOTAL(SUM([${1:Sales}]))"
+    ],
+    "description": "Cumulative distribution calculation"
+  },
+  
+  "marketBasketAnalysis": {
+    "prefix": "basket",
+    "body": [
+      "// Market Basket Analysis - Product Affinity",
+      "COUNTD(IF CONTAINS([Product Categories], '${1:Product A}') AND CONTAINS([Product Categories], '${2:Product B}') THEN [Order ID] END) /",
+      "COUNTD(IF CONTAINS([Product Categories], '${1:Product A}') THEN [Order ID] END)"
+    ],
+    "description": "Market basket analysis for product affinity"
+  },
+  
+  "conversionFunnel": {
+    "prefix": "funnel",
+    "body": [
+      "// Conversion Funnel Analysis",
+      "CASE [Funnel Stage]",
+      "    WHEN 'Awareness' THEN COUNTD([Visitor ID])",
+      "    WHEN 'Interest' THEN COUNTD(IF [Page Views] > 1 THEN [Visitor ID] END)",
+      "    WHEN 'Consideration' THEN COUNTD(IF [Time on Site] > 300 THEN [Visitor ID] END)",
+      "    WHEN 'Purchase' THEN COUNTD(IF [Orders] > 0 THEN [Visitor ID] END)",
+      "    ELSE 0",
+      "END"
+    ],
+    "description": "Conversion funnel analysis"
+  },
+  
+  "cohortRetention": {
+    "prefix": "cohortretention",
+    "body": [
+      "// Cohort Retention Analysis",
+      "COUNTD(IF DATEDIFF('month', [First Purchase Date], [Order Date]) = ${1:period_number} THEN [Customer ID] END) /",
+      "{ FIXED DATETRUNC('month', [First Purchase Date]) : COUNTD([Customer ID]) }"
+    ],
+    "description": "Cohort retention rate by period"
+  },
+  
+  "customerSegmentRFM": {
+    "prefix": "rfmsegment",
+    "body": [
+      "// Customer Segmentation based on RFM",
+      "IF [RFM Score] >= '555' THEN 'Champions'",
+      "ELSEIF [RFM Score] >= '454' THEN 'Loyal Customers'",
+      "ELSEIF [RFM Score] >= '543' THEN 'Potential Loyalists'",
+      "ELSEIF [RFM Score] >= '512' THEN 'New Customers'",
+      "ELSEIF [RFM Score] >= '155' THEN 'Promising'",
+      "ELSEIF [RFM Score] >= '155' THEN 'Need Attention'",
+      "ELSEIF [RFM Score] >= '155' THEN 'About to Sleep'",
+      "ELSEIF [RFM Score] >= '155' THEN 'At Risk'",
+      "ELSEIF [RFM Score] >= '155' THEN 'Cannot Lose Them'",
+      "ELSEIF [RFM Score] >= '155' THEN 'Hibernating'",
+      "ELSE 'Lost'",
+      "END"
+    ],
+    "description": "Customer segmentation based on RFM scores"
+  },
+  
+  "timeSeriesDecomposition": {
+    "prefix": "decompose",
+    "body": [
+      "// Time Series Trend Component",
+      "WINDOW_AVG(SUM([${1:Sales}]), -${2:6}, ${2:6})"
+    ],
+    "description": "Time series trend decomposition"
+  },
+  
+  "elasticityCalculation": {
+    "prefix": "elasticity",
+    "body": [
+      "// Price Elasticity of Demand",
+      "((SUM([${1:Quantity}]) - LOOKUP(SUM([${1:Quantity}]), -1)) / LOOKUP(SUM([${1:Quantity}]), -1)) /",
+      "((AVG([${2:Price}]) - LOOKUP(AVG([${2:Price}]), -1)) / LOOKUP(AVG([${2:Price}]), -1))"
+    ],
+    "description": "Price elasticity of demand calculation"
+  },
+  
+  "inventoryTurnover": {
+    "prefix": "turnover",
+    "body": [
+      "// Inventory Turnover Ratio",
+      "SUM([Cost of Goods Sold]) / AVG([Inventory Value])"
+    ],
+    "description": "Inventory turnover ratio calculation"
+  },
+  
+  "customerAcquisitionCost": {
+    "prefix": "cac",
+    "body": [
+      "// Customer Acquisition Cost",
+      "SUM([Marketing Spend]) / COUNTD(IF [First Purchase Date] >= DATETRUNC('month', TODAY()) THEN [Customer ID] END)"
+    ],
+    "description": "Customer acquisition cost calculation"
+  },
+  
+  "netPromoterScore": {
+    "prefix": "nps",
+    "body": [
+      "// Net Promoter Score",
+      "(COUNTD(IF [Rating] >= 9 THEN [Customer ID] END) - COUNTD(IF [Rating] <= 6 THEN [Customer ID] END)) /",
+      "COUNTD([Customer ID]) * 100"
+    ],
+    "description": "Net Promoter Score calculation"
+  },
+  
+  "customerSatisfactionIndex": {
+    "prefix": "csi",
+    "body": [
+      "// Customer Satisfaction Index",
+      "(AVG([Satisfaction Score]) - 1) / 4 * 100"
+    ],
+    "description": "Customer Satisfaction Index (1-5 scale to 0-100)"
+  },
+  
+  "salesForecast": {
+    "prefix": "forecast",
+    "body": [
+      "// Simple Linear Trend Forecast",
+      "IF [Order Date] > TODAY() THEN",
+      "    WINDOW_AVG(SUM([Sales]), FIRST(), LAST()) + ",
+      "    (INDEX() - SIZE()/2) * ",
+      "    (CORR(INDEX(), SUM([Sales])) * WINDOW_STDEV(SUM([Sales]), FIRST(), LAST()) / WINDOW_STDEV(INDEX(), FIRST(), LAST()))",
+      "ELSE SUM([Sales])",
+      "END"
+    ],
+    "description": "Simple linear trend forecast"
+  },
+  
+  "dynamicBenchmarking": {
+    "prefix": "benchmark",
+    "body": [
+      "// Dynamic Benchmarking",
+      "SUM([${1:Sales}]) / ",
+      "{ FIXED [${2:Category}] : AVG({ FIXED [${3:Region}] : SUM([${1:Sales}]) }) }"
+    ],
+    "description": "Dynamic benchmarking against category average"
+  }
+}

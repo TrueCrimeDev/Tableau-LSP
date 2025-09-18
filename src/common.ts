@@ -13,6 +13,7 @@ export enum SymbolType {
     Comment,
     CalculationName,
     Variable,
+    Expression,  // General expression symbol
     Unknown,
 }
 
@@ -22,6 +23,7 @@ export interface Symbol {
     type: SymbolType;
     range: Range;
     jsdocType?: string; // For variables with @type annotations
+    text?: string; // Optional text content for the symbol
     // For function calls, we can store the arguments
     arguments?: ArgumentSymbol[];
     // For block statements
@@ -40,10 +42,38 @@ export interface ParsedDocument {
     document: TextDocument;
     symbols: Symbol[];
     diagnostics: Diagnostic[];
+    // Enhanced for incremental parsing
+    lineSymbols?: Map<number, Symbol[]>; // Symbols organized by line number
+    lastChangeVersion?: number; // Track document version for incremental updates
+    changedLines?: Set<number>; // Track which lines have changed
+}
+
+// Enhanced cache structure for incremental parsing
+export interface CachedDocument extends ParsedDocument {
+    lineSymbols: Map<number, Symbol[]>;
+    lastChangeVersion: number;
+    changedLines: Set<number>;
 }
 
 // A cache to hold parsed documents to avoid re-parsing on every request.
-export const parsedDocumentCache: Map<string, ParsedDocument> = new Map();
+export const parsedDocumentCache: Map<string, CachedDocument> = new Map();
+
+// Change tracking for incremental parsing
+export interface DocumentChange {
+    range: Range;
+    rangeLength?: number;
+    text: string;
+}
+
+// Configuration for incremental parsing
+export const INCREMENTAL_PARSING_CONFIG = {
+    // Minimum document size (in lines) to enable incremental parsing
+    MIN_LINES_FOR_INCREMENTAL: 50,
+    // Maximum number of lines to re-parse around a change
+    REPARSE_CONTEXT_LINES: 5,
+    // Maximum cache size (number of documents)
+    MAX_CACHE_SIZE: 100
+};
 
 // Definition for built-in functions with their expected argument counts.
 // [minArgs, maxArgs]. Use Infinity for variadic functions like IIF or CASE.

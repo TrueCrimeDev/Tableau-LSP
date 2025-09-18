@@ -197,19 +197,6 @@ export async function workspaceSymbolProvider(params: WorkspaceSymbolParams, _to
     return symbols;
 }
 
-
-/**
- * A function to get diagnostics for a document. Your language server will call this.
- */
-export function getDiagnostics(document: TextDocument): Diagnostic[] {
-    // In a real server, you get the document from the onDidChangeContent event
-    // and call parseDocument there.
-    // For simplicity, we re-parse here.
-    parsedDocumentCache.delete(document.uri); // Ensure fresh parse
-    const parsedDoc = parseDocument(document);
-    return parsedDoc.diagnostics;
-}
-
 import { Location, Position, Range as LSRange } from 'vscode-languageserver';
 
 // --- LSP Feature Stubs ---

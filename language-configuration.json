@@ -1,8 +1,8 @@
 {
-    "comments": {
-        "lineComment": "//",
-        "blockComment": ["/*", "*/"]
-    },
+    // "comments": {
+    //     "lineComment": "//",
+    //     "blockComment": ["/*", "*/"]
+    // },
     "brackets": [
         ["{", "}"],
         ["(", ")"]
@@ -19,7 +19,9 @@
         ["\"", "\""],
         ["'", "'"]
     ],
-    "wordPattern": "(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\#\\%\\^\\&\\*\\(\\)\\-\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>\\/\\?\\s]+)",
+    "wordPattern": {
+        "pattern": "(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\#\\%\\^\\&\\*\\(\\)\\-\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>\\/\\?\\s]+)"
+    },
     "indentationRules": {
         "increaseIndentPattern": "^\\s*(IF|CASE|THEN|ELSE|ELSEIF|WHEN)\\b.*$",
         "decreaseIndentPattern": "^\\s*(END|ELSE|ELSEIF|WHEN)\\b.*$"

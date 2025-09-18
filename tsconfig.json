@@ -19,5 +19,9 @@
     "include": [
         "src/**/*.ts",
         "client/**/*.ts"
+    ],
+    "exclude": [
+        "src/tests/**/*.ts",
+        "**/*.test.ts"
     ]
 }
