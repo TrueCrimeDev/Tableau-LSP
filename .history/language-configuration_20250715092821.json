@@ -1,0 +1,50 @@
+{
+    "comments": {
+        "lineComment": "//",
+        "blockComment": ["/*", "*/"]
+    },
+    "brackets": [
+        ["{", "}"],
+        ["(", ")"]
+    ],
+    "autoClosingPairs": [
+        ["{", "}"],
+        ["(", ")"],
+        ["\"", "\""],
+        ["'", "'"]
+    ],
+    "surroundingPairs": [
+        ["{", "}"],
+        ["(", ")"],
+        ["\"", "\""],
+        ["'", "'"]
+    ],
+    "wordPattern": {
+        "pattern": "(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\#\\%\\^\\&\\*\\(\\)\\-\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>\\/\\?\\s]+)"
+    },
+    "indentationRules": {
+        "increaseIndentPattern": "^\\s*(IF|CASE|THEN|ELSE|ELSEIF|WHEN)\\b.*$",
+        "decreaseIndentPattern": "^\\s*(END|ELSE|ELSEIF|WHEN)\\b.*$"
+    },
+    "onEnterRules": [
+        {
+            "beforeText": "^\\s*//.*$",
+            "action": {
+                "indent": "none",
+                "appendText": "// "
+            }
+        },
+        {
+            "beforeText": "^\\s*IF\\b.*THEN\\s*$",
+            "action": {
+                "indent": "indent"
+            }
+        },
+        {
+            "beforeText": "^\\s*CASE\\b.*$",
+            "action": {
+                "indent": "indent"
+            }
+        }
+    ]
+}

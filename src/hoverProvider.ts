@@ -2,7 +2,7 @@ import { Hover, HoverParams, MarkupContent, MarkupKind } from 'vscode-languagese
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { parseDocument } from './documentModel';
 import { JSDocParser, JSDocSymbol } from './jsdocParser';
-import { SymbolType } from './common';
+import { SymbolType, Symbol } from './common';
 import { FieldParser, CustomField } from './fieldParser';
 
 interface SymbolInfo {
@@ -14,6 +14,30 @@ interface SymbolInfo {
     example?: string;
 }
 
+// R3.4: Performance optimization interfaces
+interface HoverCacheEntry {
+    hover: Hover;
+    timestamp: number;
+    documentVersion: number;
+}
+
+interface SymbolLookupIndex {
+    symbolsByLine: Map<number, Symbol[]>;
+    symbolsByName: Map<string, Symbol[]>;
+    lastUpdated: number;
+}
+
+// R3.4: Performance optimization configuration
+const HOVER_CACHE_CONFIG = {
+    MAX_CACHE_SIZE: 1000,
+    CACHE_TTL_MS: 5 * 60 * 1000, // 5 minutes
+    SYMBOL_INDEX_TTL_MS: 2 * 60 * 1000, // 2 minutes
+    ENABLE_PERFORMANCE_LOGGING: false
+};
+
+// R3.4: Performance optimization caches
+const hoverCache = new Map<string, HoverCacheEntry>();
+const symbolIndexCache = new Map<string, SymbolLookupIndex>();
 let jsDocParser: JSDocParser | null = null;
 const symbolInfoMap = new Map<string, SymbolInfo>(); // Legacy fallback map
 
@@ -36,113 +60,319 @@ if (definitionFilePath) {
     console.error('Could not find twbl.d.twbl definition file');
 }
 
+/**
+ * R3.4: Optimized hover provider with caching and efficient symbol lookup
+ */
 export function provideHover(params: HoverParams, document: TextDocument, fieldParser: FieldParser | null): Hover | undefined {
-    const { symbols } = parseDocument(document);
+    const startTime = HOVER_CACHE_CONFIG.ENABLE_PERFORMANCE_LOGGING ? Date.now() : 0;
     const position = params.position;
-    const text = document.getText();
-    const offset = document.offsetAt(position);
+    const documentUri = document.uri;
+    const documentVersion = document.version;
+    
+    // R3.4: Generate cache key for this hover request
+    const cacheKey = generateHoverCacheKey(documentUri, position, documentVersion);
+    
+    // R3.4: Check hover cache first
+    const cachedHover = getFromHoverCache(cacheKey);
+    if (cachedHover) {
+        logPerformance('Hover cache hit', startTime);
+        return cachedHover;
+    }
+    
+    // R3.4: Get or create symbol index for efficient lookup
+    const symbolIndex = getOrCreateSymbolIndex(document);
+    
+    // R3.4: Use efficient symbol lookup
+    const symbol = findSymbolAtPosition(position, symbolIndex);
+    let hover: Hover | undefined;
+    
+    if (symbol) {
+        hover = createHoverForSymbol(symbol, fieldParser);
+    }
+    
+    // R3.4: Fallback to word-at-position lookup if no symbol found
+    if (!hover) {
+        hover = createHoverForWordAtPosition(document, position, fieldParser);
+    }
+    
+    // R3.4: Cache the result if we found a hover
+    if (hover) {
+        addToHoverCache(cacheKey, hover, documentVersion);
+    }
+    
+    logPerformance('Total hover processing', startTime);
+    return hover;
+}
 
-    console.log(`Hover request at line ${position.line}, character ${position.character}`);
+/**
+ * R3.4: Generate cache key for hover requests
+ */
+function generateHoverCacheKey(documentUri: string, position: any, documentVersion: number): string {
+    return `${documentUri}:${position.line}:${position.character}:${documentVersion}`;
+}
 
-    // First, check parsed symbols from the document model
+/**
+ * R3.4: Get hover from cache if valid
+ */
+function getFromHoverCache(cacheKey: string): Hover | undefined {
+    const entry = hoverCache.get(cacheKey);
+    if (!entry) {
+        return undefined;
+    }
+    
+    // Check if cache entry is still valid
+    const now = Date.now();
+    if (now - entry.timestamp > HOVER_CACHE_CONFIG.CACHE_TTL_MS) {
+        hoverCache.delete(cacheKey);
+        return undefined;
+    }
+    
+    return entry.hover;
+}
+
+/**
+ * R3.4: Add hover to cache with cleanup
+ */
+function addToHoverCache(cacheKey: string, hover: Hover, documentVersion: number): void {
+    // Clean up cache if it's getting too large
+    if (hoverCache.size >= HOVER_CACHE_CONFIG.MAX_CACHE_SIZE) {
+        cleanupHoverCache();
+    }
+    
+    hoverCache.set(cacheKey, {
+        hover,
+        timestamp: Date.now(),
+        documentVersion
+    });
+}
+
+/**
+ * R3.4: Clean up old cache entries
+ */
+function cleanupHoverCache(): void {
+    const now = Date.now();
+    const keysToDelete: string[] = [];
+    
+    for (const [key, entry] of hoverCache.entries()) {
+        if (now - entry.timestamp > HOVER_CACHE_CONFIG.CACHE_TTL_MS) {
+            keysToDelete.push(key);
+        }
+    }
+    
+    // Remove oldest entries if still too large
+    if (keysToDelete.length === 0 && hoverCache.size >= HOVER_CACHE_CONFIG.MAX_CACHE_SIZE) {
+        const entries = Array.from(hoverCache.entries());
+        entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+        const toRemove = Math.floor(HOVER_CACHE_CONFIG.MAX_CACHE_SIZE * 0.2); // Remove 20%
+        keysToDelete.push(...entries.slice(0, toRemove).map(([key]) => key));
+    }
+    
+    keysToDelete.forEach(key => hoverCache.delete(key));
+}
+
+/**
+ * R3.4: Get or create symbol index for efficient lookup
+ */
+function getOrCreateSymbolIndex(document: TextDocument): SymbolLookupIndex {
+    const documentUri = document.uri;
+    const documentVersion = document.version;
+    
+    // Check if we have a valid cached index
+    const cachedIndex = symbolIndexCache.get(documentUri);
+    if (cachedIndex && 
+        Date.now() - cachedIndex.lastUpdated < HOVER_CACHE_CONFIG.SYMBOL_INDEX_TTL_MS) {
+        return cachedIndex;
+    }
+    
+    // Parse document and create new index
+    const { symbols } = parseDocument(document);
+    const symbolIndex = createSymbolIndex(symbols);
+    
+    // Cache the index
+    symbolIndexCache.set(documentUri, symbolIndex);
+    
+    // Clean up old indexes
+    cleanupSymbolIndexCache();
+    
+    return symbolIndex;
+}
+
+/**
+ * R3.4: Create efficient symbol lookup index
+ */
+function createSymbolIndex(symbols: Symbol[]): SymbolLookupIndex {
+    const symbolsByLine = new Map<number, Symbol[]>();
+    const symbolsByName = new Map<string, Symbol[]>();
+    
     for (const symbol of symbols) {
-        if (
-            position.line >= symbol.range.start.line &&
+        // Index by line for position-based lookup
+        for (let line = symbol.range.start.line; line <= symbol.range.end.line; line++) {
+            if (!symbolsByLine.has(line)) {
+                symbolsByLine.set(line, []);
+            }
+            symbolsByLine.get(line)!.push(symbol);
+        }
+        
+        // Index by name for name-based lookup
+        const upperName = symbol.name.toUpperCase();
+        if (!symbolsByName.has(upperName)) {
+            symbolsByName.set(upperName, []);
+        }
+        symbolsByName.get(upperName)!.push(symbol);
+    }
+    
+    return {
+        symbolsByLine,
+        symbolsByName,
+        lastUpdated: Date.now()
+    };
+}
+
+/**
+ * R3.4: Clean up old symbol index cache entries
+ */
+function cleanupSymbolIndexCache(): void {
+    const now = Date.now();
+    const keysToDelete: string[] = [];
+    
+    for (const [key, index] of symbolIndexCache.entries()) {
+        if (now - index.lastUpdated > HOVER_CACHE_CONFIG.SYMBOL_INDEX_TTL_MS) {
+            keysToDelete.push(key);
+        }
+    }
+    
+    keysToDelete.forEach(key => symbolIndexCache.delete(key));
+}
+
+/**
+ * R3.4: Efficiently find symbol at position using index
+ */
+function findSymbolAtPosition(position: any, symbolIndex: SymbolLookupIndex): Symbol | undefined {
+    const symbolsOnLine = symbolIndex.symbolsByLine.get(position.line);
+    if (!symbolsOnLine) {
+        return undefined;
+    }
+    
+    // Find the most specific symbol at this position
+    let bestMatch: Symbol | undefined;
+    let bestMatchSize = Infinity;
+    
+    for (const symbol of symbolsOnLine) {
+        if (position.line >= symbol.range.start.line &&
             position.line <= symbol.range.end.line &&
             position.character >= symbol.range.start.character &&
-            position.character <= symbol.range.end.character
-        ) {
-            // Handle Custom Fields
-            if (symbol.type === SymbolType.FieldReference && fieldParser) {
-                const customField = fieldParser.getField(symbol.name);
-                if (customField) {
-                    return createCustomFieldHoverResponse(customField, symbol.range);
-                }
-            }
-
-            // Handle variables with JSDoc types
-            if (symbol.type === SymbolType.Variable && symbol.jsdocType && jsDocParser) {
-                const typeName = symbol.jsdocType.replace(/<.*>/, ''); // Handle generics like Result<T>
-                const jsDocType = jsDocParser.getType(typeName);
-                if (jsDocType) {
-                    console.log(`Returning JSDoc typedef hover for variable: ${symbol.name}`);
-                    return createJSDocTypeHoverResponse(jsDocType, symbol.range);
-                }
-            }
-
-            // Handle function arguments
-            if (symbol.type === SymbolType.FunctionCall && symbol.arguments && jsDocParser) {
-                for (let i = 0; i < symbol.arguments.length; i++) {
-                    const arg = symbol.arguments[i];
-                    if (position.line >= arg.range.start.line && position.line <= arg.range.end.line &&
-                        position.character >= arg.range.start.character && position.character <= arg.range.end.character) {
-                        
-                        const funcDoc = jsDocParser.getSymbol(symbol.name);
-                        if (funcDoc && funcDoc.parameters && funcDoc.parameters[i]) {
-                            console.log(`Returning JSDoc parameter hover for: ${funcDoc.parameters[i].name}`);
-                            return createJSDocParameterHoverResponse(funcDoc.parameters[i], arg.range);
-                        }
-                    }
-                }
-            }
-
-            // Fallback for other symbol types if needed (e.g., functions from documentModel)
-            console.log(`Found parsed symbol: ${symbol.name}`);
-            const symbolInfo = symbolInfoMap.get(symbol.name.toUpperCase());
-            if (symbolInfo) {
-                console.log(`Returning hover for parsed symbol: ${symbol.name}`);
-                return createHoverResponse(symbolInfo, symbol.range);
+            position.character <= symbol.range.end.character) {
+            
+            // Calculate symbol size to find the most specific match
+            const symbolSize = (symbol.range.end.line - symbol.range.start.line) * 1000 + 
+                             (symbol.range.end.character - symbol.range.start.character);
+            
+            if (symbolSize < bestMatchSize) {
+                bestMatch = symbol;
+                bestMatchSize = symbolSize;
             }
         }
     }
+    
+    return bestMatch;
+}
 
-    // If no symbol found, try word-at-position lookup for functions and fields
-    const wordRange = getWordRangeAtPosition(document, position);
-    if (wordRange) {
-        const word = document.getText(wordRange);
-        const upperWord = word.toUpperCase();
-        console.log(`Found word at position: ${word}`);
-
-        // Check for field (inside brackets)
-        const lineText = document.getText({ start: { line: position.line, character: 0 }, end: { line: position.line, character: Number.MAX_SAFE_INTEGER } });
-        const fieldMatch = lineText.match(/\[([^\]]+)\]/);
-        if (fieldMatch && fieldParser) {
-            const fieldName = fieldMatch[1];
-            const customField = fieldParser.getField(fieldName);
-            if (customField) {
-                console.log(`Returning hover for field: ${fieldName}`);
-                return createCustomFieldHoverResponse(customField, wordRange);
-            }
+/**
+ * R3.4: Create hover for a specific symbol
+ */
+function createHoverForSymbol(symbol: Symbol, fieldParser: FieldParser | null): Hover | undefined {
+    // Handle Custom Fields
+    if (symbol.type === SymbolType.FieldReference && fieldParser) {
+        const customField = fieldParser.getField(symbol.name);
+        if (customField) {
+            return createCustomFieldHoverResponse(customField, symbol.range);
         }
-        
-        // Try JSDoc parser first for functions
+    }
+
+    // Handle variables with JSDoc types
+    if (symbol.type === SymbolType.Variable && symbol.jsdocType && jsDocParser) {
+        const typeName = symbol.jsdocType.replace(/<.*>/, ''); // Handle generics like Result<T>
+        const jsDocType = jsDocParser.getType(typeName);
+        if (jsDocType) {
+            return createJSDocTypeHoverResponse(jsDocType, symbol.range);
+        }
+    }
+
+    // Handle function calls
+    if (symbol.type === SymbolType.FunctionCall) {
         if (jsDocParser) {
-            const jsDocSymbol = jsDocParser.getSymbol(upperWord);
+            const jsDocSymbol = jsDocParser.getSymbol(symbol.name);
             if (jsDocSymbol) {
-                console.log(`Returning JSDoc hover for word: ${upperWord}`);
-                return createJSDocHoverResponse(jsDocSymbol, wordRange);
-            }
-            // Try typedefs
-            const jsDocType = jsDocParser.getType(upperWord);
-            if (jsDocType) {
-                console.log(`Returning JSDoc typedef hover for word: ${upperWord}`);
-                return createJSDocTypeHoverResponse(jsDocType, wordRange);
+                return createJSDocHoverResponse(jsDocSymbol, symbol.range);
             }
         }
         
-        // Fallback to legacy symbol info map (will be removed later)
-        const symbolInfo = symbolInfoMap.get(upperWord);
+        // Fallback to legacy symbol info
+        const symbolInfo = symbolInfoMap.get(symbol.name.toUpperCase());
         if (symbolInfo) {
-            console.log(`Returning legacy hover for word: ${upperWord}`);
-            return createHoverResponse(symbolInfo, wordRange);
-        } else {
-            console.log(`No symbol info found for word: ${upperWord}`);
+            return createHoverResponse(symbolInfo, symbol.range);
         }
-    } else {
-        console.log(`No word found at position`);
     }
 
     return undefined;
+}
+
+/**
+ * R3.4: Create hover for word at position (fallback)
+ */
+function createHoverForWordAtPosition(document: TextDocument, position: any, fieldParser: FieldParser | null): Hover | undefined {
+    const wordRange = getWordRangeAtPosition(document, position);
+    if (!wordRange) {
+        return undefined;
+    }
+    
+    const word = document.getText(wordRange);
+    const upperWord = word.toUpperCase();
+
+    // Check for field (inside brackets)
+    const lineText = document.getText({ 
+        start: { line: position.line, character: 0 }, 
+        end: { line: position.line, character: Number.MAX_SAFE_INTEGER } 
+    });
+    const fieldMatch = lineText.match(/\[([^\]]+)\]/);
+    if (fieldMatch && fieldParser) {
+        const fieldName = fieldMatch[1];
+        const customField = fieldParser.getField(fieldName);
+        if (customField) {
+            return createCustomFieldHoverResponse(customField, wordRange);
+        }
+    }
+    
+    // Try JSDoc parser first for functions
+    if (jsDocParser) {
+        const jsDocSymbol = jsDocParser.getSymbol(upperWord);
+        if (jsDocSymbol) {
+            return createJSDocHoverResponse(jsDocSymbol, wordRange);
+        }
+        // Try typedefs
+        const jsDocType = jsDocParser.getType(upperWord);
+        if (jsDocType) {
+            return createJSDocTypeHoverResponse(jsDocType, wordRange);
+        }
+    }
+    
+    // Fallback to legacy symbol info map
+    const symbolInfo = symbolInfoMap.get(upperWord);
+    if (symbolInfo) {
+        return createHoverResponse(symbolInfo, wordRange);
+    }
+
+    return undefined;
+}
+
+/**
+ * R3.4: Performance logging utility
+ */
+function logPerformance(operation: string, startTime: number): void {
+    if (HOVER_CACHE_CONFIG.ENABLE_PERFORMANCE_LOGGING && startTime > 0) {
+        const duration = Date.now() - startTime;
+        console.log(`[Hover Performance] ${operation}: ${duration}ms`);
+    }
 }
 
 function createJSDocHoverResponse(jsDocSymbol: JSDocSymbol, range: any): Hover | undefined {
@@ -372,3 +602,62 @@ function getWordRangeAtPosition(document: TextDocument, position: any) {
         end: document.positionAt(end)
     };
 }
+
+/**
+ * R3.4: Public API for cache management and performance monitoring
+ */
+export const HoverPerformanceAPI = {
+    /**
+     * Clear all hover caches
+     */
+    clearCaches(): void {
+        hoverCache.clear();
+        symbolIndexCache.clear();
+    },
+    
+    /**
+     * Get cache statistics
+     */
+    getCacheStats(): {
+        hoverCacheSize: number;
+        symbolIndexCacheSize: number;
+        hoverCacheHitRate?: number;
+    } {
+        return {
+            hoverCacheSize: hoverCache.size,
+            symbolIndexCacheSize: symbolIndexCache.size
+        };
+    },
+    
+    /**
+     * Configure performance settings
+     */
+    configurePerformance(config: Partial<typeof HOVER_CACHE_CONFIG>): void {
+        Object.assign(HOVER_CACHE_CONFIG, config);
+    },
+    
+    /**
+     * Force cleanup of caches
+     */
+    forceCleanup(): void {
+        cleanupHoverCache();
+        cleanupSymbolIndexCache();
+    },
+    
+    /**
+     * Invalidate cache for specific document
+     */
+    invalidateDocument(documentUri: string): void {
+        // Remove hover cache entries for this document
+        const keysToDelete: string[] = [];
+        for (const key of hoverCache.keys()) {
+            if (key.startsWith(documentUri + ':')) {
+                keysToDelete.push(key);
+            }
+        }
+        keysToDelete.forEach(key => hoverCache.delete(key));
+        
+        // Remove symbol index for this document
+        symbolIndexCache.delete(documentUri);
+    }
+};

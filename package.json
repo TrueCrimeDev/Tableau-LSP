@@ -1,8 +1,8 @@
 {
   "name": "tableau-language-support",
   "displayName": "Tableau Language Support",
-  "description": "Complete language support for Tableau calculation language with syntax highlighting, IntelliSense, validation, and formatting",
-  "version": "1.4.3",
+  "description": "Complete language support for Tableau calculation language with syntax highlighting, IntelliSense, validation, formatting, 100+ snippets, keyboard shortcuts, and advanced analytics patterns",
+  "version": "1.5.1",
   "publisher": "TrueCrimeAudit",
   "icon": "images/tableau-icon.png",
   "license": "MIT",
@@ -112,6 +112,10 @@
       {
         "language": "twbl",
         "path": "./snippets/slash-commands.json"
+      },
+      {
+        "language": "twbl",
+        "path": "./snippets/advanced-patterns.json"
       }
     ],
     "problemMatchers": [
@@ -136,31 +140,31 @@
       "type": "object",
       "title": "Tableau",
       "properties": {
-        "tableau.enableHover": {
+        "tableau-language-support.enableHover": {
           "scope": "resource",
           "type": "boolean",
           "description": "Enable hover tooltips for Tableau functions and keywords",
           "default": true
         },
-        "tableau.enableCompletion": {
+        "tableau-language-support.enableCompletion": {
           "scope": "resource",
           "type": "boolean",
           "description": "Enable auto-completion for Tableau functions",
           "default": true
         },
-        "tableau.enableSignatureHelp": {
+        "tableau-language-support.enableSignatureHelp": {
           "scope": "resource",
           "type": "boolean",
           "description": "Enable intelligent parameter hints for Tableau functions",
           "default": true
         },
-        "tableau.enableDiagnostics": {
+        "tableau-language-support.enableDiagnostics": {
           "scope": "resource",
           "type": "boolean",
           "description": "Enable syntax validation and error reporting",
           "default": true
         },
-        "tableau.trace.server": {
+        "tableau-language-support.trace.server": {
           "scope": "window",
           "type": "string",
           "description": "Traces the communication between VS Code and the Tableau language server.",
@@ -171,13 +175,13 @@
           ],
           "default": "off"
         },
-        "tableau.enableSnippets": {
+        "tableau-language-support.enableSnippets": {
           "scope": "resource",
           "type": "boolean",
           "description": "Enable snippet completions for Tableau functions",
           "default": true
         },
-        "tableau.semanticTokens": {
+        "tableau-language-support.semanticTokens": {
           "scope": "resource",
           "type": "string",
           "description": "Set level of semantic tokens for Tableau syntax highlighting",
@@ -188,71 +192,230 @@
           ],
           "default": "full"
         },
-        "tableau.enableFormatting": {
+        "tableau-language-support.enableFormatting": {
           "scope": "resource",
           "type": "boolean",
           "description": "Enable automatic formatting for Tableau expressions",
           "default": false
         },
-        "tableau.codeLens.enabled": {
+        "tableau-language-support.codeLens.enabled": {
           "scope": "resource",
           "type": "boolean",
           "description": "Enable all code lens features",
           "default": true
         },
-        "tableau.codeLens.formatExpression": {
+        "tableau-language-support.codeLens.formatExpression": {
           "scope": "resource",
           "type": "boolean",
           "description": "Show 'Format Expression' code lens on IF and CASE statements",
           "default": false
         },
-        "tableau.codeLens.explainLOD": {
+        "tableau-language-support.codeLens.explainLOD": {
           "scope": "resource",
           "type": "boolean",
           "description": "Show 'Explain LOD' code lens on Level of Detail expressions",
           "default": false
         },
-        "tableau.codeLens.showFunctionHelp": {
+        "tableau-language-support.codeLens.showFunctionHelp": {
           "scope": "resource",
           "type": "boolean",
           "description": "Show 'Show Function Help' code lens on aggregate functions",
           "default": false
         },
-        "tableau.codeLens.copyWithComment": {
+        "tableau-language-support.codeLens.copyWithComment": {
           "scope": "resource",
           "type": "boolean",
           "description": "Show 'Copy with Comment' code lens on all expressions",
+          "default": false
+        },
+        "tableau-language-support.logging.level": {
+          "scope": "window",
+          "type": "string",
+          "description": "Set the logging level for the extension",
+          "enum": [
+            "trace",
+            "debug",
+            "info",
+            "warn",
+            "error",
+            "fatal"
+          ],
+          "default": "info"
+        },
+        "tableau-language-support.logging.enableFileLogging": {
+          "scope": "window",
+          "type": "boolean",
+          "description": "Enable logging to file in .vscode/logs/ directory",
           "default": false
         }
       }
     },
     "commands": [
       {
-        "command": "tableau.lsp.restart",
+        "command": "tableau-language-support.lsp.restart",
         "title": "Restart Language Server",
         "category": "Tableau"
       },
       {
-        "command": "tableau.hello",
+        "command": "tableau-language-support.hello",
         "title": "Hello Tableau",
         "category": "Tableau"
       },
       {
-        "command": "tableau-lsp.runTests",
+        "command": "tableau-language-support.runTests",
         "title": "Run Tableau LSP Tests",
         "category": "Tableau"
       },
       {
-        "command": "tableau.insertSnippet",
+        "command": "tableau-language-support.insertSnippet",
         "title": "Insert Snippet",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.formatExpression",
+        "title": "Format Tableau Expression",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.validateExpression",
+        "title": "Validate Tableau Expression",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.insertIfStatement",
+        "title": "Insert IF Statement",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.insertCaseStatement",
+        "title": "Insert CASE Statement",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.insertLodExpression",
+        "title": "Insert LOD Expression",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.showFunctionHelp",
+        "title": "Show Function Help",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.toggleComments",
+        "title": "Toggle Comments",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau.showHelp",
+        "title": "Show Help Panel",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau.quickHelp",
+        "title": "Quick Help",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau.contextualHelp",
+        "title": "Contextual Help",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.status",
+        "title": "Show Extension Status",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.showLogs",
+        "title": "Show Logs",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.clearLogs",
+        "title": "Clear Logs",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.exportLogs",
+        "title": "Export Logs",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.loggingStats",
+        "title": "Show Logging Statistics",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.changeLogLevel",
+        "title": "Change Log Level",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.toggleFileLogging",
+        "title": "Toggle File Logging",
         "category": "Tableau"
       }
     ],
     "keybindings": [
       {
-        "command": "tableau.insertSnippet",
+        "command": "tableau-language-support.insertSnippet",
         "key": "ctrl+shift+s",
         "mac": "cmd+shift+s",
+        "when": "editorTextFocus && resourceExtname == .twbl"
+      },
+      {
+        "command": "tableau-language-support.formatExpression",
+        "key": "ctrl+shift+f",
+        "mac": "cmd+shift+f",
+        "when": "editorTextFocus && resourceExtname == .twbl"
+      },
+      {
+        "command": "tableau-language-support.validateExpression",
+        "key": "ctrl+shift+v",
+        "mac": "cmd+shift+v",
+        "when": "editorTextFocus && resourceExtname == .twbl"
+      },
+      {
+        "command": "tableau-language-support.insertIfStatement",
+        "key": "ctrl+shift+i",
+        "mac": "cmd+shift+i",
+        "when": "editorTextFocus && resourceExtname == .twbl"
+      },
+      {
+        "command": "tableau-language-support.insertCaseStatement",
+        "key": "ctrl+shift+c",
+        "mac": "cmd+shift+c",
+        "when": "editorTextFocus && resourceExtname == .twbl"
+      },
+      {
+        "command": "tableau-language-support.insertLodExpression",
+        "key": "ctrl+shift+l",
+        "mac": "cmd+shift+l",
+        "when": "editorTextFocus && resourceExtname == .twbl"
+      },
+      {
+        "command": "tableau-language-support.showFunctionHelp",
+        "key": "ctrl+shift+h",
+        "mac": "cmd+shift+h",
+        "when": "editorTextFocus && resourceExtname == .twbl"
+      },
+      {
+        "command": "tableau-language-support.toggleComments",
+        "key": "ctrl+/",
+        "mac": "cmd+/",
+        "when": "editorTextFocus && resourceExtname == .twbl"
+      },
+      {
+        "command": "tableau-language-support.lsp.restart",
+        "key": "ctrl+shift+r",
+        "mac": "cmd+shift+r",
+        "when": "editorTextFocus && resourceExtname == .twbl"
+      },
+      {
+        "command": "tableau-language-support.runTests",
+        "key": "ctrl+shift+t",
+        "mac": "cmd+shift+t",
         "when": "editorTextFocus && resourceExtname == .twbl"
       }
     ]
@@ -270,9 +433,28 @@
     "format:check": "prettier --check .",
     "lint": "eslint",
     "compile": "tsc --outDir out",
-    "clean": "rimraf out"
+    "clean": "rimraf out",
+    "test:all": "npm run compile && node ./out/tests/testRunner.js",
+    "test:unit": "jest",
+    "test:incremental": "npm run compile && node ./out/tests/runIncrementalTests.js",
+    "test:error": "npm run compile && node ./out/tests/testErrorRecovery.js",
+    "test:performance": "npm run compile && node ./out/tests/performance/performanceTests.js",
+    "test:edge": "npm run compile && node ./out/tests/edge/edgeCaseTests.js",
+    "test:integration": "npm run compile && node ./out/tests/integration/integrationTests.js",
+    "test:performance": "npm run compile && node ./out/tests/performance/runPerformanceTests.js",
+    "test:performance:suite": "npm run compile && npx jest --config=./src/tests/performance/jest.performance.config.js",
+    "test:performance:stress": "npm run compile && npx jest --config=./src/tests/performance/jest.performance.config.js --testPathPattern=stressTests",
+    "test:performance:lsp": "npm run compile && npx jest --config=./src/tests/performance/jest.performance.config.js --testPathPattern=lspPerformance",
+    "test:performance:baseline": "npm run test:performance -- --baseline ./test-results/performance/baseline.json",
+    "test:edge": "npm run compile && node ./out/tests/edge/edgeCaseTestRunner.js",
+    "test:edge:suite": "npm run compile && npx jest --config=./src/tests/edge/jest.edge.config.js",
+    "test:edge:malformed": "npm run compile && npx jest --config=./src/tests/edge/jest.edge.config.js --testPathPattern=malformedInputs",
+    "test:edge:boundary": "npm run compile && npx jest --config=./src/tests/edge/jest.edge.config.js --testPathPattern=boundaryConditions",
+    "test:edge:recovery": "npm run compile && npx jest --config=./src/tests/edge/jest.edge.config.js --testPathPattern=errorRecovery",
+    "test:report": "open ./test-results/test-report.html"
   },
   "devDependencies": {
+    "@types/jest": "^29.5.12",
     "@types/libsodium-wrappers": "^0.7.14",
     "@types/lodash-es": "^4.17.12",
     "@types/node": "^20.0.0",
@@ -284,8 +466,10 @@
     "esbuild": "^0.25.0",
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^9.1.0",
+    "jest": "^29.7.0",
     "prettier": "3.2.5",
     "rimraf": "^6.0.1",
+    "ts-jest": "^29.1.2",
     "typescript": "^5.4.3",
     "typescript-eslint": "^8.0.0"
   },

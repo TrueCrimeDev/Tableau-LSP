@@ -1,0 +1,96 @@
+// Monetary_Flag – returns 1 when a case is monetary, 0 otherwise
+IF [BW ATP] > 0
+OR [CMP Assessed] > 0
+THEN 1
+ELSE 0
+END
+
+// BW_ATP_No_CMPs_ID – returns Case ID when BW ATP > 0 and CMP = 0
+IF [BW ATP] > 0
+AND [CMP Assessed] = 0
+THEN [Case ID]
+END
+
+// Sales_vs_Target_Marker – traffic-light dots
+IF [1a. Sales - Target] = 0 THEN "⏸" // on target
+ELSEIF [1a. Sales - Target] > 0 THEN "🔵" // above
+ELSE "🔴" // below
+END
+
+// Healthcare_NAICS_Flag – OR logic across prefixes
+IF LEFT([Naics],4) IN ("6216","6231","6244")
+THEN 1
+ELSE 0
+END
+
+// Directed_Case_Flag – agency-initiated indicator
+IF [Case Type] = "Directed" THEN 1 ELSE 0 END
+
+// NO_RO_Violation_NAICS – boolean comparison to parameter
+[Naics] = [Parameter 4] // TRUE / FALSE result
+
+// Misclass_Case_ID – multi-test with AND
+IF [Registration Act] = "FLSA"
+AND [Misclassified Independent Contractors] = "Y"
+AND [BW ATP] > 0.01
+THEN [Case ID]
+END
+
+// Case_Hour_Bin – closed intervals, no gaps
+IF [Case Hours] < 10 THEN "0-9"
+ELSEIF [Case Hours] < 20 THEN "10-19"
+ELSEIF [Case Hours] < 30 THEN "20-29"
+ELSEIF [Case Hours] < 40 THEN "30-39"
+ELSEIF [Case Hours] < 50 THEN "40-49"
+ELSEIF [Case Hours] < 60 THEN "50-59"
+ELSEIF [Case Hours] < 70 THEN "60-69"
+ELSEIF [Case Hours] < 80 THEN "70-79"
+ELSEIF [Case Hours] < 90 THEN "80-89"
+ELSEIF [Case Hours] <100 THEN "90-99"
+ELSE "100+"
+END
+
+
+// Pct_Monetary – percent of cases that are monetary
+SUM([Monetary_Flag]) / COUNTD([Case ID])
+
+
+// Outreach_Numerator
+{ FIXED : COUNTD(
+IF [Event Type] NOT IN ("Compliance Consultation",
+"Face-to-Face Consultation",
+"Telephone Contact/Call")
+AND ( [Actual Audience] > 5
+OR [Event Type] = "Media (TV/Radio/News)" )
+THEN [Event ID]
+END ) }
+
+
+// Outreach_Denominator
+{ FIXED : COUNTD(
+IF [Event Type] NOT IN ("Compliance Consultation",
+"Face-to-Face Consultation",
+"Telephone Contact/Call")
+THEN [Event ID]
+END ) }
+
+
+// Community_Industry_Flag
+IF INDEXOF("11 23 48 49 56 621 623 624 722 44 45 0917 0967",
+LEFT([Naics],
+LEN(SPLIT("11"," ",1)))) >= 0
+THEN 1
+ELSE 0
+END
+
+
+/**
+ * Returns the average of the expression within a moving window.
+ * @param expression The expression to average
+ * @param start The start offset of the window (optional)
+ * @param end The end offset of the window (optional)
+ * @returns {Aggregate} The average within the specified window
+ * @example
+ * WINDOW_AVG(SUM([Sales]), -2, 0)
+ */
+WINDOW_AVG(expression: Aggregate, start?: Integer, end?: Integer) => Aggregate

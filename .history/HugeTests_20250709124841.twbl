@@ -1,0 +1,2188 @@
+// Marks
+// Mark IF sales is above OR below target AND by how much
+IF [1a. Sales - Target] = 0 THEN ''
+ELSEIF [1a. Sales - Target] > 0 THEN '🔵'
+ELSEIF [1a. Sales - Target] < 0 THEN '🔴'
+END
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// Initiative Table/Graph
+"Graph"
+
+// Violation Count
+[All Cases]
+
+// Monetary Cases
+IF([BW Due]>0.01 OR [CMP Assessed]>.01)
+THEN[All Cases]
+END
+
+// NO/RO Violation NAICS
+[Parameters].[Parameter 4]
+
+// Misclass Case Ids
+IF ([Registration Act] = "FLSA")
+AND ([Misclassified IndepENDent Contractors] = "Y")
+AND ([BW ATP]>.01)
+THEN [Case ID]
+END
+
+// All Misclass Cases
+COUNTD([Misclass Case Ids])
+
+// PM Case Id
+STR(IF([Registration Act]="FLSA")
+AND ([Investigation Tool] <> "Conciliation")
+THEN  [Case ID]
+END)
+
+// ALL CASES 2
+COUNTD([PM Case Id])
+
+// % of Misclass CA
+[All Misclass Cases]/[ALL CASES 2]
+
+// Index
+INDEX()
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// In Progress
+"In Progress"
+
+// TEXT Hyperlink
+"CLICK HERE - to be directed to the performance meausres"
+
+// Parent Initiative (copy)
+[Parent_Initiative]
+
+// TEXT Statement
+"** Please note that the Six Priority Components of Initiatives WILL NOT match the AMP performance measures. The data from this dashboard ONLY uses cases that were/are associated to initiatives.**"
+
+// % of CAs Employing High Number of Women
+COUNTD([Women NAICS])/COUNTD([Case ID])
+
+// % of Full Investigations
+COUNTD([Tool Full Investigations]) / SUM([All Cases])
+
+// % of Complaint Cases
+COUNTD([Complaint Cases]) / SUM([All Cases])
+
+// % of Conciliations
+COUNTD([Tool Conciliations]) / SUM([All Cases])
+
+// % of Office Audits
+COUNTD([Tool Office Audits]) / SUM([All Cases])
+
+// % of Limited Investigations
+COUNTD([Tool Limited Investigations]) / SUM([All Cases])
+
+// % of Self Audit
+COUNTD([Tool Self Audits]) / SUM([All Cases])
+
+// CMP No BWs Cases
+IF([CMP Assessed]>0 AND [BW ATP] = 0)
+THEN([Case_ID])
+END
+
+// BW ATP AND CMPs Cases
+IF([BW ATP]>0 AND [CMP Assessed]>0)
+THEN([Case_ID])
+END
+
+// Underserved Community Workers Due
+IF INT([Community Case ID])>1
+THEN [EE's ATP]
+END
+
+// BW ATP Cases
+IF([BW ATP]>0)
+THEN([Case_ID])
+END
+
+// BW ATP No CMPs Cases
+IF([BW ATP]>0 AND [CMP Assessed]=0)
+THEN([Case_ID])
+END
+
+// Healthcare NAICS
+IF (STARTSWITH([Naics],"6216")
+AND (STARTSWITH([Naics],"6231")
+AND (STARTSWITH([Naics],"6244"))))
+THEN[Naics]
+END
+
+// $ per hour
+SUM([BW ATP] + [LD ATP]+[CMP Assessed])/ SUM([Case Hours])
+
+// Monetary Cases
+IF ([BW ATP]>0 OR [CMP Assessed]>0) THEN [Case ID]
+END
+
+// % Monetary
+COUNTD([Monetary Cases])/SUM([All Cases])
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// NO/RO cases by NAICS
+[Parameters].[Parameter 2]
+
+// NO/RO BWs by NAICS
+[Parameters].[Parameter 3]
+
+// % of Violation Cases
+SUM([Cases with Violations])/SUM([All Cases])
+
+// BW Due Cases
+IF([BW Due]>0)
+THEN([Case_ID])
+END
+
+// % of BW Cases
+Count([BW ATP Cases ])/COUNTD([Case_ID])
+
+// Strategy
+IF ([Initiative Name] = "Cross-Regional Care Worker - Complaints")
+THEN "Care Worker - Complaints"
+ELSEIF ([Initiative Name] = "Cross-Regional Care Worker - Franchise/Brand Strategy")
+THEN "Franchise/Brand Strategy"
+ELSE[Initiative Name]
+END
+
+// BW/EE
+SUM([BW ATP])/SUM([EE's ATP])
+
+// Index
+INDEX()
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Initiative Table/Graph
+[Parameters].[Initiative Table/Graph]
+
+// Initiatives
+IIF([Initiative Name]="Cross-Regional 14c enforcement -Significant Leads","214c",
+IIF([Initiative Name]="Cross-Regional Agriculture - Agent/Attorney Strategy","Agriculture",
+IIF([Initiative Name]="Cross-Regional Agriculture -Top 10 Hand LabOR Crop Supply Chain Strategy","Agriculture",
+IIF([Initiative Name]="Cross-Regional Agriculture - Stakeholder Informed Strategy","Agriculture",
+IIF([Initiative Name]="Cross-Regional Agriculture - Outreach","Agriculture",
+IIF([Initiative Name]="Cross-Regional Agriculture - Specialty Supply Chain Strategy","Agriculture",
+IIF([Initiative Name]="Cross-Regional Agriculture - Complaints","Agriculture",
+IIF([Initiative Name]="Cross-Regional Residential Construction - Construction Growth","Residential Construction",
+IIF([Initiative Name]="Cross-Regional Residential Construction - Piece Rate Trades","Residential Construction",
+IIF([Initiative Name]="Cross-Regional Residential Construction - Minors AND Minimum Wage Data","Residential Construction",
+IIF([Initiative Name]="Cross-Regional Residential Construction - Outreach","Residential Construction",
+IIF([Initiative Name]="Cross-Regional Residential Construction - H2B Strategy","Residential Construction",
+IIF([Initiative Name]="Cross-Regional Residential Construction - Complaints","Residential Construction",
+IIF([Initiative Name]="Cross-Regional Residential Construction - Homebuilder Strategy","Residential Construction",
+IIF([Initiative Name]="Cross-Regional Building Services Workers - Franchise Strategy","Building Services",
+IIF([Initiative Name]="Cross-Regional Building Services Workers - Building Service ContractOR Strategy","Building Services",
+IIF([Initiative Name]="Cross-Regional Building Services Workers - Stakeholder Informed Strategy","Building Services",
+IIF([Initiative Name]="Cross-Regional Building Services Worker - Complaints","Building Services",
+IIF([Initiative Name]="Cross-Regional Government Contract Workers Transportation","Government Contracts",
+IIF([Initiative Name]="Cross-Regional Government Contract Workers Clean Energy","Government Contracts",
+IIF([Initiative Name]="Cross-Regional Government Contract Workers - HUD","Government Contracts",
+IIF([Initiative Name]="Cross-Regional Government Contract Workers Related Act infrastructure","Government Contracts",
+IIF([Initiative Name]="Cross-Regional Government Contract Workers Big Prime","Government Contracts",
+IIF([Initiative Name]="Cross-Regional Government Contract Workers - Outreach","Government Contracts",
+IIF([Initiative Name]="Cross-Regional Government Contract Workers - Complaints","Government Contracts",
+IIF([Initiative Name]="Cross-Regional Care Worker - Regulatory Licensing Strategy","Care",
+IIF([Initiative Name]="Cross-Regional Care Worker - Franchise/Brand Strategy","Care",
+IIF([Initiative Name]="Cross-Regional Care Worker - Strategy 3: Stakeholder Informed Strategy","Care",
+IIF([Initiative Name]="Cross-Regional Care Worker - Strategy 4: Backyard Strategy","Care",
+IIF([Initiative Name]="Cross-Regional Care Worker - Complaints","Care",
+IIF([Initiative Name]="Cross-Regional Food Services - ER with multiple legal entities","Food Services",
+IIF([Initiative Name]="Cross-Regional Food Services - ER open extENDed hours","Food Services",
+IIF([Initiative Name]="Cross-Regional Food Services - HO equipment present","Food Services",
+IIF([Initiative Name]="Cross-Regional Food Services - Other Case Selection Strategy","Food Services",
+IIF([Initiative Name]="Cross-Regional Food Services - Outreach","Food Services",
+IIF([Initiative Name]="Cross-Regional Food Services - Equity Strategy","Food Services",
+IIF([Initiative Name]="Cross-Regional Food Services - Franchise Strategy","Food Services",
+IIF([Initiative Name]="Cross-Regional Food Services - Complaints","Food Services",
+IIF([Initiative Name]="Cross-Regional Warehouse - Outsource Strategy","Warehousing",
+IIF([Initiative Name]="Cross-Regional Warehouse - Stakeholder Informed Strategy","Warehousing",
+IIF([Initiative Name]="Cross-Regional Warehouse - Complaints","Warehousing",
+IIF([Initiative Name]="Cross-Regional Warehouse - Outreach","Warehousing",
+IIF([Initiative Name]="Cross-Regional Warehouse - Distribution Model Strategy","Warehousing",
+IIF([Initiative Name]="Natural Disaster - Floods","Natural Disasters",
+IIF([Initiative Name]="Natural Disaster - Hurricane Michael","Natural Disasters",
+IIF([Initiative Name]="Natural Disaster - Hurricane Ian","Natural Disasters",
+IIF([Initiative Name]="Natural Disaster - Hurricane Fiona","Natural Disasters",
+IIF([Initiative Name]="Natural Disaster - Tornadoes","Natural Disasters",
+IIF([Initiative Name]="Natural Disaster - Torndoes","Natural Disasters",
+IIF([Initiative Name]="Southeast Region Auto Care","SE Auto Care",
+IIF([Initiative Name]="Southeast Auto Repair AND Retail","SE Auto Care",
+IIF([Initiative Name]="Southeast Auto Manufacturing","SE Auto Care",
+IIF([Initiative Name]="Southeast Region Hospitality","SE Hospitality",
+IIF([Initiative Name]="Food Stores","SE Food Stores AND Meat Processors",
+IIF([Initiative Name]="Meat processors - not poultry","SE Food Stores AND Meat Processors",
+IIF([Initiative Name]="Southeast Region Food Stores AND Meat Processors","SE Food Stores AND Meat Processors",
+IIF([Initiative Name]="Poultry processors AND chicken catchers","SE Food Stores AND Meat Processors",
+IIF([Initiative Name]="MS Delta","SE OHP",
+IIF([Initiative Name]="H2B","SE OHP",
+IIF([Initiative Name]="All other H2A","SE OHP",
+IIF([Initiative Name]="MS Delta","SE OHP",
+IIF([Initiative Name]="Agriculture Workers","Agriculture",
+IIF([Initiative Name]="Building Services Workers","Building Services",
+IIF([Initiative Name]="Care Workers","Care",
+IIF([Initiative Name]="Food Services Workers","Food Services",
+IIF([Initiative Name]="Government Contract Workers","Government Contracts",
+IIF([Initiative Name]="National Child Labor","Child Labor",
+IIF([Initiative Name]="Residential Construction Workers","Residential Construction",
+IIF([Initiative Name]="Warehouse Workers","Warehouse",
+"")))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+
+// Agency Initiated Cases
+IF
+[Case Type] = "Directed"
+THEN [All Cases]
+END
+
+// % of Agency Initiated Cases
+SUM([Directed Cases])/SUM([All Cases])
+
+// Community NAICS
+INT(IF(STARTSWITH([Naics],"11")
+OR STARTSWITH([Naics],"23")
+OR STARTSWITH([Naics],"48")
+OR STARTSWITH([Naics],"49")
+OR STARTSWITH([Naics],"56")
+OR STARTSWITH([Naics],"621")
+OR STARTSWITH([Naics],"623")
+OR STARTSWITH([Naics],"624")
+OR STARTSWITH([Naics],"722")
+OR STARTSWITH([Naics],"44")
+OR STARTSWITH([Naics],"45")
+OR STARTSWITH([Naics],"0917")
+OR STARTSWITH([Naics],"0967"))
+THEN [Naics] END)
+
+// Community Case ID
+STR(IF([Community NAICS]>0) THEN [Case ID] END)
+
+// % of CAs in Industries with Large Number of Workers in Underserved Communities
+COUNTD([Community Case ID])/COUNTD([Case ID])
+
+// Women NAICS
+INT(IF(STARTSWITH([Naics],"44")
+OR STARTSWITH([Naics],"0917")
+OR STARTSWITH([Naics],"0967")
+OR STARTSWITH([Naics],"45")
+OR STARTSWITH([Naics],"48")
+OR STARTSWITH([Naics],"49")
+OR STARTSWITH([Naics],"52")
+OR STARTSWITH([Naics],"54")
+OR STARTSWITH([Naics],"61")
+OR STARTSWITH([Naics],"621")
+OR STARTSWITH([Naics],"623")
+OR STARTSWITH([Naics],"624")
+OR STARTSWITH([Naics],"722")
+OR STARTSWITH([Naics],"812")
+OR STARTSWITH([Naics],"92"))
+THEN [Naics] END)
+
+// Total Community cases
+COUNTD([Community Case ID])
+
+// BW/Case
+SUM([BW ATP])/SUM([All Cases])
+
+// Tool Full Investigations
+IF ([Investigation Tool] = "Full Investigation")
+THEN [Case_ID]
+END
+
+// TEXT BW ATP
+"BW ATP"
+
+// Cases
+COUNTD([Case ID])
+
+// Calculation1
+COUNTD([Case ID])-
+
+// Directed Cases
+IF [Case Type]="Directed"
+THEN 1
+END
+
+// % of Directed Cases
+SUM([Directed Cases]) / SUM([All Cases])
+
+// Case_ID
+STR([Case ID])
+
+// Complaint Cases
+IF [Case Type]="Complaint"
+THEN [Case_ID]
+END
+
+// Tool Conciliations
+IF ([Investigation Tool] = "Conciliation")
+THEN [Case_ID]
+END
+
+// Tool Office Audits
+IF ([Investigation Tool] = "Office Audit")
+THEN [Case_ID]
+END
+
+// Tool Limited Investigations
+IF ([Investigation Tool] = "Limited Investigation")
+THEN [Case_ID]
+END
+
+// BW Full Investigations
+IF ([Investigation Tool] = "Full Investigation")
+THEN [BW ATP]
+END
+
+// Strategy Name
+[Initiative Name]
+
+// BW Limited Investigations
+IF ([Investigation Tool] = "Limited Investigation")
+THEN [BW ATP]
+END
+
+// Parent Initiative (copy)
+[Parent Initative]
+
+// TEXT All Cases
+"All Cases"
+
+// TEXT EEs ATP
+"EEs ATP"
+
+// TEXT LDs ATP
+"LDs ATP"
+
+// TEXT CMPs
+"CMPs"
+
+// TEXT Avg. BW ATP
+"BW ATP/ Worker"
+
+// TEXT Monetary Rate
+"Monetary Rate"
+
+// BW Conciliations
+IF ([Investigation Tool] = "Conciliation")
+THEN [BW ATP]
+END
+
+// worker Conciliations
+IF ([Investigation Tool] = "Conciliation")
+THEN [EE's ATP]
+END
+
+// LD Conciliations
+IF ([Investigation Tool] = "Conciliation")
+THEN [LD ATP]
+END
+
+// CMP Conciliations
+IF ([Investigation Tool] = "Conciliation")
+THEN [CMP Assessed]
+END
+
+// worker Full Investigations
+IF ([Investigation Tool] = "Full Investigation")
+THEN [EE's ATP]
+END
+
+// LD Full Investigations
+IF ([Investigation Tool] = "Full Investigation")
+THEN [LD ATP]
+END
+
+// CMP Full Investigations
+IF ([Investigation Tool] = "Full Investigation")
+THEN [CMP Assessed]
+END
+
+// Tool Self Audits
+IF ([Investigation Tool] = "Self Audit")
+THEN [Case_ID]
+END
+
+// worker Limited Investigations
+IF ([Investigation Tool] = "Limited Investigation")
+THEN [EE's ATP]
+END
+
+// LD Limited Investigations
+IF ([Investigation Tool] = "Limited Investigation")
+THEN [LD ATP]
+END
+
+// CMP Limited Investigations
+IF ([Investigation Tool] = "Limited Investigation")
+THEN [CMP Assessed]
+END
+
+// BW Office Audits
+IF ([Investigation Tool] = "Office Audit")
+THEN [BW ATP]
+END
+
+// worker Office Audits
+IF ([Investigation Tool] = "Office Audit")
+THEN [EE's ATP]
+END
+
+// LD Office Audits
+IF ([Investigation Tool] = "Office Audit")
+THEN [LD ATP]
+END
+
+// CMP Office Audits
+IF ([Investigation Tool] = "Office Audit")
+THEN [CMP Assessed]
+END
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// Initiative Table/Graph
+"Graph"
+
+// Total Cases in Numerator
+COUNTD([cases in Numerator])
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Cases with Score over 25
+IF [Total CL Severity Score] >= 25
+THEN 'Y'
+ELSE'N'
+END
+
+// cases in Numerator
+IF [Cases with Score over 25] = 'Y'
+THEN [Case ID]
+END
+
+// Total Cases
+COUNTD([Case ID])
+
+// % of Cases with a Category 3 index score OR higher
+[Total Cases in Numerator]/[Total Cases]
+
+// Through Today
+[Date Event Start]<=TODAY()
+
+// DenominatOR IDs
+IF 
+  (
+[Event Type] <> "Compliance Consultation" AND
+[Event Type] <> "Face-to-Face Consultation" AND
+[Event Type] <> "Telephone Contact/Call"
+) THEN [Event ID] END
+
+// NumeratOR IDs
+IF
+[Event Type] <> "Compliance Consultation" AND
+[Event Type] <> "Face-to-Face Consultation" AND
+[Event Type] <> "Telephone Contact/Call" AND
+([Actual Audience] >5 OR [Event Type] = 'Media (TV/Radio/News)')
+THEN [Event ID] END
+
+// Outreach %
+[Numerator]/[Denominator]
+
+// Numerator
+COUNTD([NumeratOR IDs])
+
+// Denominator
+COUNTD([DenominatOR IDs])
+
+// Events
+COUNTD([Event ID])
+
+// Audience
+{FIXED [Event ID]: MAX([Actual Audience])}
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// All Cases
+COUNTD([Case ID])
+
+// Index
+INDEX()
+
+// Percent CL Severity Over 25
+SUM([Score Over 25])/SUM([CaseLevel_Concluded_Ouput].[Total Cases (Exclude Conciliations)])
+
+// Case_ID
+str([Case ID])
+
+// Total Cases (Exclude Conciliations)
+IF [Investigation Tool] <> 'Conciliation' THEN 1 ELSE0 END
+
+// Healthcare Misclass
+IF([Misclassified IndepENDent Contractors] = "Y") THEN "Misclassified"
+ELSEIF ([Misclassified IndepENDent Contractors] = "N") THEN "Not Misclassified"
+END
+
+// Case Hour Bin
+IF [Case Hours]>0 AND [Case Hours]<10 THEN "0-9"
+ELSEIF [Case Hours]>10 AND [Case Hours]<20 THEN "10-19"
+ELSEIF [Case Hours]>20 AND [Case Hours]<30 THEN "20"
+ELSEIF [Case Hours]>30 AND [Case Hours]<40 THEN "30"
+ELSEIF [Case Hours]>40 AND [Case Hours]<50 THEN "40"
+ELSEIF [Case Hours]>50 AND [Case Hours]<60 THEN "50"
+ELSEIF [Case Hours]>60 AND [Case Hours]<70 THEN "60"
+ELSEIF [Case Hours]>70 AND [Case Hours]<80 THEN "70"
+ELSEIF [Case Hours]>80 AND [Case Hours]<90 THEN "80"
+ELSEIF [Case Hours]>90 AND [Case Hours]<100 THEN "90"
+ELSEIF [Case Hours]>100 THEN "100+"
+ELSE NULL
+END
+
+// BW/Hr
+SUM([BW ATP])/SUM([Case Hours])
+
+// Inv RO Abr.
+IF [Investigating RO] = "Northeast Regional Office" THEN 'NE'
+ELSEIF [Investigating RO] = "Southeast Regional Office" THEN 'SE'
+ELSEIF [Investigating RO] = "Midwest Regional Office" THEN 'MW'
+ELSEIF [Investigating RO] = "Southwest Regional Office" THEN 'SW'
+ELSEIF [Investigating RO] = "Western Regional Office" THEN 'WE'
+ELSE[Investigating RO]
+END
+
+// Total Monetary
+IF [BW ATP]>0 OR [CMP Assessed]>0 THEN 1 ELSE0 END
+
+// % Monetary
+SUM([Total Monetary])/SUM([All Cases])
+
+// $ per Hour
+([BW ATP] + [LD ATP]+[CMP Assessed])/ ([Case Hours])
+
+// Misclass Case Ids
+IF ([Registration Act] = "FLSA")
+AND ([Misclassified IndepENDent Contractors] = "Y")
+AND (([BW ATP]>.01) OR ([CMP Assessed]>.01))
+THEN [Case ID]
+END
+
+// Total Cases (Exclude Conciliations)
+IF [Investigation Tool] <> 'Conciliation' THEN 1 ELSE 0 END
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Strategy Name
+[Initiative Name]
+
+// Parent Initiative (copy)
+[Parent Initative]
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Parent Initiative (copy)
+[Parent_Initiative]
+
+// Total Monetary
+IF [BW ATP]>0 OR [CMP Assessed]>0 THEN 1 ELSE 0 END
+
+// % Monetary
+SUM([Total Monetary])/SUM([All Cases])
+
+// $ per Hour
+([BW ATP] + [LD ATP]+[CMP Assessed])/ ([Case Hours])
+
+// Total Monetary
+IF [BW ATP]>0 OR [CMP Assessed]>0 THEN 1 ELSE 0 END
+
+// % Monetary
+SUM([Total Monetary])/SUM([All Cases])
+
+// Misclass Case Ids
+IF ([Registration Act] = "FLSA")
+AND ([Misclassified IndepENDent Contractors] = "Y")
+AND ([BW ATP]>.01)
+THEN [Case ID]
+END
+
+// All Misclass Cases
+COUNTD([Misclass Case Ids])
+
+// PM Case Id
+STR(IF([Registration Act]="FLSA")
+AND ([Investigation Tool] <> "Conciliation")
+THEN  [Case ID]
+END)
+
+// ALL CASES 2
+COUNTD([PM Case Id])
+
+// % of Misclass CA
+[All Misclass Cases]/[ALL CASES 2]
+
+// % of CAs Employing High Number of Women
+COUNTD([Women NAICS])/COUNTD([Case ID])
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// % of Agency Initiated Cases
+SUM([Directed Cases])/SUM([All Cases])
+
+// Community NAICS
+INT(IF(STARTSWITH([Naics],"11")
+OR STARTSWITH([Naics],"23")
+OR STARTSWITH([Naics],"48")
+OR STARTSWITH([Naics],"49")
+OR STARTSWITH([Naics],"56")
+OR STARTSWITH([Naics],"621")
+OR STARTSWITH([Naics],"623")
+OR STARTSWITH([Naics],"624")
+OR STARTSWITH([Naics],"722")
+OR STARTSWITH([Naics],"44")
+OR STARTSWITH([Naics],"45")
+OR STARTSWITH([Naics],"0917")
+OR STARTSWITH([Naics],"0967"))
+THEN [Naics] END)
+
+// Community Case ID
+STR(IF([Community NAICS]>0) THEN [Case ID] END)
+
+// % of CAs in Industries with Large Number of Workers in Underserved Communities
+COUNTD([Community Case ID])/COUNTD([Case ID])
+
+// Women NAICS
+INT(IF(STARTSWITH([Naics],"44")
+OR STARTSWITH([Naics],"0917")
+OR STARTSWITH([Naics],"0967")
+OR STARTSWITH([Naics],"45")
+OR STARTSWITH([Naics],"48")
+OR STARTSWITH([Naics],"49")
+OR STARTSWITH([Naics],"52")
+OR STARTSWITH([Naics],"54")
+OR STARTSWITH([Naics],"61")
+OR STARTSWITH([Naics],"621")
+OR STARTSWITH([Naics],"623")
+OR STARTSWITH([Naics],"624")
+OR STARTSWITH([Naics],"722")
+OR STARTSWITH([Naics],"812")
+OR STARTSWITH([Naics],"92"))
+THEN [Naics] END)
+
+// Directed Cases
+IF [Case Type]="Directed"
+THEN 1
+END
+
+// % of CAs Employing High Number of Women
+COUNTD([Women NAICS])/COUNTD([Case ID])
+
+// % of Agency Initiated Cases
+SUM([Directed Cases])/SUM([All Cases])
+
+// Community NAICS
+INT(IF(STARTSWITH([Naics],"11")
+OR STARTSWITH([Naics],"23")
+OR STARTSWITH([Naics],"48")
+OR STARTSWITH([Naics],"49")
+OR STARTSWITH([Naics],"56")
+OR STARTSWITH([Naics],"621")
+OR STARTSWITH([Naics],"623")
+OR STARTSWITH([Naics],"624")
+OR STARTSWITH([Naics],"722")
+OR STARTSWITH([Naics],"44")
+OR STARTSWITH([Naics],"45")
+OR STARTSWITH([Naics],"0917")
+OR STARTSWITH([Naics],"0967"))
+THEN [Naics] END)
+
+// Community Case ID
+STR(IF([Community NAICS]>0) THEN [Case ID] END)
+
+// % of CAs in Industries with Large Number of Workers in Underserved Communities
+COUNTD([Community Case ID])/COUNTD([Case ID])
+
+// Women NAICS
+INT(IF(STARTSWITH([Naics],"44")
+OR STARTSWITH([Naics],"0917")
+OR STARTSWITH([Naics],"0967")
+OR STARTSWITH([Naics],"45")
+OR STARTSWITH([Naics],"48")
+OR STARTSWITH([Naics],"49")
+OR STARTSWITH([Naics],"52")
+OR STARTSWITH([Naics],"54")
+OR STARTSWITH([Naics],"61")
+OR STARTSWITH([Naics],"621")
+OR STARTSWITH([Naics],"623")
+OR STARTSWITH([Naics],"624")
+OR STARTSWITH([Naics],"722")
+OR STARTSWITH([Naics],"812")
+OR STARTSWITH([Naics],"92"))
+THEN [Naics] END)
+
+// Directed Cases
+IF [Case Type]="Directed"
+THEN 1
+END
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// BW/Hr
+SUM([BW ATP])/SUM([Case Hours])
+
+// BW ATP Cases
+IF([BW ATP]>0)
+THEN([Case_ID])
+END
+
+// $ per hour
+SUM([BW ATP] + [LD ATP]+[CMP Assessed])/ SUM([Case Hours])
+
+// Monetary Cases
+IF ([BW ATP]>0 OR [CMP Assessed]>0) THEN [Case ID]
+END
+
+// % Monetary
+COUNTD([Monetary Cases])/SUM([All Cases])
+
+// % of Violation Cases
+SUM([Cases with Violations])/SUM([All Cases])
+
+// % of BW Cases
+Count([BW ATP Cases ])/COUNTD([Case_ID])
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Directed Cases
+IF [Case Type]="Directed"
+THEN 1
+END
+
+// % of Directed Cases
+SUM([Directed Cases]) / SUM([All Cases])
+
+// Case_ID
+STR([Case ID])
+
+// Through Today
+[Date Event Start]<=TODAY()
+
+// DenominatOR IDs
+IF(
+([Event Type] <> "Compliance Consultation" AND
+[Event Type] <> "Face-to-Face Consultation" AND
+[Event Type] <> "Telephone Contact/Call")
+) THEN [Event ID] END
+
+// NumeratOR IDs
+if
+[Event Type] <> "Compliance Consultation" AND
+[Event Type] <> "Face-to-Face Consultation" AND
+[Event Type] <> "Telephone Contact/Call" AND
+([Actual Audience] >5 OR [Event Type] = 'Media (TV/Radio/News)')
+THEN [Event ID] END
+
+// Outreach %
+[Numerator]/[Denominator]
+
+// Numerator
+COUNTD([NumeratOR IDs])
+
+// Denominator
+COUNTD([DenominatOR IDs])
+
+// % of CAs Employing High Number of Women
+COUNTD([Women NAICS])/COUNTD([Case ID])
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// % of Agency Initiated Cases
+SUM([Directed Cases])/SUM([All Cases])
+
+// Community NAICS
+INT(IF(STARTSWITH([Naics],"11")
+OR STARTSWITH([Naics],"23")
+OR STARTSWITH([Naics],"48")
+OR STARTSWITH([Naics],"49")
+OR STARTSWITH([Naics],"56")
+OR STARTSWITH([Naics],"621")
+OR STARTSWITH([Naics],"623")
+OR STARTSWITH([Naics],"624")
+OR STARTSWITH([Naics],"722")
+OR STARTSWITH([Naics],"44")
+OR STARTSWITH([Naics],"45")
+OR STARTSWITH([Naics],"0917")
+OR STARTSWITH([Naics],"0967"))
+THEN [Naics] END)
+
+// Community Case ID
+STR(IF([Community NAICS]>0) THEN [Case ID] END)
+
+// % of CAs in Industries with Large Number of Workers in Underserved Communities
+COUNTD([Community Case ID])/COUNTD([Case ID])
+
+// Women NAICS
+INT(IF(STARTSWITH([Naics],"44")
+OR STARTSWITH([Naics],"0917")
+OR STARTSWITH([Naics],"0967")
+OR STARTSWITH([Naics],"45")
+OR STARTSWITH([Naics],"48")
+OR STARTSWITH([Naics],"49")
+OR STARTSWITH([Naics],"52")
+OR STARTSWITH([Naics],"54")
+OR STARTSWITH([Naics],"61")
+OR STARTSWITH([Naics],"621")
+OR STARTSWITH([Naics],"623")
+OR STARTSWITH([Naics],"624")
+OR STARTSWITH([Naics],"722")
+OR STARTSWITH([Naics],"812")
+OR STARTSWITH([Naics],"92"))
+THEN [Naics] END)
+
+// Directed Cases
+IF [Case Type]="Directed"
+THEN 1
+END
+
+// Total Cases in Numerator
+COUNTD([cases in Numerator])
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Cases with Score over 25
+IF [Total CL Severity Score] >= 25
+THEN 'Y'
+ELSE'N'
+END
+
+// cases in Numerator
+IF [Cases with Score over 25] = 'Y'
+THEN [Case ID]
+END
+
+// Total Cases
+COUNTD([Case ID])
+
+// % of Cases with a Category 3 index score OR higher
+[Total Cases in Numerator]/[Total Cases]
+
+// Misclass Case Ids
+IF ([Registration Act] = "FLSA")
+And ([Misclassified IndepENDent Contractors] = "Y")
+AND ([BW ATP]>.01)
+THEN [Case ID]
+END
+
+// All Misclass Cases
+COUNTD([Misclass Case Ids])
+
+// PM Case Id
+STR(IF([Registration Act]="FLSA")
+And ([Investigation Tool] <> "Conciliation")
+THEN  [Case ID]
+END)
+
+// ALL CASES 2
+COUNTD([PM Case Id])
+
+// % of Misclass CA
+[All Misclass Cases]/[ALL CASES 2]
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// PM Case Id
+STR(IF([Registration Act]="FLSA")
+And ([Investigation Tool] <> "Conciliation")
+THEN  [Case ID]
+END)
+
+// ALL CASES 2
+COUNTD([PM Case Id])
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Through Today
+[Date Event Start]<=TODAY()
+
+// DenominatOR IDs
+IF(
+([Event Type] <> "Compliance Consultation" AND
+[Event Type] <> "Face-to-Face Consultation" AND
+[Event Type] <> "Telephone Contact/Call")
+) THEN [Event ID] END
+
+// NumeratOR IDs
+if
+[Event Type] <> "Compliance Consultation" AND
+[Event Type] <> "Face-to-Face Consultation" AND
+[Event Type] <> "Telephone Contact/Call" AND
+([Actual Audience] >5 OR [Event Type] = 'Media (TV/Radio/News)')
+THEN [Event ID] END
+
+// Outreach %
+[Numerator]/[Denominator]
+
+// Numerator
+COUNTD([NumeratOR IDs])
+
+// Denominator
+COUNTD([DenominatOR IDs])
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Total Cases in Numerator
+COUNTD([cases in Numerator])
+
+// Cases with Score over 25
+IF [Total CL Severity Score] >= 25
+THEN 'Y'
+ELSE'N'
+END
+
+// cases in Numerator
+IF [Cases with Score over 25] = 'Y'
+THEN [Case ID]
+END
+
+// Total Cases
+COUNTD([Case ID])
+
+// % of Cases with a Category 3 index score OR higher
+[Total Cases in Numerator]/[Total Cases]
+
+// Index
+INDEX()
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Case_ID
+STR([Case ID])
+
+// $ per hour
+SUM([BW ATP] + [LD ATP]+[CMP Assessed])/ SUM([Case Hours])
+
+// Monetary Cases
+IF ([BW ATP]>0 OR [CMP Assessed]>0) THEN [Case ID]
+END
+
+// % Monetary
+COUNTD([Monetary Cases])/SUM([All Cases])
+
+// % of Violation Cases
+SUM([Cases with Violations])/SUM([All Cases])
+
+// Directed Cases
+IF [Case Type]="Directed"
+THEN 1
+END
+
+// % of Directed Cases
+SUM([Directed Cases]) / SUM([All Cases])
+
+// Case_ID
+STR([Case ID])
+
+// BW ATP Cases
+IF([BW ATP]>0)
+THEN([Case_ID])
+END
+
+// $ per hour
+SUM([BW ATP] + [LD ATP]+[CMP Assessed])/ SUM([Case Hours])
+
+// Monetary Cases
+IF ([BW ATP]>0 OR [CMP Assessed]>0) THEN [Case ID]
+END
+
+// % Monetary
+COUNTD([Monetary Cases])/SUM([All Cases])
+
+// % of Violation Cases
+SUM([Cases with Violations])/SUM([All Cases])
+
+// % of BW Cases
+Count([BW ATP Cases ])/COUNTD([Case_ID])
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Directed Cases
+IF [Case Type]="Directed"
+THEN 1
+END
+
+// % of Directed Cases
+SUM([Directed Cases]) / SUM([All Cases])
+
+// Case_ID
+STR([Case ID])
+
+// Monetary Cases
+IF ([BW ATP]>0 OR [CMP Assessed]>0) THEN [Case ID]
+END
+
+// % Monetary
+COUNTD([Monetary Cases])/SUM([All Cases])
+
+// % of Violation Cases
+SUM([Cases with Violations])/SUM([All Cases])
+
+// Directed Cases
+IF [Case Type]="Directed"
+THEN 1
+END
+
+// % of Directed Cases
+SUM([Directed Cases]) / SUM([All Cases])
+
+// Case_ID
+STR([Case ID])
+
+// Misclass Case Ids
+IF ([Registration Act] = "FLSA")
+And ([Misclassified IndepENDent Contractors] = "Y")
+AND ([BW ATP]>.01)
+THEN [Case ID]
+END
+
+// All Misclass Cases
+COUNTD([Misclass Case Ids])
+
+// PM Case Id
+STR(IF([Registration Act]="FLSA")
+And ([Investigation Tool] <> "Conciliation")
+THEN  [Case ID]
+END)
+
+// ALL CASES 2
+COUNTD([PM Case Id])
+
+// % of Misclass CA
+[All Misclass Cases]/[ALL CASES 2]
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// % of CAs Employing High Number of Women
+COUNTD([Women NAICS])/COUNTD([Case ID])
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// % of Agency Initiated Cases
+SUM([Directed Cases])/SUM([All Cases])
+
+// Community NAICS
+INT(IF(STARTSWITH([Naics],"11")
+OR STARTSWITH([Naics],"23")
+OR STARTSWITH([Naics],"48")
+OR STARTSWITH([Naics],"49")
+OR STARTSWITH([Naics],"56")
+OR STARTSWITH([Naics],"621")
+OR STARTSWITH([Naics],"623")
+OR STARTSWITH([Naics],"624")
+OR STARTSWITH([Naics],"722")
+OR STARTSWITH([Naics],"44")
+OR STARTSWITH([Naics],"45")
+OR STARTSWITH([Naics],"0917")
+OR STARTSWITH([Naics],"0967"))
+THEN [Naics] END)
+
+// Community Case ID
+STR(IF([Community NAICS]>0) THEN [Case ID] END)
+
+// % of CAs in Industries with Large Number of Workers in Underserved Communities
+COUNTD([Community Case ID])/COUNTD([Case ID])
+
+// Women NAICS
+INT(IF(STARTSWITH([Naics],"44")
+OR STARTSWITH([Naics],"0917")
+OR STARTSWITH([Naics],"0967")
+OR STARTSWITH([Naics],"45")
+OR STARTSWITH([Naics],"48")
+OR STARTSWITH([Naics],"49")
+OR STARTSWITH([Naics],"52")
+OR STARTSWITH([Naics],"54")
+OR STARTSWITH([Naics],"61")
+OR STARTSWITH([Naics],"621")
+OR STARTSWITH([Naics],"623")
+OR STARTSWITH([Naics],"624")
+OR STARTSWITH([Naics],"722")
+OR STARTSWITH([Naics],"812")
+OR STARTSWITH([Naics],"92"))
+THEN [Naics] END)
+
+// Directed Cases
+IF [Case Type]="Directed"
+THEN 1
+END
+
+// PM Case Id
+STR(IF([Registration Act]="FLSA")
+And ([Investigation Tool] <> "Conciliation")
+THEN  [Case ID]
+END)
+
+// ALL CASES 2
+COUNTD([PM Case Id])
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Through Today
+[Date Event Start]<=TODAY()
+
+// DenominatOR IDs
+IF(
+([Event Type] <> "Compliance Consultation" AND
+[Event Type] <> "Face-to-Face Consultation" AND
+[Event Type] <> "Telephone Contact/Call")
+) THEN [Event ID] END
+
+// NumeratOR IDs
+if
+[Event Type] <> "Compliance Consultation" AND
+[Event Type] <> "Face-to-Face Consultation" AND
+[Event Type] <> "Telephone Contact/Call" AND
+([Actual Audience] >5 OR [Event Type] = 'Media (TV/Radio/News)')
+THEN [Event ID] END
+
+// Outreach %
+[Numerator]/[Denominator]
+
+// Numerator
+COUNTD([NumeratOR IDs])
+
+// Denominator
+COUNTD([DenominatOR IDs])
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// % of Full Investigations
+COUNTD([Tool Full Investigations]) / SUM([All Cases])
+
+// % of Complaint Cases
+COUNTD([Complaint Cases]) / SUM([All Cases])
+
+// % of Conciliations
+COUNTD([Tool Conciliations]) / SUM([All Cases])
+
+// % of Office Audits
+COUNTD([Tool Office Audits]) / SUM([All Cases])
+
+// % of Limited Investigations
+COUNTD([Tool Limited Investigations]) / SUM([All Cases])
+
+// % of Self Audit
+COUNTD([Tool Self Audits]) / SUM([All Cases])
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Tool Full Investigations
+IF ([Investigation Tool] = "Full Investigation")
+THEN [Case_ID]
+END
+
+// Calculation1
+COUNTD([Case ID])
+
+// Directed Cases
+IF [Case Type]="Directed"
+THEN 1
+END
+
+// % of Directed Cases
+SUM([Directed Cases]) / SUM([All Cases])
+
+// Case_ID
+STR([Case ID])
+
+// Complaint Cases
+IF [Case Type]="Complaint"
+THEN [Case_ID]
+END
+
+// Tool Conciliations
+IF ([Investigation Tool] = "Conciliation")
+THEN [Case_ID]
+END
+
+// Tool Office Audits
+IF ([Investigation Tool] = "Office Audit")
+THEN [Case_ID]
+END
+
+// Tool Limited Investigations
+IF ([Investigation Tool] = "Limited Investigation")
+THEN [Case_ID]
+END
+
+// TEXT All Cases
+"All Cases"
+
+// Tool Self Audits
+IF ([Investigation Tool] = "Self Audit")
+THEN [Case_ID]
+END
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// BW/Case
+SUM([BW ATP])/SUM([All Cases])
+
+// TEXT BW ATP
+"BW ATP"
+
+// BW Full Investigations
+IF ([Investigation Tool] = "Full Investigation")
+THEN [BW ATP]
+END
+
+// BW Limited Investigations
+IF ([Investigation Tool] = "Limited Investigation")
+THEN [BW ATP]
+END
+
+// BW Conciliations
+IF ([Investigation Tool] = "Conciliation")
+THEN [BW ATP]
+END
+
+// BW Office Audits
+IF ([Investigation Tool] = "Office Audit")
+THEN [BW ATP]
+END
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// BW/EE
+SUM([BW ATP])/SUM([EE's ATP])
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// TEXT Avg. BW ATP
+"BW ATP/ Worker"
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// Index
+INDEX()
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// TEXT CMPs
+"CMPs"
+
+// CMP Conciliations
+IF ([Investigation Tool] = "Conciliation")
+THEN [CMP Assessed]
+END
+
+// CMP Full Investigations
+IF ([Investigation Tool] = "Full Investigation")
+THEN [CMP Assessed]
+END
+
+// CMP Limited Investigations
+IF ([Investigation Tool] = "Limited Investigation")
+THEN [CMP Assessed]
+END
+
+// CMP Office Audits
+IF ([Investigation Tool] = "Office Audit")
+THEN [CMP Assessed]
+END
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// Index
+INDEX()
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// % of Full Investigations
+COUNTD([Tool Full Investigations]) / SUM([All Cases])
+
+// % of Complaint Cases
+COUNTD([Complaint Cases]) / SUM([All Cases])
+
+// % of Conciliations
+COUNTD([Tool Conciliations]) / SUM([All Cases])
+
+// % of Office Audits
+COUNTD([Tool Office Audits]) / SUM([All Cases])
+
+// % of Limited Investigations
+COUNTD([Tool Limited Investigations]) / SUM([All Cases])
+
+// % of Self Audit
+COUNTD([Tool Self Audits]) / SUM([All Cases])
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Tool Full Investigations
+IF ([Investigation Tool] = "Full Investigation")
+THEN [Case_ID]
+END
+
+// Directed Cases
+IF [Case Type]="Directed"
+THEN 1
+END
+
+// % of Directed Cases
+SUM([Directed Cases]) / SUM([All Cases])
+
+// Case_ID
+STR([Case ID])
+
+// Complaint Cases
+IF [Case Type]="Complaint"
+THEN [Case_ID]
+END
+
+// Tool Conciliations
+IF ([Investigation Tool] = "Conciliation")
+THEN [Case_ID]
+END
+
+// Tool Office Audits
+IF ([Investigation Tool] = "Office Audit")
+THEN [Case_ID]
+END
+
+// Tool Limited Investigations
+IF ([Investigation Tool] = "Limited Investigation")
+THEN [Case_ID]
+END
+
+// Tool Self Audits
+IF ([Investigation Tool] = "Self Audit")
+THEN [Case_ID]
+END
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// TEXT LDs ATP
+"LDs ATP"
+
+// LD Conciliations
+IF ([Investigation Tool] = "Conciliation")
+THEN [LD ATP]
+END
+
+// LD Full Investigations
+IF ([Investigation Tool] = "Full Investigation")
+THEN [LD ATP]
+END
+
+// LD Limited Investigations
+IF ([Investigation Tool] = "Limited Investigation")
+THEN [LD ATP]
+END
+
+// LD Office Audits
+IF ([Investigation Tool] = "Office Audit")
+THEN [LD ATP]
+END
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// CMP No BWs Cases
+IF([CMP Assessed]>0 AND [BW ATP] = 0)
+THEN([Case_ID])
+END
+
+// BW ATP AND CMPs Cases
+IF([BW ATP]>0 AND [CMP Assessed]>0)
+THEN([Case_ID])
+END
+
+// BW ATP No CMPs Cases
+IF([BW ATP]>0 AND [CMP Assessed]=0)
+THEN([Case_ID])
+END
+
+// Monetary Cases
+IF ([BW ATP]>0 OR [CMP Assessed]>0) THEN [Case ID]
+END
+
+// % Monetary
+COUNTD([Monetary Cases])/SUM([All Cases])
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Case_ID
+STR([Case ID])
+
+// TEXT Monetary Rate
+"Monetary Rate"
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// TEXT EEs ATP
+"EEs ATP"
+
+// worker Conciliations
+IF ([Investigation Tool] = "Conciliation")
+THEN [EE's ATP]
+END
+
+// worker Full Investigations
+IF ([Investigation Tool] = "Full Investigation")
+THEN [EE's ATP]
+END
+
+// worker Limited Investigations
+IF ([Investigation Tool] = "Limited Investigation")
+THEN [EE's ATP]
+END
+
+// worker Office Audits
+IF ([Investigation Tool] = "Office Audit")
+THEN [EE's ATP]
+END
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// % of Full Investigations
+COUNTD([Tool Full Investigations]) / SUM([All Cases])
+
+// % of Complaint Cases
+COUNTD([Complaint Cases]) / SUM([All Cases])
+
+// % of Conciliations
+COUNTD([Tool Conciliations]) / SUM([All Cases])
+
+// % of Office Audits
+COUNTD([Tool Office Audits]) / SUM([All Cases])
+
+// % of Limited Investigations
+COUNTD([Tool Limited Investigations]) / SUM([All Cases])
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Tool Full Investigations
+IF ([Investigation Tool] = "Full Investigation")
+THEN [Case_ID]
+END
+
+// Directed Cases
+IF [Case Type]="Directed"
+THEN 1
+END
+
+// % of Directed Cases
+SUM([Directed Cases]) / SUM([All Cases])
+
+// Case_ID
+STR([Case ID])
+
+// Complaint Cases
+IF [Case Type]="Complaint"
+THEN [Case_ID]
+END
+
+// Tool Conciliations
+IF ([Investigation Tool] = "Conciliation")
+THEN [Case_ID]
+END
+
+// Tool Office Audits
+IF ([Investigation Tool] = "Office Audit")
+THEN [Case_ID]
+END
+
+// Tool Limited Investigations
+IF ([Investigation Tool] = "Limited Investigation")
+THEN [Case_ID]
+END
+
+// TEXT All Cases
+"All Cases"
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// TEXT BW ATP
+"BW ATP"
+
+// BW Full Investigations
+IF ([Investigation Tool] = "Full Investigation")
+THEN [BW ATP]
+END
+
+// BW Limited Investigations
+IF ([Investigation Tool] = "Limited Investigation")
+THEN [BW ATP]
+END
+
+// BW Conciliations
+IF ([Investigation Tool] = "Conciliation")
+THEN [BW ATP]
+END
+
+// BW Office Audits
+IF ([Investigation Tool] = "Office Audit")
+THEN [BW ATP]
+END
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// BW/EE
+SUM([BW ATP])/SUM([EE's ATP])
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// TEXT Avg. BW ATP
+"BW ATP/ Worker"
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// Index
+INDEX()
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// TEXT CMPs
+"CMPs"
+
+// CMP Conciliations
+IF ([Investigation Tool] = "Conciliation")
+THEN [CMP Assessed]
+END
+
+// CMP Full Investigations
+IF ([Investigation Tool] = "Full Investigation")
+THEN [CMP Assessed]
+END
+
+// CMP Limited Investigations
+IF ([Investigation Tool] = "Limited Investigation")
+THEN [CMP Assessed]
+END
+
+// CMP Office Audits
+IF ([Investigation Tool] = "Office Audit")
+THEN [CMP Assessed]
+END
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// Index
+INDEX()
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Cases
+COUNTD([Case ID])
+
+// Total Cases in Numerator
+COUNTD([cases in Numerator])
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Cases with Score over 25
+IF [Total CL Severity Score] >= 25
+THEN 'Y'
+ELSE'N'
+END
+
+// cases in Numerator
+IF [Cases with Score over 25] = 'Y'
+THEN [Case ID]
+END
+
+// Total Cases
+COUNTD([Case ID])
+
+// % of Cases with a Category 3 index score OR higher
+[Total Cases in Numerator]/[Total Cases]
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// % of Full Investigations
+COUNTD([Tool Full Investigations]) / SUM([All Cases])
+
+// % of Complaint Cases
+COUNTD([Complaint Cases]) / SUM([All Cases])
+
+// % of Conciliations
+COUNTD([Tool Conciliations]) / SUM([All Cases])
+
+// % of Office Audits
+COUNTD([Tool Office Audits]) / SUM([All Cases])
+
+// % of Limited Investigations
+COUNTD([Tool Limited Investigations]) / SUM([All Cases])
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Tool Full Investigations
+IF ([Investigation Tool] = "Full Investigation")
+THEN [Case_ID]
+END
+
+// Directed Cases
+IF [Case Type]="Directed"
+THEN 1
+END
+
+// % of Directed Cases
+SUM([Directed Cases]) / SUM([All Cases])
+
+// Case_ID
+STR([Case ID])
+
+// Complaint Cases
+IF [Case Type]="Complaint"
+THEN [Case_ID]
+END
+
+// Tool Conciliations
+IF ([Investigation Tool] = "Conciliation")
+THEN [Case_ID]
+END
+
+// Tool Office Audits
+IF ([Investigation Tool] = "Office Audit")
+THEN [Case_ID]
+END
+
+// Tool Limited Investigations
+IF ([Investigation Tool] = "Limited Investigation")
+THEN [Case_ID]
+END
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// TEXT LDs ATP
+"LDs ATP"
+
+// LD Conciliations
+IF ([Investigation Tool] = "Conciliation")
+THEN [LD ATP]
+END
+
+// LD Full Investigations
+IF ([Investigation Tool] = "Full Investigation")
+THEN [LD ATP]
+END
+
+// LD Limited Investigations
+IF ([Investigation Tool] = "Limited Investigation")
+THEN [LD ATP]
+END
+
+// LD Office Audits
+IF ([Investigation Tool] = "Office Audit")
+THEN [LD ATP]
+END
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// Monetary Cases
+IF ([BW ATP]>0 OR [CMP Assessed]>0) THEN [Case ID]
+END
+
+// % Monetary
+COUNTD([Monetary Cases])/SUM([All Cases])
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// TEXT Monetary Rate
+"Monetary Rate"
+
+// PM Case Id
+STR(IF([Registration Act]="FLSA")
+And ([Investigation Tool] <> "Conciliation")
+THEN  [Case ID]
+END)
+
+// ALL CASES 2
+COUNTD([PM Case Id])
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Through Today
+[Date Event Start]<=TODAY()
+
+// DenominatOR IDs
+IF(
+([Event Type] <> "Compliance Consultation" AND
+[Event Type] <> "Face-to-Face Consultation" AND
+[Event Type] <> "Telephone Contact/Call")
+) THEN [Event ID] END
+
+// NumeratOR IDs
+if
+[Event Type] <> "Compliance Consultation" AND
+[Event Type] <> "Face-to-Face Consultation" AND
+[Event Type] <> "Telephone Contact/Call" AND
+([Actual Audience] >5 OR [Event Type] = 'Media (TV/Radio/News)')
+THEN [Event ID] END
+
+// Outreach %
+[Numerator]/[Denominator]
+
+// Numerator
+COUNTD([NumeratOR IDs])
+
+// Denominator
+COUNTD([DenominatOR IDs])
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// RO Pie
+[Parameters].[NO/RO by Strategic Initiative]
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// TEXT EEs ATP
+"EEs ATP"
+
+// worker Conciliations
+IF ([Investigation Tool] = "Conciliation")
+THEN [EE's ATP]
+END
+
+// worker Full Investigations
+IF ([Investigation Tool] = "Full Investigation")
+THEN [EE's ATP]
+END
+
+// worker Limited Investigations
+IF ([Investigation Tool] = "Limited Investigation")
+THEN [EE's ATP]
+END
+
+// worker Office Audits
+IF ([Investigation Tool] = "Office Audit")
+THEN [EE's ATP]
+END
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// In Progress
+"In Progress"
+
+// Misclass Case Ids
+IF ([Registration Act] = "FLSA")
+And ([Misclassified IndepENDent Contractors] = "Y")
+AND ([BW ATP]>.01)
+THEN [Case ID]
+END
+
+// All Misclass Cases
+COUNTD([Misclass Case Ids])
+
+// PM Case Id
+STR(IF([Registration Act]="FLSA")
+And ([Investigation Tool] <> "Conciliation")
+THEN  [Case ID]
+END)
+
+// ALL CASES 2
+COUNTD([PM Case Id])
+
+// % of Misclass CA
+[All Misclass Cases]/[ALL CASES 2]
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// % of CAs Employing High Number of Women
+COUNTD([Women NAICS])/COUNTD([Case ID])
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// % of Agency Initiated Cases
+SUM([Directed Cases])/SUM([All Cases])
+
+// Community NAICS
+INT(IF(STARTSWITH([Naics],"11")
+OR STARTSWITH([Naics],"23")
+OR STARTSWITH([Naics],"48")
+OR STARTSWITH([Naics],"49")
+OR STARTSWITH([Naics],"56")
+OR STARTSWITH([Naics],"621")
+OR STARTSWITH([Naics],"623")
+OR STARTSWITH([Naics],"624")
+OR STARTSWITH([Naics],"722")
+OR STARTSWITH([Naics],"44")
+OR STARTSWITH([Naics],"45")
+OR STARTSWITH([Naics],"0917")
+OR STARTSWITH([Naics],"0967"))
+THEN [Naics] END)
+
+// Community Case ID
+STR(IF([Community NAICS]>0) THEN [Case ID] END)
+
+// % of CAs in Industries with Large Number of Workers in Underserved Communities
+COUNTD([Community Case ID])/COUNTD([Case ID])
+
+// Women NAICS
+INT(IF(STARTSWITH([Naics],"44")
+OR STARTSWITH([Naics],"0917")
+OR STARTSWITH([Naics],"0967")
+OR STARTSWITH([Naics],"45")
+OR STARTSWITH([Naics],"48")
+OR STARTSWITH([Naics],"49")
+OR STARTSWITH([Naics],"52")
+OR STARTSWITH([Naics],"54")
+OR STARTSWITH([Naics],"61")
+OR STARTSWITH([Naics],"621")
+OR STARTSWITH([Naics],"623")
+OR STARTSWITH([Naics],"624")
+OR STARTSWITH([Naics],"722")
+OR STARTSWITH([Naics],"812")
+OR STARTSWITH([Naics],"92"))
+THEN [Naics] END)
+
+// Directed Cases
+IF [Case Type]="Directed"
+THEN 1
+END
+
+// PM Case Id
+STR(IF([Registration Act]="FLSA")
+And ([Investigation Tool] <> "Conciliation")
+THEN  [Case ID]
+END)
+
+// ALL CASES 2
+COUNTD([PM Case Id])
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Through Today
+[Date Event Start]<=TODAY()
+
+// DenominatOR IDs
+IF(
+([Event Type] <> "Compliance Consultation" AND
+[Event Type] <> "Face-to-Face Consultation" AND
+[Event Type] <> "Telephone Contact/Call")
+) THEN [Event ID] END
+
+// NumeratOR IDs
+if
+[Event Type] <> "Compliance Consultation" AND
+[Event Type] <> "Face-to-Face Consultation" AND
+[Event Type] <> "Telephone Contact/Call" AND
+([Actual Audience] >5 OR [Event Type] = 'Media (TV/Radio/News)')
+THEN [Event ID] END
+
+// Outreach %
+[Numerator]/[Denominator]
+
+// Numerator
+COUNTD([NumeratOR IDs])
+
+// Denominator
+COUNTD([DenominatOR IDs])
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Total Cases in Numerator
+COUNTD([cases in Numerator])
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Cases with Score over 25
+IF [Total CL Severity Score] >= 25
+THEN 'Y'
+ELSE'N'
+END
+
+// cases in Numerator
+IF [Cases with Score over 25] = 'Y'
+THEN [Case ID]
+END
+
+// Total Cases
+COUNTD([Case ID])
+
+// % of Cases with a Category 3 index score OR higher
+[Total Cases in Numerator]/[Total Cases]
+
+// Total Cases in Numerator
+COUNTD([cases in Numerator])
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Cases with Score over 25
+IF [Total CL Severity Score] >= 25
+THEN 'Y'
+ELSE'N'
+END
+
+// cases in Numerator
+IF [Cases with Score over 25] = 'Y'
+THEN [Case ID]
+END
+
+// Total Cases
+COUNTD([Case ID])
+
+// % of Cases with a Category 3 index score OR higher
+[Total Cases in Numerator]/[Total Cases]
+
+// Misclass Case Ids
+IF ([Registration Act] = "FLSA")
+AND ([Misclassified IndepENDent Contractors] = "Y")
+AND ([BW ATP]>.01)
+THEN [Case ID]
+END
+
+// All Misclass Cases
+COUNTD([Misclass Case Ids])
+
+// PM Case Id
+STR(IF([Registration Act]="FLSA")
+AND ([Investigation Tool] <> "Conciliation")
+THEN  [Case ID]
+END)
+
+// ALL CASES 2
+COUNTD([PM Case Id])
+
+// % of Misclass CA
+[All Misclass Cases]/[ALL CASES 2]
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// TEXT Hyperlink
+"CLICK HERE - to be directed to the performance meausres"
+
+// TEXT Statement
+"** Please note that the Six Priority Components of Initiatives WILL NOT match the AMP performance measures. The data from this dashboard ONLY uses cases that were/are associated to initiatives.**"
+
+// Events
+COUNTD([Event ID])
+
+// Audience
+{FIXED [Event ID]: MAX([Actual Audience])}
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// NO/RO by Strategic Initiative
+"RO"
+
+// Parent Initative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+// Parent_Initiative
+REPLACE([Parent Initiative original],"Cross-Regional","")
+
+
