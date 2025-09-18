@@ -2,7 +2,7 @@
   "name": "tableau-language-support",
   "displayName": "Tableau Language Support",
   "description": "Complete language support for Tableau calculation language with syntax highlighting, IntelliSense, validation, formatting, 100+ snippets, keyboard shortcuts, and advanced analytics patterns",
-  "version": "1.5.1",
+  "version": "1.5.3",
   "publisher": "TrueCrimeAudit",
   "icon": "images/tableau-icon.png",
   "license": "MIT",
@@ -42,9 +42,6 @@
     "Linters"
   ],
   "main": "./out/extension",
-  "activationEvents": [
-    "onLanguage:twbl"
-  ],
   "contributes": {
     "configurationDefaults": {
       "[twbl]": {
@@ -62,6 +59,7 @@
         ],
         "aliases": [
           "Tableau",
+          "tableau",
           "TabLang"
         ],
         "configuration": "./language-configuration.json"
@@ -355,6 +353,12 @@
         "command": "tableau-language-support.toggleFileLogging",
         "title": "Toggle File Logging",
         "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.status",
+        "title": "Show Extension Status (Duplicate Entry Cleanup Placeholder)",
+        "category": "Tableau",
+        "enablement": "false"
       }
     ],
     "keybindings": [
@@ -422,7 +426,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run build-base -- --minify",
-    "build-base": "esbuild --bundle --external:vscode src/extension.ts --outdir=out --platform=node --target=node20 --format=cjs && esbuild --bundle --external:vscode src/server.ts --outdir=out --platform=node --target=node20 --format=cjs",
+    "build-base": "esbuild --bundle --external:vscode --external:fast-xml-parser --external:unzipper src/extension.ts --outdir=out --platform=node --target=node20 --format=cjs && esbuild --bundle --external:vscode --external:fast-xml-parser --external:unzipper src/server.ts --outdir=out --platform=node --target=node20 --format=cjs",
     "build": "npm run build-base -- --sourcemap",
     "watch": "npm run build-base -- --sourcemap --watch",
     "test": "npm run compile && node ./node_modules/@vscode/test-electron/out/runTest.js",
@@ -438,10 +442,8 @@
     "test:unit": "jest",
     "test:incremental": "npm run compile && node ./out/tests/runIncrementalTests.js",
     "test:error": "npm run compile && node ./out/tests/testErrorRecovery.js",
-    "test:performance": "npm run compile && node ./out/tests/performance/performanceTests.js",
-    "test:edge": "npm run compile && node ./out/tests/edge/edgeCaseTests.js",
-    "test:integration": "npm run compile && node ./out/tests/integration/integrationTests.js",
     "test:performance": "npm run compile && node ./out/tests/performance/runPerformanceTests.js",
+    "test:integration": "npm run compile && node ./out/tests/integration/integrationTests.js",
     "test:performance:suite": "npm run compile && npx jest --config=./src/tests/performance/jest.performance.config.js",
     "test:performance:stress": "npm run compile && npx jest --config=./src/tests/performance/jest.performance.config.js --testPathPattern=stressTests",
     "test:performance:lsp": "npm run compile && npx jest --config=./src/tests/performance/jest.performance.config.js --testPathPattern=lspPerformance",
@@ -451,7 +453,9 @@
     "test:edge:malformed": "npm run compile && npx jest --config=./src/tests/edge/jest.edge.config.js --testPathPattern=malformedInputs",
     "test:edge:boundary": "npm run compile && npx jest --config=./src/tests/edge/jest.edge.config.js --testPathPattern=boundaryConditions",
     "test:edge:recovery": "npm run compile && npx jest --config=./src/tests/edge/jest.edge.config.js --testPathPattern=errorRecovery",
-    "test:report": "open ./test-results/test-report.html"
+    "test:report": "open ./test-results/test-report.html",
+    "package": "vsce package",
+    "publish": "vsce publish --skip-duplicate"
   },
   "devDependencies": {
     "@types/jest": "^29.5.12",
@@ -481,6 +485,8 @@
     "vscode-languageclient": "10.0.0-next.15",
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.12",
-    "which": "^3.0.0"
+    "which": "^3.0.0",
+    "fast-xml-parser": "^4.4.0",
+    "unzipper": "^0.12.3"
   }
 }
