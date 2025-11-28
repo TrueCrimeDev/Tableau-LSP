@@ -49,7 +49,7 @@ steps:
       publishLocation: 'Container'
     displayName: 'Publish VSIX artifact'
 
-  - script: npx vsce publish --skip-duplicate -p $(VSCE_PAT)
+  - script: npx vsce publish --skip-duplicate -p $VSCE_PAT
     displayName: 'Publish to marketplace'
     condition: and(succeeded(), or(eq(variables['Build.SourceBranch'], 'refs/heads/main'), startsWith(variables['Build.SourceBranch'], 'refs/tags/v')))
     env:
