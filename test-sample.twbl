@@ -1,0 +1,19 @@
+// Test Tableau calculation
+IF [Sales] > 1000 THEN
+    "High Sales"
+ELSE
+    "Low Sales"
+END
+
+// Test function call
+SUM([Profit])
+
+// Test LOD expression
+{FIXED [Region] : SUM([Sales])}
+
+// Test CASE statement
+CASE [Category]
+    WHEN "Technology" THEN "Tech"
+    WHEN "Furniture" THEN "Furn"
+    ELSE "Other"
+END

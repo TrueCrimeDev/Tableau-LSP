@@ -28,10 +28,8 @@
  */
 [IS_ACTIVE] = Boolean
 
-/**
- * Tableau Sample Superstore fields (added for hinting)
- * Each field uses block comments and colon type syntax for hover support.
- */
+// Tableau Sample Superstore reference fields (added for hinting)
+// Each field uses block comments and colon type syntax for hover support.
 
 /**
  * Name of the person associated with the record.

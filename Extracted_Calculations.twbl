@@ -1,0 +1,17 @@
+// Total workbooks: 1
+// Total datasources: 1
+// Total calculations: 1
+// Total fields: 3
+
+// === DATASOURCES ===
+// DataTable_(DataTable) | Test_LSP.twb
+
+// === FIELDS ===
+// !Age | DataTable_(DataTable) | string | dimension | Test_LSP.twb
+// Firstname | DataTable_(DataTable) | string | dimension | Test_LSP.twb
+// Lastname | DataTable_(DataTable) | string | dimension | Test_LSP.twb
+
+// === CALCULATIONS ===
+// !Age | DataTable_(DataTable) | Test_LSP.twb
+STR([Age])
+

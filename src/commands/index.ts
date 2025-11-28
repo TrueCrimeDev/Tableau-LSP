@@ -8,6 +8,7 @@ import { insertCaseStatementCommand } from './insertCaseStatement';
 import { insertLodExpressionCommand } from './insertLodExpression';
 import { showFunctionHelpCommand } from './showFunctionHelp';
 import { toggleCommentsCommand } from './toggleComments';
+import { reviewProblemsCommand } from './reviewProblems';
 // import { registerHelpCommands } from '../help/helpProvider';
 // import { registerLoggingCommands } from './loggingCommands';
 
@@ -32,6 +33,7 @@ export function registerCommands(context: vscode.ExtensionContext): void {
         // Help and utilities
         vscode.commands.registerCommand('tableau-language-support.showFunctionHelp', showFunctionHelpCommand),
         vscode.commands.registerCommand('tableau-language-support.toggleComments', toggleCommentsCommand),
+        vscode.commands.registerCommand('tableau-language-support.reviewProblems', reviewProblemsCommand),
     ];
 
     // Add all commands to context subscriptions

@@ -183,7 +183,7 @@ export class RequestDebouncer {
         range?: Range
     ): Promise<R> {
         const requestId = this.generateRequestId(type, documentUri, position);
-        const priority = this.priorityMapping.get(type) || RequestPriority.MEDIUM;
+        const priority: RequestPriority = this.priorityMapping.get(type) || RequestPriority.MEDIUM;
         const config = this.debounceConfigs.get(type)!;
         
         const context: RequestContext = {
@@ -197,7 +197,7 @@ export class RequestDebouncer {
         };
 
         // Handle critical priority requests immediately
-        if (priority === RequestPriority.CRITICAL) {
+        if (type === RequestType.DIAGNOSTICS) {
             return this.executeImmediately(params, handler, context);
         }
 

@@ -1,0 +1,241 @@
+// Check Initiative and District Office
+IF  
+(
+  CONTAINS([!Initiative2], "Agriculture") OR 
+  CONTAINS([!Initiative2], "Building Services") OR 
+  CONTAINS([!Initiative2], "Care") OR 
+  CONTAINS([!Initiative2], "Food Services") OR 
+  CONTAINS([!Initiative2], "Government Contract") OR 
+  CONTAINS([!Initiative2], "Residential Construction") OR 
+  CONTAINS([!Initiative2], "Warehouse")
+) 
+AND 
+(
+  [Investigating DO] = "Chicago IL District Office" OR 
+  [Investigating DO] = "Columbus OH District Office" OR 
+  [Investigating DO] = "Des Moines IA District Office" OR 
+  [Investigating DO] = "Detroit MI District Office" OR 
+  [Investigating DO] = "Grand Rapids MI District Office" OR 
+  [Investigating DO] = "Indianapolis IN District Office" OR 
+  [Investigating DO] = "Kansas City KS District Office" OR 
+  [Investigating DO] = "Minneapolis MN District Office" OR 
+  [Investigating DO] = "St. Louis MO District Office"
+)
+THEN 
+  TRUE 
+ELSE 
+  FALSE 
+END
+
+
+// Check Initiative Presence and Contains District Office
+IF  
+(
+  CONTAINS([!Initiative2], "Agriculture") OR 
+  CONTAINS([!Initiative2], "Building Services") OR 
+  CONTAINS([!Initiative2], "Care") OR 
+  CONTAINS([!Initiative2], "Food Services") OR 
+  CONTAINS([!Initiative2], "Government Contract") OR 
+  CONTAINS([!Initiative2], "Residential Construction") OR 
+  CONTAINS([!Initiative2], "Warehouse")
+) 
+AND 
+(
+  CONTAINS([Investigating DO], "Chicago IL District Office") OR 
+  CONTAINS([Investigating DO], "Columbus OH District Office") OR 
+  CONTAINS([Investigating DO], "Des Moines IA District Office") OR 
+  CONTAINS([Investigating DO], "Detroit MI District Office") OR 
+  CONTAINS([Investigating DO], "Grand Rapids MI District Office") OR 
+  CONTAINS([Investigating DO], "Indianapolis IN District Office") OR 
+  CONTAINS([Investigating DO], "Kansas City KS District Office") OR 
+  CONTAINS([Investigating DO], "Minneapolis MN District Office") OR 
+  CONTAINS([Investigating DO], "St. Louis MO District Office")
+)
+AND 
+(
+  CONTAINS([Strat Init Fy], "2025")
+)
+THEN 
+  TRUE 
+ELSE 
+  FALSE 
+END
+
+
+// !DO_Ini
+CASE [SPONSORING_DO]
+WHEN "Chicago IL District Office" THEN "CH"
+WHEN "Columbus OH District Office" THEN "CO"
+WHEN "Des Moines IA District Office" THEN "DM"
+WHEN "Detroit MI District Office" THEN "DT"
+WHEN "Grand Rapids MI District Office" THEN "GR"
+WHEN "Indianapolis IN District Office" THEN "IN"
+WHEN "Kansas City KS District Office" THEN "KC"
+WHEN "Minneapolis MN District Office" THEN "MN"
+WHEN "St. Louis MO District Office" THEN "SL"
+ELSE NULL
+END
+
+// !DO_Ini
+CASE [DISTRICT]
+WHEN "Chicago IL District Office" THEN "CH"
+WHEN "Columbus OH District Office" THEN "CO"
+WHEN "Des Moines IA District Office" THEN "DM"
+WHEN "Detroit MI District Office" THEN "DT"
+WHEN "Grand Rapids MI District Office" THEN "GR"
+WHEN "Indianapolis IN District Office" THEN "IN"
+WHEN "Kansas City KS District Office" THEN "KC"
+WHEN "Minneapolis MN District Office" THEN "MN"
+WHEN "St. Louis MO District Office" THEN "SL"
+ELSE NULL
+END
+
+
+// !DO_Name_Rest
+IF ISNULL([COMPLAINT_DISTRICT]) THEN
+    NULL
+ELSEIF RIGHT([COMPLAINT_DISTRICT], LEN(" District Office")) = " District Office" THEN
+    LEFT([COMPLAINT_DISTRICT], LEN([COMPLAINT_DISTRICT]) - LEN(" District Office"))
+ELSE
+    [COMPLAINT_DISTRICT]
+END
+
+
+// !Origin
+CASE [FIRST_COMPLAINT_DO]
+WHEN "Chicago IL District Office" THEN "Internal" 
+WHEN "Columbus OH District Office" THEN "Internal"
+WHEN "Des Moines IA District Office" THEN "Internal"
+WHEN "Detroit MI District Office" THEN "Internal"
+WHEN "Grand Rapids MI District Office" THEN "Internal"
+WHEN "Indianapolis IN District Office" THEN "Internal"
+WHEN "Kansas City KS District Office" THEN "Internal"
+WHEN "Minneapolis MN District Office" THEN "Internal"
+WHEN "St. Louis MO District Office" THEN "Internal"
+ELSE "External"
+END
+
+// !DO_Name
+CASE [SPONSORING_DO]
+WHEN "Chicago IL District Office" THEN "Chicago" 
+WHEN "Columbus OH District Office" THEN "Columbus"
+WHEN "Des Moines IA District Office" THEN "Des Moines"
+WHEN "Detroit MI District Office" THEN "Detroit"
+WHEN "Grand Rapids MI District Office" THEN "Grand Rapids"
+WHEN "Indianapolis IN District Office" THEN "Indianapolis"
+WHEN "Kansas City KS District Office" THEN "Kansas City"
+WHEN "Minneapolis MN District Office" THEN "Minneapolis"
+WHEN "St. Louis MO District Office" THEN "St. Louis"
+ELSE ""
+END
+
+// !DO_Name
+CASE [INVESTIGATING_DO]
+WHEN "Chicago IL District Office" THEN "Chicago" 
+WHEN "Columbus OH District Office" THEN "Columbus"
+WHEN "Des Moines IA District Office" THEN "Des Moines"
+WHEN "Detroit MI District Office" THEN "Detroit"
+WHEN "Grand Rapids MI District Office" THEN "Grand Rapids"
+WHEN "Indianapolis IN District Office" THEN "Indianapolis"
+WHEN "Kansas City KS District Office" THEN "Kansas City"
+WHEN "Minneapolis MN District Office" THEN "Minneapolis"
+WHEN "St. Louis MO District Office" THEN "St. Louis"
+ELSE ""
+END
+
+// !DO_Name
+CASE [SPONSORING_DO]
+WHEN "Chicago IL District Office" THEN "Chicago IL District Office" 
+WHEN "Columbus OH District Office" THEN "Columbus OH District Office"
+WHEN "Des Moines IA District Office" THEN "Des Moines"
+WHEN "Detroit MI District Office" THEN "Detroit"
+WHEN "Grand Rapids MI District Office" THEN "Grand Rapids"
+WHEN "Indianapolis IN District Office" THEN "Indianapolis"
+WHEN "Kansas City KS District Office" THEN "Kansas City"
+WHEN "Minneapolis MN District Office" THEN "Minneapolis"
+WHEN "St. Louis MO District Office" THEN "St. Louis"
+ELSE ""
+END
+
+
+// !DO_Name
+CASE [SPONSORING_DO]
+WHEN "Columbus OH District Office" THEN "Columbus"
+WHEN "Des Moines IA District Office" THEN "Des Moines"
+WHEN "Detroit MI District Office" THEN "Detroit"
+WHEN "Grand Rapids MI District Office" THEN "Grand Rapids"
+WHEN "Indianapolis IN District Office" THEN "Indianapolis"
+WHEN "Kansas City KS District Office" THEN "Kansas City"
+WHEN "Minneapolis MN District Office" THEN "Minneapolis"
+WHEN "St. Louis MO District Office" THEN "St. Louis"
+ELSE ""
+END
+
+
+// !DO_Ini
+CASE [INVESTIGATING_DO]
+WHEN "Chicago IL District Office" THEN "CH"
+WHEN "Columbus OH District Office" THEN "CO"
+WHEN "Des Moines IA District Office" THEN "DM"
+WHEN "Detroit MI District Office" THEN "DT"
+WHEN "Grand Rapids MI District Office" THEN "GR"
+WHEN "Indianapolis IN District Office" THEN "IN"
+WHEN "Kansas City KS District Office" THEN "KC"
+WHEN "Minneapolis MN District Office" THEN "MN"
+WHEN "St. Louis MO District Office" THEN "SL"
+ELSE NULL
+END
+
+
+// DO_Name_Clean
+IF ISNULL([INVESTIGATING_DO]) THEN
+    NULL
+ELSEIF CONTAINS([INVESTIGATING_DO], "Program Operations Office") THEN
+    NULL
+ELSEIF RIGHT([INVESTIGATING_DO], LEN(" District Office")) = " District Office" THEN
+    LEFT([INVESTIGATING_DO], LEN([INVESTIGATING_DO]) - LEN(" District Office"))
+ELSE
+    [INVESTIGATING_DO]
+END
+
+
+// !RO_Ini - The ROs made into initials
+IF [INVESTIGATING_RO] = "Northeast Regional Office" THEN "NE"
+ELSEIF [INVESTIGATING_RO] = "Southeast Regional Office" THEN "SE"
+ELSEIF [INVESTIGATING_RO] = "Midwest Regional Office" THEN "MW"
+ELSEIF [INVESTIGATING_RO] = "Southwest Regional Office" THEN "SW"
+ELSEIF [INVESTIGATING_RO] = "Western Regional Office" THEN "WE"
+ELSE [INVESTIGATING_RO]
+END
+
+
+
+// !RO_Name - Clean version of RO names 
+IF [INVESTIGATING_RO] = "Northeast Regional Office" THEN "Northeast"
+ELSEIF [INVESTIGATING_RO] = "Southeast Regional Office" THEN "Southeast"
+ELSEIF [INVESTIGATING_RO] = "Midwest Regional Office" THEN "Midwest"
+ELSEIF [INVESTIGATING_RO] = "Southwest Regional Office" THEN "Southwest"
+ELSEIF [INVESTIGATING_RO] = "Western Regional Office" THEN "Western"
+ELSE [INVESTIGATING_RO]
+END
+
+
+// RO_CLEAN_NAME - Simplified regional office names
+CASE [SPONSORING_RO]
+  WHEN "Northeast Regional Office" THEN "Northeast"
+  WHEN "Southeast Regional Office" THEN "Southeast"
+  WHEN "Midwest Regional Office" THEN "Midwest"
+  WHEN "Southwest Regional Office" THEN "Southwest"
+  WHEN "Western Regional Office" THEN "Western"
+  ELSE ""
+END
+
+// RO_INITIALS - Convert regional office names to initials
+CASE [SPONSORING_RO]
+  WHEN "Northeast Regional Office" THEN "NE"
+  WHEN "Southeast Regional Office" THEN "SE"
+  WHEN "Midwest Regional Office" THEN "MW"
+  WHEN "Southwest Regional Office" THEN "SW"
+  WHEN "Western Regional Office" THEN "WE"
+  ELSE ""
+END

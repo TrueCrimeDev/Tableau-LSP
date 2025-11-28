@@ -106,7 +106,7 @@ Examples:
         }
 
         console.log('🚀 Tableau LSP Enhancement Test Runner');
-        console.log('=====================================\\n');
+        console.log('=====================================\n');
 
         // Ensure the project is built
         await this.ensureBuild();
@@ -132,11 +132,11 @@ Examples:
 
             buildProcess.on('close', (code) => {
                 if (code === 0) {
-                    console.log('✅ Build completed successfully\\n');
+                    console.log('✅ Build completed successfully\n');
                     resolve();
                 } else {
                     console.error('❌ Build failed');
-                    reject(new Error(\`Build failed with code \${code}\`));
+                    reject(new Error(`Build failed with code ${code}`));
                 }
             });
         });
@@ -150,20 +150,20 @@ Examples:
         
         try {
             // Import and run the test runner
-            const testRunnerPath = path.join(__dirname, 'out', 'tests', 'testRunner.js');
+            const testRunnerPath = path.join(__dirname, 'out', 'src', 'tests', 'testRunner.js');
             
             if (!fs.existsSync(testRunnerPath)) {
                 throw new Error('Test runner not found. Make sure the project is built.');
             }
 
-            const { TestRunner } = require(testRunnerPath);
+            const { runAllTests } = require(testRunnerPath);
             
             // Run specific suite or all tests
             let results;
             if (this.options.suite && this.options.suite !== 'all') {
                 results = await this.runSpecificSuite(this.options.suite);
             } else {
-                results = await TestRunner.runAllTests();
+                results = await runAllTests();
             }
 
             // Output results
@@ -177,7 +177,7 @@ Examples:
             }
 
             const duration = Date.now() - startTime;
-            console.log(\`\\n⏱️  Total test time: \${(duration / 1000).toFixed(2)}s\`);
+            console.log(`\n⏱️  Total test time: ${(duration / 1000).toFixed(2)}s`);
 
             // Exit with appropriate code
             const success = results.passedSuites === results.totalSuites;
@@ -193,7 +193,7 @@ Examples:
      * Run a specific test suite
      */
     async runSpecificSuite(suiteName) {
-        console.log(\`🎯 Running specific suite: \${suiteName}\\n\`);
+        console.log(`🎯 Running specific suite: ${suiteName}\n`);
         
         const suiteMap = {
             'unit': () => this.runUnitTests(),
@@ -206,7 +206,7 @@ Examples:
 
         const suiteRunner = suiteMap[suiteName];
         if (!suiteRunner) {
-            throw new Error(\`Unknown test suite: \${suiteName}\`);
+            throw new Error(`Unknown test suite: ${suiteName}`);
         }
 
         await suiteRunner();
@@ -289,7 +289,7 @@ Examples:
         };
 
         fs.writeFileSync(outputPath, JSON.stringify(report, null, 2));
-        console.log(\`📄 Results saved to \${outputPath}\`);
+        console.log(`📄 Results saved to ${outputPath}`);
     }
 
     /**
@@ -318,7 +318,7 @@ Examples:
      */
     async runWatchMode() {
         console.log('👀 Starting watch mode...');
-        console.log('Press Ctrl+C to exit\\n');
+        console.log('Press Ctrl+C to exit\n');
 
         const chokidar = require('chokidar');
         
@@ -334,7 +334,7 @@ Examples:
             if (isRunning) return;
             
             isRunning = true;
-            console.log('\\n🔄 Files changed, rerunning tests...\\n');
+            console.log('\n🔄 Files changed, rerunning tests...\n');
             
             try {
                 await this.ensureBuild();
@@ -343,7 +343,7 @@ Examples:
                 console.error('❌ Test run failed:', error.message);
             } finally {
                 isRunning = false;
-                console.log('\\n👀 Watching for changes...');
+                console.log('\n👀 Watching for changes...');
             }
         }, 1000);
 
@@ -353,11 +353,11 @@ Examples:
 
         // Initial test run
         await this.runTests();
-        console.log('\\n👀 Watching for changes...');
+        console.log('\n👀 Watching for changes...');
 
         // Keep the process alive
         process.on('SIGINT', () => {
-            console.log('\\n👋 Stopping watch mode...');
+            console.log('\n👋 Stopping watch mode...');
             watcher.close();
             process.exit(0);
         });

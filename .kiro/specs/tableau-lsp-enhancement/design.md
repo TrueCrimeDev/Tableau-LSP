@@ -26,7 +26,7 @@ The enhanced Tableau LSP follows a client-server architecture pattern with the f
                               │ LSP Protocol
                               │
 ┌─────────────────────────────────────────────────────────────┐
-│                Language Server (src/server.ts)             │
+│                Language Server (src/server.ts)              │
 ├─────────────────────────────────────────────────────────────┤
 │  Core LSP Features:                                         │
 │  - Document lifecycle management                            │

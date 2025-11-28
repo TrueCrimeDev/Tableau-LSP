@@ -23,6 +23,10 @@ MARKETPLACE_PUBLICATION_GUIDE.md
 vscode-extension-debug-setup-prompt.md
 CLAUDE.md
 
+# Git hooks and documentation
+.husky/
+docs/
+
 # Build artifacts
 *.map
 out/**/*.map

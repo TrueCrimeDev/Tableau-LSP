@@ -14,6 +14,7 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import {
     parsedDocumentCache,
     ParsedDocument,
+    CachedDocument,
     Symbol,
     SymbolType,
     FUNCTION_SIGNATURES
@@ -126,9 +127,26 @@ function parseDocument(document: TextDocument): ParsedDocument {
 
     // TODO: Add parsing for other symbols like comments, keywords, etc. if needed.
 
-    const parsedDoc: ParsedDocument = { document, symbols, diagnostics };
-    parsedDocumentCache.set(document.uri, parsedDoc);
-    return parsedDoc;
+    // Create line symbols map for incremental parsing
+    const lineSymbols = new Map<number, Symbol[]>();
+    symbols.forEach(symbol => {
+        const line = symbol.range.start.line;
+        if (!lineSymbols.has(line)) {
+            lineSymbols.set(line, []);
+        }
+        lineSymbols.get(line)!.push(symbol);
+    });
+
+    const cachedDoc: CachedDocument = { 
+        document, 
+        symbols, 
+        diagnostics,
+        lineSymbols,
+        lastChangeVersion: document.version,
+        changedLines: new Set<number>()
+    };
+    parsedDocumentCache.set(document.uri, cachedDoc);
+    return cachedDoc;
 }
 
 

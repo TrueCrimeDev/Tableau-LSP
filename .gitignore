@@ -89,3 +89,6 @@ typings/
 # OS
 .DS_Store
 Thumbs.db
+# Legacy client build output
+client/*.js
+
