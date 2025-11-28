@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.4 - Maintenance Release
+- Fixed .js extension imports for Node16 module resolution compatibility
+- Resolved Range.create invalid arguments error in signatureHelp
+- Added extraction features with enhanced XML processing and field analysis
+- Integrated ContextKit configuration support
+- Improved documentation and stability
+
 ## 1.0.0 - Initial Tableau LSP Release
 - Complete transformation from Zig LSP to Tableau Language Server
 - Added support for `.twbl` (Tableau calculation) files
