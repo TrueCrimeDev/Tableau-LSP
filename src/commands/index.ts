@@ -1,16 +1,16 @@
 // src/commands/index.ts
 
 import * as vscode from 'vscode';
-import { formatExpressionCommand } from './formatExpression';
-import { validateExpressionCommand } from './validateExpression';
-import { insertIfStatementCommand } from './insertIfStatement';
-import { insertCaseStatementCommand } from './insertCaseStatement';
-import { insertLodExpressionCommand } from './insertLodExpression';
-import { showFunctionHelpCommand } from './showFunctionHelp';
-import { toggleCommentsCommand } from './toggleComments';
-import { reviewProblemsCommand } from './reviewProblems';
-// import { registerHelpCommands } from '../help/helpProvider';
-// import { registerLoggingCommands } from './loggingCommands';
+import { formatExpressionCommand } from './formatExpression.js';
+import { validateExpressionCommand } from './validateExpression.js';
+import { insertIfStatementCommand } from './insertIfStatement.js';
+import { insertCaseStatementCommand } from './insertCaseStatement.js';
+import { insertLodExpressionCommand } from './insertLodExpression.js';
+import { showFunctionHelpCommand } from './showFunctionHelp.js';
+import { toggleCommentsCommand } from './toggleComments.js';
+import { reviewProblemsCommand } from './reviewProblems.js';
+// import { registerHelpCommands } from '../help/helpProvider.js';
+// import { registerLoggingCommands } from './loggingCommands.js';
 
 /**
  * R9.1: Register all keyboard shortcut commands

@@ -1,7 +1,7 @@
 
 import { Diagnostic, DiagnosticSeverity, Range } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { ParsedDocument, FUNCTION_SIGNATURES, SymbolType } from './common';
+import { ParsedDocument, FUNCTION_SIGNATURES, SymbolType } from './common.js';
 
 export function getDiagnostics(document: TextDocument, parsedDocument: ParsedDocument): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];

@@ -1,5 +1,5 @@
-import { generateContent } from './outputGenerator';
-import { ExtractedCalculation } from './types';
+import { generateContent } from './outputGenerator.js';
+import { ExtractedCalculation } from './types.js';
 
 /**
  * Note: Tests for generateNotesFile() that write to filesystem are omitted

@@ -18,7 +18,7 @@ import {
     Symbol,
     SymbolType,
     FUNCTION_SIGNATURES
-} from './common';
+} from './common.js';
 
 // REGEX CONSTANTS - inspired by your tmLanguage file
 // We use the 'g' flag to find all occurrences.

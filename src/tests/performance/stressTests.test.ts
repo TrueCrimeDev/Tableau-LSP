@@ -1,13 +1,13 @@
 // src/tests/performance/stressTests.test.ts
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { parseDocument } from '../../documentModel';
-import { provideHover } from '../../hoverProvider';
-import { provideCompletion } from '../../completionProvider';
-import { getDiagnostics } from '../../diagnosticsProvider';
-import { globalMemoryManager } from '../../memoryManager';
-import { globalDebouncer } from '../../requestDebouncer';
-import { PerformanceUtils } from './setup';
+import { parseDocument } from '../../documentModel.js';
+import { provideHover } from '../../hoverProvider.js';
+import { provideCompletion } from '../../completionProvider.js';
+import { getDiagnostics } from '../../diagnosticsProvider.js';
+import { globalMemoryManager } from '../../memoryManager.js';
+import { globalDebouncer } from '../../requestDebouncer.js';
+import { PerformanceUtils } from './setup.js';
 
 /**
  * R8.3: Stress Tests for Tableau LSP

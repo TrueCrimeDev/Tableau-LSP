@@ -2,7 +2,7 @@
 
 import { TextEdit, Range, Position, FormattingOptions } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { tokenize, TokenType, Token } from './lexer';
+import { tokenize, TokenType, Token } from './lexer.js';
 
 /**
  * R6.3: Multi-line expression formatting configuration

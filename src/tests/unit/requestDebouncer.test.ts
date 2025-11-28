@@ -1,6 +1,6 @@
 // src/tests/unit/requestDebouncer.test.ts
 
-import { RequestDebouncer, RequestType, RequestPriority, DebounceHelpers } from '../../requestDebouncer';
+import { RequestDebouncer, RequestType, RequestPriority, DebounceHelpers } from '../../requestDebouncer.js';
 import { Position } from 'vscode-languageserver';
 
 describe('Request Debouncing System', () => {

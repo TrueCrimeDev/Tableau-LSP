@@ -2,9 +2,9 @@
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { DiagnosticSeverity } from 'vscode-languageserver';
-import { ErrorRecovery } from '../errorRecovery';
-import { SymbolType } from '../common';
-import { PerformanceMonitor } from '../performanceMonitor';
+import { ErrorRecovery } from '../errorRecovery.js';
+import { SymbolType } from '../common.js';
+import { PerformanceMonitor } from '../performanceMonitor.js';
 
 /**
  * Comprehensive test suite for error recovery functionality

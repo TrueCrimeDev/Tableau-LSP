@@ -2,7 +2,7 @@
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { FormattingOptions } from 'vscode-languageserver';
-import { format, MultiLineFormattingAPI } from '../../format';
+import { format, MultiLineFormattingAPI } from '../../format.js';
 
 describe('Multi-Line Expression Formatting', () => {
   describe('Basic Multi-Line Formatting', () => {

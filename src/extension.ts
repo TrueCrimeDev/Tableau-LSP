@@ -1,8 +1,8 @@
 import { ExtensionContext, commands, window, languages, workspace, Uri, ProgressLocation, debug, tasks, Task, TaskExecution } from 'vscode';
 import { LanguageClient } from 'vscode-languageclient/node';
-import { SlashCommandProvider } from './slashCommandProvider';
-import { ActivationManager } from './activation/activationManager';
-import { extractCalculationsPythonCommand } from './commands/extractCalculationsPython';
+import { SlashCommandProvider } from './slashCommandProvider.js';
+import { ActivationManager } from './activation/activationManager.js';
+import { extractCalculationsPythonCommand } from './commands/extractCalculationsPython.js';
 
 let client: LanguageClient | undefined;
 let activationManager: ActivationManager;

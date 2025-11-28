@@ -2,8 +2,8 @@
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { HoverParams } from 'vscode-languageserver';
-import { provideHover, HoverPerformanceAPI } from '../../hoverProvider';
-import { FieldParser } from '../../fieldParser';
+import { provideHover, HoverPerformanceAPI } from '../../hoverProvider.js';
+import { FieldParser } from '../../fieldParser.js';
 
 describe('Hover Performance Optimization', () => {
   beforeEach(() => {

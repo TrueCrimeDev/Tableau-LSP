@@ -1,8 +1,8 @@
 import { Diagnostic, DiagnosticSeverity, Range } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { ParsedDocument, FUNCTION_SIGNATURES, SymbolType, Symbol } from './common';
-import { ConditionalExpressionValidator } from './conditionalExpressionValidator';
-import { AdvancedErrorRecovery } from './errorRecovery';
+import { ParsedDocument, FUNCTION_SIGNATURES, SymbolType, Symbol } from './common.js';
+import { ConditionalExpressionValidator } from './conditionalExpressionValidator.js';
+import { AdvancedErrorRecovery } from './errorRecovery.js';
 
 /**
  * R2.1: Main diagnostic provider implementing comprehensive Tableau validation

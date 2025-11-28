@@ -1,7 +1,7 @@
 // src/tests/integration/integrationTestRunner.ts
 
-import { runIntegrationTests } from './integrationTests';
-import { runIntegrationTest } from '../integrationTest';
+import { runIntegrationTests } from './integrationTests.js';
+import { runIntegrationTest } from '../integrationTest.js';
 import * as fs from 'fs';
 import * as path from 'path';
 

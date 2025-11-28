@@ -2,9 +2,9 @@
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { CompletionItemKind, TextDocumentPositionParams } from 'vscode-languageserver';
-import { provideCompletion, CompletionPerformanceAPI } from '../../completionProvider';
-import { parseDocument } from '../../documentModel';
-import { FieldParser } from '../../fieldParser';
+import { provideCompletion, CompletionPerformanceAPI } from '../../completionProvider.js';
+import { parseDocument } from '../../documentModel.js';
+import { FieldParser } from '../../fieldParser.js';
 
 describe('Completion Performance Optimization', () => {
   beforeEach(() => {

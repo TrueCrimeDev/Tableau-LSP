@@ -1,6 +1,6 @@
 import { Diagnostic, DiagnosticSeverity, Range } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { ParsedDocument, Symbol, SymbolType } from './common';
+import { ParsedDocument, Symbol, SymbolType } from './common.js';
 
 /**
  * TableauDiagnosticCategory for advanced error recovery

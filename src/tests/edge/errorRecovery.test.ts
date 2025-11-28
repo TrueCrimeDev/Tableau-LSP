@@ -1,12 +1,12 @@
 // src/tests/edge/errorRecovery.test.ts
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { parseDocument } from '../../documentModel';
-import { getDiagnostics } from '../../diagnosticsProvider';
-import { ErrorRecovery } from '../../errorRecovery';
-import { IncrementalParser } from '../../incrementalParser';
-import { provideHover } from '../../hoverProvider';
-import { provideCompletion } from '../../completionProvider';
+import { parseDocument } from '../../documentModel.js';
+import { getDiagnostics } from '../../diagnosticsProvider.js';
+import { ErrorRecovery } from '../../errorRecovery.js';
+import { IncrementalParser } from '../../incrementalParser.js';
+import { provideHover } from '../../hoverProvider.js';
+import { provideCompletion } from '../../completionProvider.js';
 
 /**
  * R8.4: Error recovery tests

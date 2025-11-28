@@ -1,7 +1,7 @@
 // src/tests/unit/memoryManagementRequirements.test.ts
 
-import { globalMemoryManager, MemoryHelpers } from '../../memoryManager';
-import { parsedDocumentCache } from '../../common';
+import { globalMemoryManager, MemoryHelpers } from '../../memoryManager.js';
+import { parsedDocumentCache } from '../../common.js';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 
 /**

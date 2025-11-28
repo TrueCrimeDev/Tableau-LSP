@@ -1,15 +1,15 @@
 // src/tests/performance/lspPerformance.test.ts
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { parseDocument } from '../../documentModel';
-import { provideHover } from '../../hoverProvider';
-import { provideCompletion } from '../../completionProvider';
-import { buildSignatureHelp } from '../../signatureProvider';
-import { getDiagnostics } from '../../diagnosticsProvider';
-import { format } from '../../format';
-import { IncrementalParser } from '../../incrementalParser';
-import { FieldParser } from '../../fieldParser';
-import { PerformanceUtils } from './setup';
+import { parseDocument } from '../../documentModel.js';
+import { provideHover } from '../../hoverProvider.js';
+import { provideCompletion } from '../../completionProvider.js';
+import { buildSignatureHelp } from '../../signatureProvider.js';
+import { getDiagnostics } from '../../diagnosticsProvider.js';
+import { format } from '../../format.js';
+import { IncrementalParser } from '../../incrementalParser.js';
+import { FieldParser } from '../../fieldParser.js';
+import { PerformanceUtils } from './setup.js';
 
 /**
  * R8.3: LSP Feature Performance Tests

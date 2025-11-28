@@ -2,8 +2,8 @@
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { DiagnosticSeverity } from 'vscode-languageserver';
-import { getDiagnostics } from '../../diagnosticsProvider';
-import { parseDocument } from '../../documentModel';
+import { getDiagnostics } from '../../diagnosticsProvider.js';
+import { parseDocument } from '../../documentModel.js';
 
 describe('Performance Validation', () => {
   describe('Excessive Nesting Detection', () => {

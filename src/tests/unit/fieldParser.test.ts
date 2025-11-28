@@ -1,6 +1,6 @@
 // src/tests/unit/fieldParser.test.ts
 
-import { FieldParser } from '../../fieldParser';
+import { FieldParser } from '../../fieldParser.js';
 import * as fs from 'fs';
 import * as path from 'path';
 

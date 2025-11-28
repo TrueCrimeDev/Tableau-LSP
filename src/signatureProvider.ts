@@ -6,7 +6,7 @@ import {
   Range
 } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { ParsedDocument, Symbol, SymbolType, FUNCTION_SIGNATURES } from './common';
+import { ParsedDocument, Symbol, SymbolType, FUNCTION_SIGNATURES } from './common.js';
 
 /**
  * R5.4: Performance optimization configuration

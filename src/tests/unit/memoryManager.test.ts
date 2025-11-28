@@ -1,9 +1,9 @@
 // src/tests/unit/memoryManager.test.ts
 
-import { MemoryManager, globalMemoryManager, MemoryHelpers } from '../../memoryManager';
-import { parsedDocumentCache } from '../../common';
+import { MemoryManager, globalMemoryManager, MemoryHelpers } from '../../memoryManager.js';
+import { parsedDocumentCache } from '../../common.js';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { globalDebouncer } from '../../requestDebouncer';
+import { globalDebouncer } from '../../requestDebouncer.js';
 
 // Mock process.memoryUsage for testing
 const mockMemoryUsage = {

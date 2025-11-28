@@ -1,9 +1,9 @@
 // src/tests/testIncrementalParsing.ts
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { IncrementalParser } from '../incrementalParser';
-import { PerformanceMonitor } from '../performanceMonitor';
-import { INCREMENTAL_PARSING_CONFIG } from '../common';
+import { IncrementalParser } from '../incrementalParser.js';
+import { PerformanceMonitor } from '../performanceMonitor.js';
+import { INCREMENTAL_PARSING_CONFIG } from '../common.js';
 
 /**
  * Comprehensive test for incremental parsing functionality

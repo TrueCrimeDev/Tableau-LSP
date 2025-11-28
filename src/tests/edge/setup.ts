@@ -1,9 +1,9 @@
 // src/tests/edge/setup.ts
 
-import { globalMemoryManager } from '../../memoryManager';
-import { globalDebouncer } from '../../requestDebouncer';
-import { IncrementalParser } from '../../incrementalParser';
-import { parsedDocumentCache } from '../../common';
+import { globalMemoryManager } from '../../memoryManager.js';
+import { globalDebouncer } from '../../requestDebouncer.js';
+import { IncrementalParser } from '../../incrementalParser.js';
+import { parsedDocumentCache } from '../../common.js';
 
 /**
  * R8.4: Edge case test setup and utilities

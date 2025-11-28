@@ -1,6 +1,6 @@
 import { Diagnostic, DiagnosticSeverity, Range } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { ParsedDocument, Symbol, SymbolType, FUNCTION_SIGNATURES } from './common';
+import { ParsedDocument, Symbol, SymbolType, FUNCTION_SIGNATURES } from './common.js';
 
 // R2.2: Tableau-specific diagnostic categories
 export enum TableauDiagnosticCategory {

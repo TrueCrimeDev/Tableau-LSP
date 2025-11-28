@@ -3,12 +3,12 @@
 import { performance } from 'perf_hooks';
 import * as fs from 'fs';
 import * as path from 'path';
-import { runIncrementalTests } from './runIncrementalTests';
-import { testErrorRecovery } from './testErrorRecovery';
-import { runIntegrationTest } from './integrationTest';
-import { runPerformanceTests } from './performance/performanceTests';
-import { runEdgeCaseTests } from './edge/edgeCaseTests';
-import { runIntegrationTests } from './integration/integrationTests';
+import { runIncrementalTests } from './runIncrementalTests.js';
+import { testErrorRecovery } from './testErrorRecovery.js';
+import { runIntegrationTest } from './integrationTest.js';
+import { runPerformanceTests } from './performance/performanceTests.js';
+import { runEdgeCaseTests } from './edge/edgeCaseTests.js';
+import { runIntegrationTests } from './integration/integrationTests.js';
 
 /**
  * Main test runner for Tableau LSP automated testing

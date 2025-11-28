@@ -1,7 +1,7 @@
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Range, Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
-import { Symbol, SymbolType } from './common';
-import { AdvancedErrorRecovery } from './errorRecovery';
+import { Symbol, SymbolType } from './common.js';
+import { AdvancedErrorRecovery } from './errorRecovery.js';
 
 // REGEX CONSTANTS
 const FIELD_REGEX = /\[([^\]]+)\]/g;

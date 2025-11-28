@@ -1,7 +1,7 @@
 // src/commands/loggingCommands.ts
 
 import * as vscode from 'vscode';
-import { getLogger, LogLevel } from '../logging/logger';
+import { getLogger, LogLevel } from '../logging/logger.js';
 
 /**
  * R10.4: Logging Commands
