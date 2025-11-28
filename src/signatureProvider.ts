@@ -569,12 +569,10 @@ function buildConditionalSignature(
  * Extract the complete line text for a branch
  */
 function extractBranchLine(branch: Symbol, document: TextDocument): string {
+  const line = branch.range.start.line ?? 0;
   return document
     .getText(
-      Range.create(
-        { line: branch.range.start.line ?? 0, character: 0 },
-        { line: branch.range.start.line ?? 0, character: Number.MAX_SAFE_INTEGER }
-      )
+      Range.create(line, 0, line, Number.MAX_SAFE_INTEGER)
     )
     .trimEnd();
 }
@@ -587,10 +585,7 @@ function extractEndLine(block: Symbol, document: TextDocument): string {
     (block.children?.slice(-1)[0]?.range.end.line ?? 0);
 
   return document.getText(
-    Range.create(
-      { line: endLn, character: 0 },
-      { line: endLn, character: Number.MAX_SAFE_INTEGER }
-    )
+    Range.create(endLn, 0, endLn, Number.MAX_SAFE_INTEGER)
   ).trimEnd();
 }
 
