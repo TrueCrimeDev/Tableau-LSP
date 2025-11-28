@@ -8,6 +8,10 @@
         "sourceMap": true,
         "esModuleInterop": true,
         "allowSyntheticDefaultImports": true,
+        "skipLibCheck": true,
+        "types": [
+            "node"
+        ],
 
         "strict": true,
         "allowUnreachableCode": false,
@@ -17,11 +21,11 @@
         "noPropertyAccessFromIndexSignature": false
     },
     "include": [
-        "src/**/*.ts",
-        "client/**/*.ts"
+        "src/**/*.ts"
     ],
     "exclude": [
         "src/tests/**/*.ts",
         "**/*.test.ts"
     ]
 }
+

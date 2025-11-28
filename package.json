@@ -255,6 +255,11 @@
         "category": "Tableau"
       },
       {
+        "command": "tableau-language-support.compileAndReload",
+        "title": "Compile and Reload Tableau Debugger",
+        "category": "Tableau"
+      },
+      {
         "command": "tableau-language-support.hello",
         "title": "Hello Tableau",
         "category": "Tableau"
@@ -302,6 +307,11 @@
       {
         "command": "tableau-language-support.toggleComments",
         "title": "Toggle Comments",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.reviewProblems",
+        "title": "Inspect Tableau Problems",
         "category": "Tableau"
       },
       {
@@ -359,6 +369,11 @@
         "title": "Show Extension Status (Duplicate Entry Cleanup Placeholder)",
         "category": "Tableau",
         "enablement": "false"
+      },
+      {
+        "command": "tableau-lsp.extractCalculationsPython",
+        "title": "Extract Calculations",
+        "category": "Tableau"
       }
     ],
     "keybindings": [
@@ -421,6 +436,10 @@
         "key": "ctrl+shift+t",
         "mac": "cmd+shift+t",
         "when": "editorTextFocus && resourceExtname == .twbl"
+      },
+      {
+        "command": "tableau-language-support.compileAndReload",
+        "key": "alt+f13"
       }
     ]
   },

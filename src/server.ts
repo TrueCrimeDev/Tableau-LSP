@@ -25,10 +25,50 @@ import { globalMemoryManager, MemoryHelpers } from './memoryManager';
 const connection = createConnection(ProposedFeatures.all);
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 
+// Helper function to check if a file should be excluded from diagnostics
+function shouldSkipDiagnostics(uri: string): boolean {
+    // Skip declaration files (*.d.twbl)
+    if (uri.endsWith('.d.twbl')) {
+        return true;
+    }
+    // Skip files in syntaxes/ directory
+    if (uri.includes('/syntaxes/') || uri.includes('\\syntaxes\\')) {
+        return true;
+    }
+    return false;
+}
+
 let fieldParser: FieldParser | null = null;
 const fieldDefinitionPath = FieldParser.findDefinitionFile(__dirname);
 if (fieldDefinitionPath) {
     fieldParser = new FieldParser(fieldDefinitionPath);
+}
+
+// Optional: watch the field definition file for hot-reload
+try {
+    const fs = require('fs');
+    const path = require('path');
+    const { CompletionPerformanceAPI } = require('./completionProvider');
+    const { HoverPerformanceAPI } = require('./hoverProvider');
+    const watchPath = fieldDefinitionPath;
+    if (watchPath && fs.existsSync(watchPath)) {
+        fs.watch(watchPath, { persistent: false }, (eventType: string) => {
+            if (eventType === 'change') {
+                try {
+                    fieldParser?.refresh();
+                    // Clear completion and hover caches so updates reflect immediately
+                    CompletionPerformanceAPI.clearCache();
+                    HoverPerformanceAPI.clearCaches();
+                    connection.console.log('[Server] Reloaded fields.d.twbl and cleared caches');
+                } catch (e) {
+                    connection.console.error('[Server] Failed to hot-reload fields.d.twbl: ' + e);
+                }
+            }
+        });
+    }
+} catch (e) {
+    // Ignore watcher errors in environments that lack fs.watch support
+    console.warn('[Server] Field definition hot-reload disabled:', e);
 }
 
 let hasConfigurationCapability = false;
@@ -90,6 +130,12 @@ connection.onInitialized(() => {
 });
 
 documents.onDidChangeContent((change) => {
+    // Skip diagnostics for declaration files
+    if (shouldSkipDiagnostics(change.document.uri)) {
+        connection.sendDiagnostics({ uri: change.document.uri, diagnostics: [] });
+        return;
+    }
+
     // R7.2: Use debounced diagnostics for rapid typing scenarios
     DebounceHelpers.diagnostics(
         change.document,
@@ -110,7 +156,13 @@ documents.onDidChangeContent((change) => {
 documents.onDidOpen((event) => {
     // R7.3: Mark document as active for memory management
     globalMemoryManager.markDocumentActive(event.document.uri);
-    
+
+    // Skip diagnostics for declaration files
+    if (shouldSkipDiagnostics(event.document.uri)) {
+        connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
+        return;
+    }
+
     // R7.2: Immediate diagnostics for document open (critical priority)
     const parsedDocument = IncrementalParser.parseDocumentIncremental(event.document);
     const diagnostics = getDiagnostics(event.document, parsedDocument);

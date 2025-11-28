@@ -5,7 +5,7 @@ import { AdvancedErrorRecovery } from './errorRecovery';
 
 // REGEX CONSTANTS
 const FIELD_REGEX = /\[([^\]]+)\]/g;
-const LOD_REGEX = /\{\s*(FIXED|INCLUDE|EXCLUDE)\b/ig;
+const LOD_REGEX = /\{\s*(FIXED|INCLUDE|EXCLUDE)\b[^}]*\}/ig;
 const COMMENT_LINE_REGEX = /\/\/.*/g;
 const COMMENT_BLOCK_REGEX = /\/\*[\s\S]*?\*\//g;
 const KEYWORD_REGEX = /^\s*(IF|THEN|ELSEIF|ELSE|END|CASE|WHEN)\b/i;
@@ -31,6 +31,7 @@ export function parseDocument(document: TextDocument): {
     // Apply advanced error recovery to the parsed result
     const errorRecovery = new AdvancedErrorRecovery();
     const recoveryDiagnostics = errorRecovery.processDocument(document, {
+        document,
         symbols: result.symbols,
         diagnostics: result.diagnostics
     });
@@ -113,8 +114,7 @@ export function parseDocumentLegacy(document: TextDocument): {
 
             if (keyword === 'IF' || keyword === 'CASE') {
                 // Enhanced: Store the condition text for later validation
-                const conditionText = trimmed.substring(keyword.length).trim();
-                symbol.text = conditionText;
+                let conditionText = trimmed.substring(keyword.length).trim();
                 
                 // If we are currently inside a branch, treat this IF/CASE as nested
                 if (currentBranch) {
@@ -124,6 +124,54 @@ export function parseDocumentLegacy(document: TextDocument): {
                 parent.children!.push(symbol);
                 blockStack.push(symbol);
                 currentBranch = null;
+
+                // Handle inline THEN on the same line as IF/CASE to avoid "Missing Branch" false positives
+                const restText = trimmed.substring(keyword.length).trim();
+                const upperRest = restText.toUpperCase();
+                const thenIndex = upperRest.indexOf('THEN');
+                
+                if (thenIndex >= 0) {
+                    const beforeThen = restText.substring(0, thenIndex).trim();
+                    const afterThenText = restText.substring(thenIndex + 4).trim();
+                    symbol.text = beforeThen;
+
+                    const thenSymbol: Symbol = {
+                        name: 'THEN',
+                        type: SymbolType.Keyword,
+                        range: Range.create(
+                            { line: i, character: 0 },
+                            { line: i, character: line.length }
+                        ),
+                        parent: symbol,
+                        children: []
+                    };
+
+                    // Capture any inline expression after THEN
+                    if (afterThenText) {
+                        thenSymbol.text = afterThenText;
+                        const inlineExpression: Symbol = {
+                            name: afterThenText,
+                            type: SymbolType.Expression,
+                            range: Range.create(
+                                { line: i, character: line.toUpperCase().indexOf('THEN') + 4 },
+                                { line: i, character: line.length }
+                            ),
+                            text: afterThenText,
+                            parent: thenSymbol,
+                            children: []
+                        };
+                        thenSymbol.children!.push(inlineExpression);
+                        symbols.push(inlineExpression);
+                    }
+
+                    // Attach THEN as a branch and set currentBranch so following lines belong to it
+                    symbol.children!.push(thenSymbol);
+                    symbols.push(thenSymbol);
+                    currentBranch = thenSymbol;
+                } else {
+                    symbol.text = conditionText;
+                }
+
             } else if (keyword === 'THEN' || keyword === 'ELSEIF' || keyword === 'ELSE' || keyword === 'WHEN') {
                 currentBranch = symbol;
                 parent.children!.push(symbol);

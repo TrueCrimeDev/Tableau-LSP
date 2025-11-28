@@ -6,10 +6,12 @@ A VS Code extension that provides language server features for Tableau calculati
 
 - **Syntax Highlighting**: Highlights Tableau calculation syntax including functions, keywords, operators, and field references.
 - **Hover Information**: Shows detailed, context-aware information when hovering over Tableau functions, fields, and keywords.
+  - Includes calculation header context (auto-detected from `// NAME – description` lines) and unified undefined-field messages.
 - **Code Completion**: Suggests functions, fields, and keywords as you type.
 - **Signature Help**: Displays function signatures and parameter information when typing function calls.
 - **Document Symbols**: Lists all functions and expressions in the current document.
 - **Validation**: Validates Tableau expressions for syntax errors and provides diagnostics.
+- **Calculation Extraction**: Extract and analyze calculations, datasources, and fields from Tableau workbooks (.twb/.twbx files) with advanced processing including XML cleaning, name resolution, normalization, and deduplication.
 
 ## Enhanced Features
 
@@ -52,11 +54,36 @@ A comprehensive testing framework has been added:
 
 ## Usage
 
+### Working with Calculations
+
 1. Open a `.twbl` file in VS Code.
 2. Write Tableau calculation expressions.
 3. Hover over functions, fields, or keywords to see detailed information.
 4. Use code completion to get suggestions as you type.
 5. View validation errors and warnings in the Problems panel.
+
+### Extracting Calculations from Workbooks
+
+1. Open a `.twb` or `.twbx` file in VS Code.
+2. Open the Command Palette (`Cmd+Shift+P` on Mac, `Ctrl+Shift+P` on Windows/Linux).
+3. Type "Extract Calculations" and select "Tableau: Extract Calculations".
+4. The extracted data (datasources, fields, and calculations) will be saved to `Extracted_Calculations.twbl` in your workspace root and opened automatically.
+
+The output file includes three sections:
+- **Datasources**: Lists all datasources in the workbook
+- **Fields**: Lists all fields with their datatype and role
+- **Calculations**: Shows normalized calculation formulas with uppercased keywords
+
+For detailed information about the extraction feature, see the [Extraction Guide](./docs/extraction-guide.md).
+
+### Markdown fences with Tableau highlighting
+
+Use a tableau code block to get syntax highlighting in Markdown:
+
+```tableau
+// !My Calc – Description
+IF [Sales] > 1000 THEN "High" ELSE "Low" END
+```
 
 ## Requirements
 
@@ -66,8 +93,8 @@ A comprehensive testing framework has been added:
 
 This extension contributes the following settings:
 
-* `tableau.enableFormatting`: Enable/disable formatting for Tableau expressions.
-* `tableau.enableSignatureHelp`: Enable/disable signature help for Tableau functions.
+- `tableau.enableFormatting`: Enable/disable formatting for Tableau expressions.
+- `tableau.enableSignatureHelp`: Enable/disable signature help for Tableau functions.
 
 ## Known Issues
 
@@ -87,3 +114,12 @@ This extension contributes the following settings:
 ### 1.0.0
 
 - Initial release with basic language server features
+
+## Debug & Reload Workflow
+
+The extension ships with a Toolbox-style compile/reload loop. See `docs/AUTO_RELOAD_DEBUGGER.md` for the full breakdown, but the highlights are:
+
+- Use the `Tableau LSP: Compile and Reload` command to run the `npm: compile` task and restart/launch the `Run Extension (VS Code)` debugger (which opens the `Tableau-LSP.code-workspace` in the Extension Host window).
+- `Tasks: Run Task` exposes both `npm: compile` and a `Compile and Reload Debugger` helper, if you prefer sticking with VS Code tasks.
+- `npm run watch` keeps builds flowing automatically; pair it with `Ctrl+Shift+F5` or the command above for ultra-fast iteration.
+- CLI helpers `auto-reload.sh` and `auto-reload.cmd` give you a terminal-friendly entry point that mirrors the VS Code task.

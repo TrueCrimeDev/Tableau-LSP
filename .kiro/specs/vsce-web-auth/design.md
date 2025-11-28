@@ -2,185 +2,216 @@
 
 ## Overview
 
-This design implements web-based OAuth authentication for Visual Studio Code Extension (vsce) publishing, replacing the current personal access token (PAT) workflow. The solution will integrate with the existing vsce CLI tool to provide a seamless browser-based authentication experience.
+This design implements web-based authentication for Visual Studio Code Extension (vsce) publishing, replacing the current Personal Access Token (PAT) approach with a more user-friendly browser-based OAuth flow. The solution will leverage the latest vsce features and provide fallback options for different authentication scenarios.
 
 ## Architecture
 
-### Authentication Flow
+### Authentication Flow Architecture
 ```
-Developer runs `vsce publish`
+User runs publish command
     ↓
-Check for valid stored credentials
+Check for existing valid credentials
     ↓
-If invalid/missing → Launch web authentication
+If invalid/missing → Initiate web authentication
     ↓
-Open browser to VS Code Marketplace OAuth endpoint
+Open browser → Azure/Microsoft OAuth
     ↓
-User completes authentication in browser
-    ↓
-Receive OAuth token via callback
+User authenticates → Receive token
     ↓
 Store credentials securely
     ↓
 Continue with publishing process
 ```
 
-### Components Overview
-- **Authentication Manager**: Handles OAuth flow and credential storage
-- **Browser Launcher**: Opens authentication URL in default browser
-- **Callback Server**: Local HTTP server to receive OAuth callback
-- **Credential Store**: Secure storage for authentication tokens
-- **CLI Integration**: Integrates with existing vsce publish workflow
+### Component Structure
+- **Authentication Manager**: Handles credential storage and validation
+- **Web Auth Provider**: Manages browser-based OAuth flow
+- **Credential Store**: Secure local storage for tokens
+- **Fallback Handler**: Alternative authentication methods
+- **Publishing Wrapper**: Integrates authentication with vsce publish
 
 ## Components and Interfaces
 
 ### 1. Authentication Manager
 ```typescript
 interface AuthenticationManager {
-    authenticate(): Promise<AuthToken>;
-    isAuthenticated(): Promise<boolean>;
-    getStoredToken(): Promise<AuthToken | null>;
-    clearCredentials(): Promise<void>;
-}
-
-interface AuthToken {
-    accessToken: string;
-    refreshToken?: string;
-    expiresAt: Date;
-    scope: string[];
+    authenticate(): Promise<AuthResult>
+    isAuthenticated(): Promise<boolean>
+    clearCredentials(): Promise<void>
+    getStoredCredentials(): Promise<Credentials | null>
 }
 ```
 
-### 2. Browser Launcher
+### 2. Web Authentication Provider
 ```typescript
-interface BrowserLauncher {
-    openAuthUrl(authUrl: string): Promise<void>;
-    isDefaultBrowserAvailable(): boolean;
-    getFallbackInstructions(): string;
+interface WebAuthProvider {
+    initiateWebAuth(): Promise<AuthToken>
+    openBrowser(authUrl: string): Promise<void>
+    waitForCallback(): Promise<AuthToken>
+    validateToken(token: AuthToken): Promise<boolean>
 }
 ```
 
-### 3. Callback Server
-```typescript
-interface CallbackServer {
-    start(port?: number): Promise<number>;
-    waitForCallback(timeoutMs: number): Promise<AuthorizationCode>;
-    stop(): Promise<void>;
-}
-
-interface AuthorizationCode {
-    code: string;
-    state: string;
-}
-```
-
-### 4. Credential Store
+### 3. Credential Storage
 ```typescript
 interface CredentialStore {
-    store(token: AuthToken): Promise<void>;
-    retrieve(): Promise<AuthToken | null>;
-    clear(): Promise<void>;
-    isValid(token: AuthToken): boolean;
+    store(credentials: Credentials): Promise<void>
+    retrieve(): Promise<Credentials | null>
+    clear(): Promise<void>
+    isValid(credentials: Credentials): Promise<boolean>
 }
 ```
 
 ## Data Models
 
-### OAuth Configuration
+### Authentication Result
 ```typescript
-interface OAuthConfig {
-    clientId: string;
-    clientSecret: string;
-    authUrl: string;
-    tokenUrl: string;
-    redirectUri: string;
-    scopes: string[];
+interface AuthResult {
+    success: boolean
+    token?: string
+    error?: string
+    requiresReauth?: boolean
 }
 ```
 
-### Authentication State
+### Credentials
 ```typescript
-interface AuthState {
-    isAuthenticated: boolean;
-    token?: AuthToken;
-    lastAuthTime?: Date;
-    expiresAt?: Date;
+interface Credentials {
+    accessToken: string
+    refreshToken?: string
+    expiresAt: Date
+    publisher: string
+    authMethod: 'web' | 'pat' | 'azure'
 }
 ```
+
+### Configuration
+```typescript
+interface AuthConfig {
+    publisher: string
+    useWebAuth: boolean
+    fallbackToPAT: boolean
+    browserTimeout: number
+    credentialStorePath: string
+}
+```
+
+## Implementation Strategy
+
+### Phase 1: Azure CLI Integration
+- Install and configure Azure CLI
+- Use `az login` for initial authentication
+- Leverage Azure CLI credentials for vsce publishing
+- Command: `az login` followed by `vsce publish --azure-credential`
+
+### Phase 2: Direct Web Authentication
+- Implement custom OAuth flow
+- Create local callback server
+- Open browser to Microsoft authentication
+- Handle OAuth callback and token exchange
+
+### Phase 3: Credential Management
+- Secure token storage using OS keychain
+- Token refresh mechanism
+- Automatic re-authentication on expiry
+- Clear credentials command
 
 ## Error Handling
 
-### Error Types
-1. **Network Errors**: Handle offline scenarios and API failures
-2. **Browser Errors**: Handle cases where browser cannot be opened
-3. **Timeout Errors**: Handle authentication timeout scenarios
-4. **Token Errors**: Handle invalid or expired tokens
-5. **Permission Errors**: Handle insufficient marketplace permissions
+### Authentication Failures
+- **Browser fails to open**: Provide manual URL and instructions
+- **OAuth callback timeout**: Retry mechanism with extended timeout
+- **Token validation fails**: Clear stored credentials and retry
+- **Network issues**: Offline mode with cached credentials
 
-### Error Recovery Strategies
-- **Retry Logic**: Automatic retry for transient network errors
-- **Fallback Methods**: Manual token entry if browser auth fails
-- **Clear Instructions**: Detailed error messages with resolution steps
-- **Graceful Degradation**: Fall back to PAT method if OAuth fails
+### Fallback Mechanisms
+1. **Azure CLI**: If available, use `az login` + `--azure-credential`
+2. **Personal Access Token**: Fall back to traditional PAT method
+3. **Manual URL**: Provide authentication URL for manual browser opening
+4. **Environment Variables**: Support VSCE_PAT environment variable
 
 ## Testing Strategy
 
 ### Unit Tests
-- Authentication manager token validation
-- Credential store encryption/decryption
-- OAuth flow state management
+- Authentication manager functionality
+- Credential storage and retrieval
+- Token validation logic
 - Error handling scenarios
 
 ### Integration Tests
 - End-to-end authentication flow
-- Browser launching across different platforms
-- Callback server functionality
-- Token refresh workflows
+- Browser automation testing
+- Credential persistence across sessions
+- Publishing workflow integration
 
 ### Manual Testing
-- Cross-platform browser compatibility
+- Different browser configurations
 - Network connectivity scenarios
-- User experience flow testing
-- Error message clarity
+- Multiple publisher accounts
+- Cross-platform compatibility (Windows, macOS, Linux)
 
 ## Security Considerations
 
 ### Token Security
-- Store tokens using OS keychain/credential manager
+- Store tokens in OS-specific secure storage (Windows Credential Manager, macOS Keychain, Linux Secret Service)
 - Encrypt tokens at rest
-- Use secure HTTP for callback server (HTTPS with self-signed cert)
-- Implement token rotation
+- Automatic token expiration handling
+- Secure token transmission
 
-### OAuth Security
-- Use PKCE (Proof Key for Code Exchange) for additional security
-- Validate state parameter to prevent CSRF attacks
-- Use secure random state generation
-- Implement proper scope validation
+### Browser Security
+- Use HTTPS for all authentication URLs
+- Validate callback URLs to prevent CSRF
+- Implement state parameter for OAuth flow
+- Timeout mechanisms for abandoned sessions
 
-### Network Security
-- Use HTTPS for all external communications
-- Validate SSL certificates
-- Implement timeout controls
-- Sanitize callback parameters
+## Platform-Specific Implementation
 
-## Implementation Notes
+### Windows
+- Use Windows Credential Manager for token storage
+- PowerShell integration for Azure CLI
+- Handle Windows Defender/antivirus browser blocking
 
-### Platform Considerations
-- **Windows**: Use Windows Credential Manager for token storage
-- **macOS**: Use Keychain Services for secure storage
-- **Linux**: Use libsecret or gnome-keyring for credential storage
+### macOS
+- Use macOS Keychain for secure storage
+- Handle Safari/Chrome browser preferences
+- Integrate with macOS security prompts
 
-### Browser Compatibility
-- Support default browser detection across platforms
-- Handle cases where no browser is available
-- Provide manual URL copying as fallback
+### Linux
+- Use Secret Service API for credential storage
+- Handle various desktop environments
+- Support headless server environments
 
-### VS Code Marketplace Integration
-- Research current OAuth endpoints and requirements
-- Understand required scopes for publishing
-- Implement proper error handling for marketplace-specific errors
+## Configuration Options
+
+### User Configuration
+```json
+{
+  "vsce": {
+    "authMethod": "web",
+    "publisher": "TrueCrimeAudit",
+    "browserTimeout": 120,
+    "fallbackToPAT": true,
+    "autoRefreshTokens": true
+  }
+}
+```
+
+### Environment Variables
+- `VSCE_AUTH_METHOD`: Override authentication method
+- `VSCE_BROWSER_TIMEOUT`: Set browser timeout
+- `VSCE_PUBLISHER`: Set default publisher
+- `VSCE_PAT`: Fallback personal access token
+
+## Migration Strategy
+
+### From PAT to Web Auth
+1. Detect existing PAT configuration
+2. Offer migration to web authentication
+3. Preserve PAT as fallback option
+4. Gradual deprecation of PAT usage
 
 ### Backward Compatibility
-- Maintain support for existing PAT workflow
-- Allow users to choose authentication method
-- Provide migration path from PAT to OAuth
+- Support existing PAT workflows
+- Maintain current command-line interface
+- Provide opt-in web authentication
+- Clear migration documentation

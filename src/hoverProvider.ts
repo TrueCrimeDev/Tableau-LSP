@@ -52,7 +52,7 @@ if (definitionFilePath) {
     jsDocParser = new JSDocParser(definitionFilePath);
     console.log(`Found twbl.d.twbl at: ${definitionFilePath}`);
     console.log(`Loaded ${jsDocParser.getSymbolCount()} symbols from JSDoc parser`);
-    
+
     // Debug: log first few symbols
     const allSymbols = Array.from(jsDocParser.getAllSymbols().keys()).slice(0, 5);
     console.log(`First few symbols: ${allSymbols.join(', ')}`);
@@ -68,38 +68,55 @@ export function provideHover(params: HoverParams, document: TextDocument, fieldP
     const position = params.position;
     const documentUri = document.uri;
     const documentVersion = document.version;
-    
+
     // R3.4: Generate cache key for this hover request
     const cacheKey = generateHoverCacheKey(documentUri, position, documentVersion);
-    
+
     // R3.4: Check hover cache first
     const cachedHover = getFromHoverCache(cacheKey);
     if (cachedHover) {
         logPerformance('Hover cache hit', startTime);
         return cachedHover;
     }
-    
+
     // R3.4: Get or create symbol index for efficient lookup
     const symbolIndex = getOrCreateSymbolIndex(document);
-    
+
     // R3.4: Use efficient symbol lookup
     const symbol = findSymbolAtPosition(position, symbolIndex);
     let hover: Hover | undefined;
-    
+
     if (symbol) {
         hover = createHoverForSymbol(symbol, fieldParser);
     }
-    
+
     // R3.4: Fallback to word-at-position lookup if no symbol found
     if (!hover) {
         hover = createHoverForWordAtPosition(document, position, fieldParser);
     }
-    
+
     // R3.4: Cache the result if we found a hover
+    // Augment with calculation header context (or create header-only hover) if inside a detected calculation block
+    const calcHeader = detectCalculationContext(document, position);
+    if (calcHeader && isPositionInCalcBody(position.line, calcHeader)) {
+        const headerMarkdown = buildCalcHeaderMarkdown(calcHeader.name, calcHeader.description);
+        if (hover) {
+            // Prepend header with separator while preserving existing markdown
+            const existing = (hover.contents as MarkupContent).value || '';
+            (hover.contents as MarkupContent).value = `${headerMarkdown}\n\n---\n\n${existing}`;
+        } else {
+            // Create a hover consisting only of the header (so every token gets context)
+            hover = {
+                contents: { kind: MarkupKind.Markdown, value: headerMarkdown },
+                range: { start: position, end: position }
+            };
+        }
+    }
+
     if (hover) {
         addToHoverCache(cacheKey, hover, documentVersion);
     }
-    
+
     logPerformance('Total hover processing', startTime);
     return hover;
 }
@@ -119,14 +136,14 @@ function getFromHoverCache(cacheKey: string): Hover | undefined {
     if (!entry) {
         return undefined;
     }
-    
+
     // Check if cache entry is still valid
     const now = Date.now();
     if (now - entry.timestamp > HOVER_CACHE_CONFIG.CACHE_TTL_MS) {
         hoverCache.delete(cacheKey);
         return undefined;
     }
-    
+
     return entry.hover;
 }
 
@@ -138,7 +155,7 @@ function addToHoverCache(cacheKey: string, hover: Hover, documentVersion: number
     if (hoverCache.size >= HOVER_CACHE_CONFIG.MAX_CACHE_SIZE) {
         cleanupHoverCache();
     }
-    
+
     hoverCache.set(cacheKey, {
         hover,
         timestamp: Date.now(),
@@ -152,13 +169,13 @@ function addToHoverCache(cacheKey: string, hover: Hover, documentVersion: number
 function cleanupHoverCache(): void {
     const now = Date.now();
     const keysToDelete: string[] = [];
-    
+
     for (const [key, entry] of hoverCache.entries()) {
         if (now - entry.timestamp > HOVER_CACHE_CONFIG.CACHE_TTL_MS) {
             keysToDelete.push(key);
         }
     }
-    
+
     // Remove oldest entries if still too large
     if (keysToDelete.length === 0 && hoverCache.size >= HOVER_CACHE_CONFIG.MAX_CACHE_SIZE) {
         const entries = Array.from(hoverCache.entries());
@@ -166,7 +183,7 @@ function cleanupHoverCache(): void {
         const toRemove = Math.floor(HOVER_CACHE_CONFIG.MAX_CACHE_SIZE * 0.2); // Remove 20%
         keysToDelete.push(...entries.slice(0, toRemove).map(([key]) => key));
     }
-    
+
     keysToDelete.forEach(key => hoverCache.delete(key));
 }
 
@@ -176,24 +193,24 @@ function cleanupHoverCache(): void {
 function getOrCreateSymbolIndex(document: TextDocument): SymbolLookupIndex {
     const documentUri = document.uri;
     const documentVersion = document.version;
-    
+
     // Check if we have a valid cached index
     const cachedIndex = symbolIndexCache.get(documentUri);
-    if (cachedIndex && 
+    if (cachedIndex &&
         Date.now() - cachedIndex.lastUpdated < HOVER_CACHE_CONFIG.SYMBOL_INDEX_TTL_MS) {
         return cachedIndex;
     }
-    
+
     // Parse document and create new index
     const { symbols } = parseDocument(document);
     const symbolIndex = createSymbolIndex(symbols);
-    
+
     // Cache the index
     symbolIndexCache.set(documentUri, symbolIndex);
-    
+
     // Clean up old indexes
     cleanupSymbolIndexCache();
-    
+
     return symbolIndex;
 }
 
@@ -203,7 +220,7 @@ function getOrCreateSymbolIndex(document: TextDocument): SymbolLookupIndex {
 function createSymbolIndex(symbols: Symbol[]): SymbolLookupIndex {
     const symbolsByLine = new Map<number, Symbol[]>();
     const symbolsByName = new Map<string, Symbol[]>();
-    
+
     for (const symbol of symbols) {
         // Index by line for position-based lookup
         for (let line = symbol.range.start.line; line <= symbol.range.end.line; line++) {
@@ -212,7 +229,7 @@ function createSymbolIndex(symbols: Symbol[]): SymbolLookupIndex {
             }
             symbolsByLine.get(line)!.push(symbol);
         }
-        
+
         // Index by name for name-based lookup
         const upperName = symbol.name.toUpperCase();
         if (!symbolsByName.has(upperName)) {
@@ -220,7 +237,7 @@ function createSymbolIndex(symbols: Symbol[]): SymbolLookupIndex {
         }
         symbolsByName.get(upperName)!.push(symbol);
     }
-    
+
     return {
         symbolsByLine,
         symbolsByName,
@@ -234,13 +251,13 @@ function createSymbolIndex(symbols: Symbol[]): SymbolLookupIndex {
 function cleanupSymbolIndexCache(): void {
     const now = Date.now();
     const keysToDelete: string[] = [];
-    
+
     for (const [key, index] of symbolIndexCache.entries()) {
         if (now - index.lastUpdated > HOVER_CACHE_CONFIG.SYMBOL_INDEX_TTL_MS) {
             keysToDelete.push(key);
         }
     }
-    
+
     keysToDelete.forEach(key => symbolIndexCache.delete(key));
 }
 
@@ -252,28 +269,28 @@ function findSymbolAtPosition(position: any, symbolIndex: SymbolLookupIndex): Sy
     if (!symbolsOnLine) {
         return undefined;
     }
-    
+
     // Find the most specific symbol at this position
     let bestMatch: Symbol | undefined;
     let bestMatchSize = Infinity;
-    
+
     for (const symbol of symbolsOnLine) {
         if (position.line >= symbol.range.start.line &&
             position.line <= symbol.range.end.line &&
             position.character >= symbol.range.start.character &&
             position.character <= symbol.range.end.character) {
-            
+
             // Calculate symbol size to find the most specific match
-            const symbolSize = (symbol.range.end.line - symbol.range.start.line) * 1000 + 
-                             (symbol.range.end.character - symbol.range.start.character);
-            
+            const symbolSize = (symbol.range.end.line - symbol.range.start.line) * 1000 +
+                (symbol.range.end.character - symbol.range.start.character);
+
             if (symbolSize < bestMatchSize) {
                 bestMatch = symbol;
                 bestMatchSize = symbolSize;
             }
         }
     }
-    
+
     return bestMatch;
 }
 
@@ -287,6 +304,8 @@ function createHoverForSymbol(symbol: Symbol, fieldParser: FieldParser | null): 
         if (customField) {
             return createCustomFieldHoverResponse(customField, symbol.range);
         }
+        // Undefined field fallback
+        return createUndefinedFieldHoverResponse(symbol.name, symbol.range);
     }
 
     // Handle variables with JSDoc types
@@ -306,7 +325,7 @@ function createHoverForSymbol(symbol: Symbol, fieldParser: FieldParser | null): 
                 return createJSDocHoverResponse(jsDocSymbol, symbol.range);
             }
         }
-        
+
         // Fallback to legacy symbol info
         const symbolInfo = symbolInfoMap.get(symbol.name.toUpperCase());
         if (symbolInfo) {
@@ -325,24 +344,33 @@ function createHoverForWordAtPosition(document: TextDocument, position: any, fie
     if (!wordRange) {
         return undefined;
     }
-    
+
     const word = document.getText(wordRange);
     const upperWord = word.toUpperCase();
 
     // Check for field (inside brackets)
-    const lineText = document.getText({ 
-        start: { line: position.line, character: 0 }, 
-        end: { line: position.line, character: Number.MAX_SAFE_INTEGER } 
+    const lineText = document.getText({
+        start: { line: position.line, character: 0 },
+        end: { line: position.line, character: Number.MAX_SAFE_INTEGER }
     });
-    const fieldMatch = lineText.match(/\[([^\]]+)\]/);
-    if (fieldMatch && fieldParser) {
-        const fieldName = fieldMatch[1];
-        const customField = fieldParser.getField(fieldName);
-        if (customField) {
-            return createCustomFieldHoverResponse(customField, wordRange);
+    // Field detection: find the specific bracketed field under the current character
+    const bracketRegex = /\[([^\]]+)\]/g;
+    let match: RegExpExecArray | null;
+    while ((match = bracketRegex.exec(lineText)) !== null) {
+        const startIdx = match.index;
+        const endIdx = startIdx + match[0].length; // exclusive
+        if (position.character >= startIdx && position.character <= endIdx) {
+            const fieldName = match[1];
+            if (fieldParser) {
+                const customField = fieldParser.getField(fieldName);
+                if (customField) {
+                    return createCustomFieldHoverResponse(customField, wordRange);
+                }
+            }
+            return createUndefinedFieldHoverResponse(fieldName, wordRange);
         }
     }
-    
+
     // Try JSDoc parser first for functions
     if (jsDocParser) {
         const jsDocSymbol = jsDocParser.getSymbol(upperWord);
@@ -355,7 +383,7 @@ function createHoverForWordAtPosition(document: TextDocument, position: any, fie
             return createJSDocTypeHoverResponse(jsDocType, wordRange);
         }
     }
-    
+
     // Fallback to legacy symbol info map
     const symbolInfo = symbolInfoMap.get(upperWord);
     if (symbolInfo) {
@@ -580,26 +608,125 @@ function createHoverResponse(symbolInfo: SymbolInfo, range: any): Hover | undefi
 function getWordRangeAtPosition(document: TextDocument, position: any) {
     const text = document.getText();
     const offset = document.offsetAt(position);
-    
+
     // Find word boundaries
     let start = offset;
     let end = offset;
-    
+
     // Move start backward to find word start
     while (start > 0 && /[A-Za-z_]/.test(text[start - 1])) {
         start--;
     }
-    
+
     // Move end forward to find word end
     while (end < text.length && /[A-Za-z_]/.test(text[end])) {
         end++;
     }
-    
+
     if (start === end) return null;
-    
+
     return {
         start: document.positionAt(start),
         end: document.positionAt(end)
+    };
+}
+
+// --- Calculation Header Augmentation ---------------------------------------------------------
+
+interface CalculationContext {
+    headerLine: number;
+    name: string;
+    description: string;
+    bodyStart: number; // inclusive
+    bodyEnd: number;   // inclusive
+}
+
+/**
+ * Detect a calculation header preceding the current position and determine its body range.
+ * Header pattern: // Name – Description (supports hyphen or en dash). Name may contain A-Z, a-z, 0-9, underscore.
+ */
+function detectCalculationContext(document: TextDocument, position: { line: number; character: number }): CalculationContext | null {
+    try {
+        const headerRegex = /^\s*\/\/\s*([A-Za-z0-9_]+)\s*[–-]\s+(.+?)\s*$/; // capture name & description
+        // Scan upwards for nearest header
+        for (let line = position.line; line >= 0; line--) {
+            const text = getLineText(document, line);
+            const match = text.match(headerRegex);
+            if (match) {
+                const name = match[1];
+                const description = match[2];
+                const body = determineBodyRange(document, line);
+                if (body) {
+                    // Body start should be first line after header for hover applicability
+                    return { headerLine: line, name, description, bodyStart: line + 1, bodyEnd: body.end };
+                }
+                return null;
+            }
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+/** Determine body range by scanning forward until two consecutive blank lines followed by a non-blank line or EOF */
+function determineBodyRange(document: TextDocument, headerLine: number): { start: number; end: number } | null {
+    const lineCount = document.lineCount;
+    let end = lineCount - 1;
+    let blankSeq = 0;
+    const headerRegex = /^\s*\/\/\s*([A-Za-z0-9_]+)\s*[–-]\s+(.+?)\s*$/;
+    for (let line = headerLine + 1; line < lineCount; line++) {
+        const text = getLineText(document, line);
+        // If we hit another header, we terminate before it
+        if (headerRegex.test(text)) {
+            end = line - 1;
+            break;
+        }
+        if (text.trim() === '') {
+            blankSeq++;
+        } else {
+            if (blankSeq >= 2) {
+                // Two consecutive blanks ended the previous block; body ends before the blank sequence
+                end = line - blankSeq - 1;
+                break;
+            }
+            blankSeq = 0;
+        }
+    }
+    // If trailing blank sequence at EOF, trim to line before blanks
+    if (blankSeq >= 2) {
+        end = (headerLine + 1 <= end ? end : headerLine); // safeguard
+        // Recompute end to before blank sequence if not already set earlier
+        end = document.lineCount - blankSeq - 1;
+    }
+    if (end < headerLine) end = headerLine;
+    return { start: headerLine, end };
+}
+
+function getLineText(document: TextDocument, line: number): string {
+    return document.getText({ start: { line, character: 0 }, end: { line, character: Number.MAX_SAFE_INTEGER } });
+}
+
+function isPositionInCalcBody(line: number, ctx: CalculationContext): boolean {
+    return line >= ctx.bodyStart && line <= ctx.bodyEnd;
+}
+
+function buildCalcHeaderMarkdown(rawName: string, description: string): string {
+    const humanized = humanizeCalcName(rawName);
+    // Use plain text (not bold) to match standard hover font/size styling
+    return `${humanized}:\n${description.trim()}`;
+}
+
+function humanizeCalcName(name: string): string {
+    // Replace underscores with spaces and compress multiple spaces
+    return name.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function createUndefinedFieldHoverResponse(fieldName: string, range: any): Hover | undefined {
+    const message = `[${fieldName}] is not defined in the current context.`;
+    return {
+        contents: { kind: MarkupKind.Markdown, value: message },
+        range
     };
 }
 
@@ -614,7 +741,7 @@ export const HoverPerformanceAPI = {
         hoverCache.clear();
         symbolIndexCache.clear();
     },
-    
+
     /**
      * Get cache statistics
      */
@@ -628,14 +755,14 @@ export const HoverPerformanceAPI = {
             symbolIndexCacheSize: symbolIndexCache.size
         };
     },
-    
+
     /**
      * Configure performance settings
      */
     configurePerformance(config: Partial<typeof HOVER_CACHE_CONFIG>): void {
         Object.assign(HOVER_CACHE_CONFIG, config);
     },
-    
+
     /**
      * Force cleanup of caches
      */
@@ -643,7 +770,7 @@ export const HoverPerformanceAPI = {
         cleanupHoverCache();
         cleanupSymbolIndexCache();
     },
-    
+
     /**
      * Invalidate cache for specific document
      */
@@ -656,7 +783,7 @@ export const HoverPerformanceAPI = {
             }
         }
         keysToDelete.forEach(key => hoverCache.delete(key));
-        
+
         // Remove symbol index for this document
         symbolIndexCache.delete(documentUri);
     }

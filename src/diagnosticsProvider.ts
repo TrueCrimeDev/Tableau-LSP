@@ -165,18 +165,6 @@ function validateDocumentLevel(document: TextDocument, parsedDocument: ParsedDoc
             code: 'EMPTY_CALCULATION'
         });
     }
-    
-    // R2.3: Enhanced complexity warnings with higher threshold to reduce false positives
-    const complexity = calculateComplexity(parsedDocument.symbols);
-    if (complexity > 25) { // Increased threshold from 15 to 25
-        diagnostics.push({
-            severity: DiagnosticSeverity.Information,
-            range: Range.create(0, 0, 0, 0),
-            message: `Very complex calculation (complexity score: ${complexity}). Consider breaking into multiple calculated fields for better maintainability and performance.`,
-            source: 'Tableau LSP',
-            code: 'HIGH_COMPLEXITY'
-        });
-    }
 
     // R2.3: Enhanced performance validation with conservative thresholds
     diagnostics.push(...validatePerformance(parsedDocument.symbols));

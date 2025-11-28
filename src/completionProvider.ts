@@ -130,7 +130,7 @@ export function provideCompletion(
     // R4.6: Context-specific completions
     if (isInFieldBrackets(lineText, position.character)) {
         // Only show field completions when inside brackets
-        const fieldCompletions = fieldParser ? getFieldCompletions(upperWord, fieldParser) : [];
+        const fieldCompletions = fieldParser ? getFieldCompletions(upperWord, fieldParser, /*bracketContext*/ true) : [];
         const optimizedFieldCompletions = optimizeCompletions(fieldCompletions, word);
         
         addToCompletionCache(cacheKey, optimizedFieldCompletions, documentVersion);
@@ -153,7 +153,7 @@ export function provideCompletion(
     
     // R4.4: Add field completions
     if (fieldParser) {
-        allCompletions.push(...getFieldCompletions(upperWord, fieldParser));
+        allCompletions.push(...getFieldCompletions(upperWord, fieldParser, /*bracketContext*/ false));
     }
     
     // R4.5: Add operator completions
@@ -498,7 +498,7 @@ function getKeywordCompletions(prefix: string): CompletionItem[] {
 /**
  * R4.4: Get field completions from field parser
  */
-function getFieldCompletions(prefix: string, fieldParser: FieldParser): CompletionItem[] {
+function getFieldCompletions(prefix: string, fieldParser: FieldParser, bracketContext: boolean = false): CompletionItem[] {
     const completions: CompletionItem[] = [];
     
     // Get all available fields
@@ -506,17 +506,29 @@ function getFieldCompletions(prefix: string, fieldParser: FieldParser): Completi
     
     for (const [key, field] of fieldsMap) {
         if (field.name.toUpperCase().includes(prefix)) {
-            completions.push({
+            const signature = `[${field.name}]: ${field.type || 'Unknown'}`;
+            const docLines: string[] = [];
+            docLines.push('```twbl');
+            docLines.push(signature);
+            docLines.push('```');
+            if (field.description) {
+                docLines.push('');
+                docLines.push(field.description);
+            }
+
+            const item: CompletionItem = {
                 label: `[${field.name}]`,
                 kind: CompletionItemKind.Field,
                 detail: `Field (${field.type || 'Unknown'})`,
                 documentation: {
                     kind: MarkupKind.Markdown,
-                    value: `**${field.name}**\n\n${field.description || 'Tableau field reference'}`
+                    value: docLines.join('\n')
                 },
-                insertText: `[${field.name}]`,
-                sortText: `3_${field.name}` // Lower priority
-            });
+                insertText: bracketContext ? `${field.name}] ` : `[${field.name}]`,
+                sortText: `3_${field.name}`
+            };
+
+            completions.push(item);
         }
     }
     

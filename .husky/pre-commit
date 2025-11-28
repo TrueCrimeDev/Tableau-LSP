@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Prevent committing README.md directly (example guardrail)
+if git diff --cached --name-only | grep -q '^README.md$'; then
+  echo 'Committing README.md directly is blocked. Update via designated process.' >&2
+  exit 1
+fi

@@ -14,6 +14,21 @@ export class FieldParser {
         this.parseDefinitionFile();
     }
 
+    /**
+     * Reload the field definitions from disk.
+     */
+    public refresh(): void {
+        try {
+            this.fieldMap.clear();
+            this.parseDefinitionFile();
+            // eslint-disable-next-line no-console
+            console.log(`[FieldParser] Reloaded field definitions from ${this.filePath}`);
+        } catch (error) {
+            // eslint-disable-next-line no-console
+            console.error('[FieldParser] Failed to refresh field definitions:', error);
+        }
+    }
+
     private parseDefinitionFile() {
         try {
             const content = readFileSync(this.filePath, 'utf-8');
@@ -31,33 +46,38 @@ export class FieldParser {
             const line = lines[i].trim();
 
             if (line.startsWith('/**')) {
-                currentDescription = ''; // Reset for new JSDoc block
+                currentDescription = '';
                 let j = i + 1;
                 while (j < lines.length && !lines[j].trim().startsWith('*/')) {
                     const docLine = lines[j].trim().replace(/^\*\s?/, '');
                     if (docLine) {
-                        currentDescription += docLine + ' ';
+                        currentDescription += `${docLine} `;
                     }
                     j++;
                 }
                 currentDescription = currentDescription.trim();
-                i = j; // Move index past the comment block
+                i = j;
                 continue;
             }
 
-            if (line.startsWith('[')) {
-                const fieldMatch = line.match(/\[([^\]]+)\]\s*=\s*(\w+)/);
-                if (fieldMatch) {
-                    const name = fieldMatch[1];
-                    const type = fieldMatch[2];
-                    this.fieldMap.set(name.toUpperCase(), {
-                        name,
-                        type,
-                        description: currentDescription,
-                    });
-                    currentDescription = ''; // Reset description after use
-                }
+            if (!line.startsWith('[')) {
+                continue;
             }
+
+            const sanitizedLine = line.replace(/\/\/.*$/, '').trim();
+            const fieldMatch = sanitizedLine.match(FieldParser.FIELD_DEFINITION_REGEX);
+            if (!fieldMatch) {
+                continue;
+            }
+
+            const name = fieldMatch[1].trim();
+            const type = fieldMatch[2].trim();
+            this.fieldMap.set(name.toUpperCase(), {
+                name,
+                type,
+                description: currentDescription,
+            });
+            currentDescription = '';
         }
     }
 
@@ -86,4 +106,6 @@ export class FieldParser {
         }
         return null;
     }
+
+    private static readonly FIELD_DEFINITION_REGEX = /\[([^\]]+)\]\s*(?:=|:|=>)\s*([A-Za-z][A-Za-z0-9_<>|]*)/i;
 }

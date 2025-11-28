@@ -119,7 +119,6 @@ export class ActivationManager {
             );
             
             await client.start();
-            await client.onReady();
             
             result.client = client;
             result.features.languageServer = true;
@@ -139,7 +138,7 @@ export class ActivationManager {
      */
     private async registerCommands(context: vscode.ExtensionContext, result: ActivationResult): Promise<void> {
         try {
-            const { registerCommands } = await import('../commands/index');
+            const { registerCommands } = await import('../commands/index.js');
             registerCommands(context);
             
             result.features.commands = true;

@@ -1,125 +1,166 @@
 # Implementation Plan
 
-- [ ] 1. Research VS Code Marketplace OAuth implementation
-  - Research current VS Code Marketplace authentication endpoints and OAuth flow
-  - Identify required OAuth scopes for extension publishing
-  - Document OAuth client registration process
-  - _Requirements: 1.1, 1.2_
+- [x] 1. Set up Azure CLI integration for immediate solution
 
-- [ ] 2. Set up project structure and dependencies
-  - Create authentication module directory structure
-  - Add required OAuth and HTTP server dependencies (node-oauth2-server, express)
-  - Set up TypeScript interfaces for authentication components
-  - _Requirements: 1.1_
 
-- [ ] 3. Implement credential storage system
-- [ ] 3.1 Create cross-platform credential store
-  - Implement Windows Credential Manager integration
-  - Implement macOS Keychain Services integration  
-  - Implement Linux libsecret integration
-  - Write unit tests for credential storage operations
-  - _Requirements: 2.1, 2.2_
-
-- [ ] 3.2 Add token encryption and validation
-  - Implement token encryption for secure storage
-  - Add token expiration validation logic
-  - Create token refresh mechanism
-  - Write unit tests for token validation
-  - _Requirements: 2.2, 2.3_
-
-- [ ] 4. Build OAuth authentication flow
-- [ ] 4.1 Create local callback server
-  - Implement HTTP server to receive OAuth callbacks
-  - Add HTTPS support with self-signed certificates
-  - Implement PKCE (Proof Key for Code Exchange) security
-  - Write unit tests for callback server functionality
-  - _Requirements: 1.1, 1.2_
-
-- [ ] 4.2 Implement browser launcher
-  - Create cross-platform browser opening functionality
-  - Add fallback for manual URL copying when browser unavailable
-  - Implement browser detection and validation
-  - Write unit tests for browser launching
-  - _Requirements: 1.1, 3.4_
-
-- [ ] 4.3 Build OAuth flow manager
-  - Implement OAuth authorization URL generation
-  - Add state parameter generation and validation for CSRF protection
-  - Create token exchange functionality
-  - Write unit tests for OAuth flow components
+  - Install Azure CLI if not present
+  - Create authentication wrapper script
+  - Test Azure CLI login flow with vsce publish
   - _Requirements: 1.1, 1.2, 1.3_
 
-- [ ] 5. Integrate with vsce CLI workflow
-- [ ] 5.1 Create authentication manager
-  - Implement main authentication coordinator
-  - Add automatic credential validation before publishing
-  - Create seamless integration with existing vsce publish command
-  - Write integration tests for authentication flow
-  - _Requirements: 1.1, 1.2, 2.2_
+- [ ] 1.1 Create Azure CLI detection and installation helper
+  - Write script to detect if Azure CLI is installed
+  - Provide installation instructions for different platforms
+  - Create automated installation option where possible
+  - _Requirements: 1.1_
 
-- [ ] 5.2 Add user feedback and progress indicators
-  - Implement console progress indicators during authentication
-  - Add clear success/failure messages
-  - Create helpful error messages with resolution steps
-  - Write tests for user feedback scenarios
-  - _Requirements: 3.1, 3.2, 3.3_
+- [ ] 1.2 Implement Azure CLI authentication wrapper
+  - Create wrapper function that calls `az login`
+  - Handle authentication status checking
+  - Integrate with vsce publish using `--azure-credential` flag
+  - _Requirements: 1.2, 1.3_
 
-- [ ] 6. Implement error handling and recovery
-- [ ] 6.1 Add comprehensive error handling
-  - Implement retry logic for network failures
-  - Add timeout handling for authentication flow
-  - Create fallback to PAT method when OAuth fails
-  - Write unit tests for error scenarios
-  - _Requirements: 1.4, 3.4_
+- [ ] 1.3 Add error handling for Azure CLI authentication
+  - Handle cases where Azure CLI is not installed
+  - Provide clear error messages and next steps
+  - Implement retry mechanism for failed authentication
+  - _Requirements: 1.4_
 
-- [ ] 6.2 Create logout and credential management
-  - Implement logout command to clear stored credentials
-  - Add credential status checking command
-  - Create credential refresh functionality
-  - Write tests for credential management operations
+- [ ] 2. Create credential management system
+  - Implement secure credential storage using OS keychain
+  - Create credential validation and refresh logic
+  - Add credential clearing functionality
+  - _Requirements: 2.1, 2.2, 2.3, 2.4_
+
+- [ ] 2.1 Implement OS-specific secure storage
+  - Create Windows Credential Manager integration
+  - Implement macOS Keychain access
+  - Add Linux Secret Service support
+  - Write cross-platform storage abstraction
+  - _Requirements: 2.1_
+
+- [ ] 2.2 Create credential validation system
+  - Implement token expiration checking
+  - Add token refresh mechanism
+  - Create credential integrity validation
+  - _Requirements: 2.2, 2.3_
+
+- [ ] 2.3 Build credential management CLI commands
+  - Add `vsce-auth login` command
+  - Create `vsce-auth logout` command
+  - Implement `vsce-auth status` command
   - _Requirements: 2.4_
 
-- [ ] 7. Add CLI commands and configuration
-- [ ] 7.1 Extend vsce CLI with authentication commands
-  - Add `vsce login` command for manual authentication
-  - Add `vsce logout` command for clearing credentials
-  - Add `vsce whoami` command for checking authentication status
-  - Write integration tests for CLI commands
-  - _Requirements: 2.4, 3.3_
+- [ ] 3. Implement direct web authentication flow
+  - Create local callback server for OAuth
+  - Implement browser opening mechanism
+  - Handle OAuth token exchange
+  - _Requirements: 1.1, 1.2, 1.3_
 
-- [ ] 7.2 Create configuration options
-  - Add configuration for authentication method preference (OAuth vs PAT)
-  - Implement timeout and retry configuration options
-  - Add debug logging configuration for troubleshooting
-  - Write tests for configuration handling
-  - _Requirements: 1.4, 3.4_
+- [ ] 3.1 Create local OAuth callback server
+  - Implement HTTP server for OAuth callback
+  - Handle callback URL parsing and validation
+  - Add security measures (state parameter, HTTPS)
+  - _Requirements: 1.1, 1.2_
 
-- [ ] 8. Testing and validation
-- [ ] 8.1 Create comprehensive test suite
-  - Write end-to-end tests for complete authentication flow
-  - Add cross-platform compatibility tests
-  - Create network failure simulation tests
-  - Write user experience validation tests
+- [ ] 3.2 Implement browser automation
+  - Create cross-platform browser opening
+  - Handle different browser configurations
+  - Add timeout and error handling
+  - _Requirements: 1.1, 3.4_
+
+- [ ] 3.3 Build OAuth token exchange
+  - Implement Microsoft OAuth flow
+  - Handle token validation and storage
+  - Add refresh token management
+  - _Requirements: 1.2, 1.3_
+
+- [ ] 4. Create publishing integration
+  - Integrate authentication with vsce publish command
+  - Add automatic re-authentication on token expiry
+  - Implement fallback authentication methods
   - _Requirements: 1.1, 1.2, 1.3, 1.4_
 
-- [ ] 8.2 Perform security validation
-  - Conduct security review of token storage implementation
-  - Validate OAuth flow security (PKCE, state validation)
-  - Test credential encryption and secure transmission
-  - Perform penetration testing on callback server
-  - _Requirements: 2.1, 2.2_
+- [ ] 4.1 Create enhanced publish command wrapper
+  - Build wrapper around vsce publish
+  - Add automatic authentication checking
+  - Implement seamless token refresh
+  - _Requirements: 1.1, 1.2_
 
-- [ ] 9. Documentation and deployment
-- [ ] 9.1 Create user documentation
-  - Write setup guide for OAuth authentication
+- [ ] 4.2 Implement fallback authentication chain
+  - Add Personal Access Token fallback
+  - Create manual authentication option
+  - Implement environment variable support
+  - _Requirements: 1.4_
+
+- [ ] 5. Add user feedback and progress indicators
+  - Create progress indicators for authentication flow
+  - Add clear success/failure messages
+  - Implement troubleshooting guidance
+  - _Requirements: 3.1, 3.2, 3.3, 3.4_
+
+- [ ] 5.1 Build authentication progress UI
+  - Create console progress indicators
+  - Add authentication status messages
+  - Implement waiting indicators for browser auth
+  - _Requirements: 3.1, 3.2_
+
+- [ ] 5.2 Create comprehensive error messaging
+  - Add specific error messages for each failure type
+  - Provide actionable troubleshooting steps
+  - Create help documentation
+  - _Requirements: 3.3, 3.4_
+
+- [ ] 6. Implement configuration management
+  - Create configuration file system
+  - Add user preference management
+  - Implement environment variable support
+  - _Requirements: 2.1, 2.2, 2.3, 2.4_
+
+- [ ] 6.1 Create configuration file structure
+  - Design JSON configuration schema
+  - Implement configuration file reading/writing
+  - Add configuration validation
+  - _Requirements: 2.1_
+
+- [ ] 6.2 Build user preference system
+  - Add authentication method selection
+  - Create publisher management
+  - Implement timeout and retry settings
+  - _Requirements: 2.2, 2.3, 2.4_
+
+- [ ] 7. Add comprehensive testing
+  - Create unit tests for all authentication components
+  - Build integration tests for end-to-end flows
+  - Add cross-platform compatibility tests
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3, 3.4_
+
+- [ ] 7.1 Write unit tests for authentication components
+  - Test credential storage and retrieval
+  - Test token validation and refresh
+  - Test error handling scenarios
+  - _Requirements: 1.1, 1.2, 1.3, 1.4_
+
+- [ ] 7.2 Create integration tests for publishing workflow
+  - Test complete authentication to publish flow
+  - Test fallback authentication methods
+  - Test cross-platform compatibility
+  - _Requirements: 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3, 3.4_
+
+- [ ] 8. Create documentation and migration guide
+  - Write user documentation for web authentication
+  - Create migration guide from PAT to web auth
+  - Add troubleshooting documentation
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3, 3.4_
+
+- [ ] 8.1 Write comprehensive user documentation
+  - Create setup and installation guide
+  - Document authentication flow and commands
+  - Add configuration options reference
+  - _Requirements: 3.1, 3.2, 3.3, 3.4_
+
+- [ ] 8.2 Create migration and troubleshooting guides
+  - Write PAT to web auth migration steps
   - Create troubleshooting guide for common issues
-  - Document migration from PAT to OAuth workflow
-  - Add FAQ for authentication-related questions
-  - _Requirements: 3.1, 3.2, 3.3_
-
-- [ ] 9.2 Prepare for release
-  - Update package.json with new dependencies
-  - Create migration guide for existing users
-  - Add backward compatibility testing
-  - Prepare release notes highlighting new authentication features
-  - _Requirements: 1.1, 2.1, 3.1_
+  - Add platform-specific setup instructions
+  - _Requirements: 1.4, 3.3, 3.4_
