@@ -6,8 +6,8 @@ import {
     Position
 } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { ParsedDocument, SymbolType, FUNCTION_SIGNATURES } from './common';
-import { tokenize, TokenType } from './lexer';
+import { ParsedDocument, SymbolType, FUNCTION_SIGNATURES } from './common.js';
+import { tokenize, TokenType } from './lexer.js';
 
 /**
  * R5.1: Token type mapping from lexer tokens to LSP semantic token types

@@ -2,8 +2,8 @@
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Range, Position } from 'vscode-languageserver';
-import { IncrementalParser } from '../incrementalParser';
-import { parsedDocumentCache, INCREMENTAL_PARSING_CONFIG } from '../common';
+import { IncrementalParser } from '../incrementalParser.js';
+import { parsedDocumentCache, INCREMENTAL_PARSING_CONFIG } from '../common.js';
 
 describe('IncrementalParser', () => {
     

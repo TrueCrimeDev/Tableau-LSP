@@ -2,9 +2,9 @@
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { DiagnosticSeverity } from 'vscode-languageserver';
-import { getDiagnostics } from '../../diagnosticsProvider';
-import { parseDocument } from '../../documentModel';
-import { AdvancedErrorRecovery, AdvancedErrorRecoveryCategory } from '../../errorRecovery';
+import { getDiagnostics } from '../../diagnosticsProvider.js';
+import { parseDocument } from '../../documentModel.js';
+import { AdvancedErrorRecovery, AdvancedErrorRecoveryCategory } from '../../errorRecovery.js';
 
 describe('Advanced Error Recovery', () => {
   describe('Partial Expression Detection', () => {

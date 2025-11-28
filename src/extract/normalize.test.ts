@@ -1,5 +1,5 @@
-import { normalize, filterAndDedupe } from './normalize';
-import { ExtractedCalculation } from './types';
+import { normalize, filterAndDedupe } from './normalize.js';
+import { ExtractedCalculation } from './types.js';
 
 describe('Normalization Functions', () => {
     describe('normalize', () => {

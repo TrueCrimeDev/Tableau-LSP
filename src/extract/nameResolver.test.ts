@@ -1,4 +1,4 @@
-import { buildNameMappings, applyNameResolution, resolveNames, resolveNamesWithStats } from './nameResolver';
+import { buildNameMappings, applyNameResolution, resolveNames, resolveNamesWithStats } from './nameResolver.js';
 
 describe('nameResolver', () => {
     describe('buildNameMappings', () => {

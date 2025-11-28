@@ -13,11 +13,11 @@
 
 import { window, workspace, ProgressLocation, Uri } from 'vscode';
 import * as path from 'path';
-import { extractAllFromFile } from '../extract/zip';
-import { cleanXmlContent } from '../extract/xmlCleaner';
-import { resolveNames } from '../extract/nameResolver';
-import { normalize, filterAndDedupe } from '../extract/normalize';
-import { generateFullNotesFile } from '../extract/outputGenerator';
+import { extractAllFromFile } from '../extract/zip.js';
+import { cleanXmlContent } from '../extract/xmlCleaner.js';
+import { resolveNames } from '../extract/nameResolver.js';
+import { normalize, filterAndDedupe } from '../extract/normalize.js';
+import { generateFullNotesFile } from '../extract/outputGenerator.js';
 
 /**
  * Main command handler for Python-style extraction

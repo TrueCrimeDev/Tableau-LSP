@@ -2,17 +2,17 @@
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Position, Range, CompletionItem, Hover, SignatureHelp, Diagnostic } from 'vscode-languageserver';
-import { parseDocument } from '../../documentModel';
-import { getDiagnostics } from '../../diagnosticsProvider';
-import { provideHover } from '../../hoverProvider';
-import { provideCompletion } from '../../completionProvider';
-import { buildSignatureHelp } from '../../signatureProvider';
-import { format } from '../../format';
-import { provideSemanticTokens } from '../../semanticTokensProvider';
-import { IncrementalParser } from '../../incrementalParser';
-import { FieldParser } from '../../fieldParser';
-import { globalMemoryManager } from '../../memoryManager';
-import { globalDebouncer } from '../../requestDebouncer';
+import { parseDocument } from '../../documentModel.js';
+import { getDiagnostics } from '../../diagnosticsProvider.js';
+import { provideHover } from '../../hoverProvider.js';
+import { provideCompletion } from '../../completionProvider.js';
+import { buildSignatureHelp } from '../../signatureProvider.js';
+import { format } from '../../format.js';
+import { provideSemanticTokens } from '../../semanticTokensProvider.js';
+import { IncrementalParser } from '../../incrementalParser.js';
+import { FieldParser } from '../../fieldParser.js';
+import { globalMemoryManager } from '../../memoryManager.js';
+import { globalDebouncer } from '../../requestDebouncer.js';
 
 /**
  * R8.2: Comprehensive LSP feature integration tests

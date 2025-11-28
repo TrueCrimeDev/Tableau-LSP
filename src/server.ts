@@ -8,19 +8,19 @@ import {
     InitializeResult,
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { getDiagnostics } from './diagnosticsProvider';
-import { format } from './format';
-import { parseDocument } from './documentModel';
-import { provideHover } from './hoverProvider';
-import { buildSignatureHelp } from './signatureProvider';
-import { provideCompletion } from './completionProvider';
-import { provideSemanticTokens } from './semanticTokensProvider';
-import { documentSymbolProvider, workspaceSymbolProvider, provideCodeActions, provideDefinition, provideReferences } from './provider';
-import { parsedDocumentCache } from './common';
-import { FieldParser } from './fieldParser';
-import { IncrementalParser } from './incrementalParser';
-import { globalDebouncer, DebounceHelpers, RequestType } from './requestDebouncer';
-import { globalMemoryManager, MemoryHelpers } from './memoryManager';
+import { getDiagnostics } from './diagnosticsProvider.js';
+import { format } from './format.js';
+import { parseDocument } from './documentModel.js';
+import { provideHover } from './hoverProvider.js';
+import { buildSignatureHelp } from './signatureProvider.js';
+import { provideCompletion } from './completionProvider.js';
+import { provideSemanticTokens } from './semanticTokensProvider.js';
+import { documentSymbolProvider, workspaceSymbolProvider, provideCodeActions, provideDefinition, provideReferences } from './provider.js';
+import { parsedDocumentCache } from './common.js';
+import { FieldParser } from './fieldParser.js';
+import { IncrementalParser } from './incrementalParser.js';
+import { globalDebouncer, DebounceHelpers, RequestType } from './requestDebouncer.js';
+import { globalMemoryManager, MemoryHelpers } from './memoryManager.js';
 
 const connection = createConnection(ProposedFeatures.all);
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);

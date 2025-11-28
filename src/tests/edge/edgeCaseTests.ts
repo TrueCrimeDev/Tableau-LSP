@@ -1,10 +1,10 @@
 // src/tests/edge/edgeCaseTests.ts
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { parseDocument } from '../../documentModel';
-import { getDiagnostics } from '../../diagnosticsProvider';
-import { ErrorRecovery } from '../../errorRecovery';
-import { IncrementalParser } from '../../incrementalParser';
+import { parseDocument } from '../../documentModel.js';
+import { getDiagnostics } from '../../diagnosticsProvider.js';
+import { ErrorRecovery } from '../../errorRecovery.js';
+import { IncrementalParser } from '../../incrementalParser.js';
 
 /**
  * Run comprehensive edge case tests for error handling

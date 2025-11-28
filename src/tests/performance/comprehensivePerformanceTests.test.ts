@@ -3,5 +3,5 @@
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Position, Range } from 'vscode-languageserver';
 import { performance } from 'perf_hooks';
-import { parseDocument } from '../../documentModel';
+import { parseDocument } from '../../documentModel.js';
 import { getDiagnostics } from '../../diagnosticsProvider

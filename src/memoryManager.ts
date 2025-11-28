@@ -1,9 +1,9 @@
 // src/memoryManager.ts
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { parsedDocumentCache, CachedDocument, INCREMENTAL_PARSING_CONFIG } from './common';
-import { globalDebouncer } from './requestDebouncer';
-import { IncrementalParser } from './incrementalParser';
+import { parsedDocumentCache, CachedDocument, INCREMENTAL_PARSING_CONFIG } from './common.js';
+import { globalDebouncer } from './requestDebouncer.js';
+import { IncrementalParser } from './incrementalParser.js';
 
 /**
  * R7.3: Comprehensive memory management system for the Tableau LSP extension

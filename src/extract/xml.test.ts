@@ -1,4 +1,4 @@
-import { extractCalcsFromXml } from './xml';
+import { extractCalcsFromXml } from './xml.js';
 
 describe('extractCalcsFromXml', () => {
     it('extracts calculations from datasource columns', () => {

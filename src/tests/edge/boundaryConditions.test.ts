@@ -1,14 +1,14 @@
 // src/tests/edge/boundaryConditions.test.ts
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { parseDocument } from '../../documentModel';
-import { getDiagnostics } from '../../diagnosticsProvider';
-import { provideHover } from '../../hoverProvider';
-import { provideCompletion } from '../../completionProvider';
-import { buildSignatureHelp } from '../../signatureProvider';
-import { format } from '../../format';
-import { globalMemoryManager } from '../../memoryManager';
-import { IncrementalParser } from '../../incrementalParser';
+import { parseDocument } from '../../documentModel.js';
+import { getDiagnostics } from '../../diagnosticsProvider.js';
+import { provideHover } from '../../hoverProvider.js';
+import { provideCompletion } from '../../completionProvider.js';
+import { buildSignatureHelp } from '../../signatureProvider.js';
+import { format } from '../../format.js';
+import { globalMemoryManager } from '../../memoryManager.js';
+import { IncrementalParser } from '../../incrementalParser.js';
 
 /**
  * R8.4: Boundary condition tests

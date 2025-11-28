@@ -1,5 +1,5 @@
 import { XMLParser } from 'fast-xml-parser';
-import { ExtractedCalculation, ExtractedDatasource, ExtractedField } from './types';
+import { ExtractedCalculation, ExtractedDatasource, ExtractedField } from './types.js';
 
 const parserOptions = {
     ignoreAttributes: false,

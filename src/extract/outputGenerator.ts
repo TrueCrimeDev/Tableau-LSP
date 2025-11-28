@@ -11,8 +11,8 @@
  */
 
 import { workspace, window, Uri } from 'vscode';
-import { ExtractedCalculation, ExtractedDatasource, ExtractedField, ExtractionResult } from './types';
-import { normalizeFormula, uppercaseKeywords } from './normalize';
+import { ExtractedCalculation, ExtractedDatasource, ExtractedField, ExtractionResult } from './types.js';
+import { normalizeFormula, uppercaseKeywords } from './normalize.js';
 
 /**
  * Options for output file generation

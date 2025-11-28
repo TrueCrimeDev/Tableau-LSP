@@ -2,8 +2,8 @@ import { workspace, Uri } from 'vscode';
 import { TextDecoder } from 'util';
 import { basename } from 'path';
 import * as unzipper from 'unzipper';
-import { ExtractedCalculation, ExtractionResult, ExtractedDatasource, ExtractedField } from './types';
-import { extractCalcsFromXml, extractDatasourcesFromXml, extractFieldsFromXml, XmlPreprocessor } from './xml';
+import { ExtractedCalculation, ExtractionResult, ExtractedDatasource, ExtractedField } from './types.js';
+import { extractCalcsFromXml, extractDatasourcesFromXml, extractFieldsFromXml, XmlPreprocessor } from './xml.js';
 
 const textDecoder = new TextDecoder('utf8');
 

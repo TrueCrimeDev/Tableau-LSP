@@ -2,14 +2,14 @@
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Position } from 'vscode-languageserver';
-import { parseDocument } from '../../documentModel';
-import { getDiagnostics } from '../../diagnosticsProvider';
-import { provideHover } from '../../hoverProvider';
-import { provideCompletion } from '../../completionProvider';
-import { buildSignatureHelp } from '../../signatureProvider';
-import { format } from '../../format';
-import { IncrementalParser } from '../../incrementalParser';
-import { ErrorRecovery } from '../../errorRecovery';
+import { parseDocument } from '../../documentModel.js';
+import { getDiagnostics } from '../../diagnosticsProvider.js';
+import { provideHover } from '../../hoverProvider.js';
+import { provideCompletion } from '../../completionProvider.js';
+import { buildSignatureHelp } from '../../signatureProvider.js';
+import { format } from '../../format.js';
+import { IncrementalParser } from '../../incrementalParser.js';
+import { ErrorRecovery } from '../../errorRecovery.js';
 import * as fs from 'fs';
 import * as path from 'path';
 

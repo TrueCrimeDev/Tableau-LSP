@@ -1,8 +1,8 @@
 // src/tests/runIncrementalTests.ts
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { IncrementalParser } from '../incrementalParser';
-import { INCREMENTAL_PARSING_CONFIG } from '../common';
+import { IncrementalParser } from '../incrementalParser.js';
+import { INCREMENTAL_PARSING_CONFIG } from '../common.js';
 
 /**
  * Simple test runner for incremental parser functionality

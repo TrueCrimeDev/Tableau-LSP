@@ -9,11 +9,11 @@ import {
     DocumentChange, 
     parsedDocumentCache,
     INCREMENTAL_PARSING_CONFIG 
-} from './common';
-import { parseDocument, parseDocumentRange, isContextualChange } from './documentModel';
-import { AdvancedErrorRecovery } from './errorRecovery';
-import { PerformanceMonitor } from './performanceMonitor';
-import { globalMemoryManager } from './memoryManager';
+} from './common.js';
+import { parseDocument, parseDocumentRange, isContextualChange } from './documentModel.js';
+import { AdvancedErrorRecovery } from './errorRecovery.js';
+import { PerformanceMonitor } from './performanceMonitor.js';
+import { globalMemoryManager } from './memoryManager.js';
 
 /**
  * Incremental document parser that tracks changes and only re-parses modified regions

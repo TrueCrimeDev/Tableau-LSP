@@ -1,9 +1,9 @@
 import { Hover, HoverParams, MarkupContent, MarkupKind } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { parseDocument } from './documentModel';
-import { JSDocParser, JSDocSymbol } from './jsdocParser';
-import { SymbolType, Symbol } from './common';
-import { FieldParser, CustomField } from './fieldParser';
+import { parseDocument } from './documentModel.js';
+import { JSDocParser, JSDocSymbol } from './jsdocParser.js';
+import { SymbolType, Symbol } from './common.js';
+import { FieldParser, CustomField } from './fieldParser.js';
 
 interface SymbolInfo {
     name: string;

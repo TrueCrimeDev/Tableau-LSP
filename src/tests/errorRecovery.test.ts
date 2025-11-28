@@ -2,8 +2,8 @@
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { DiagnosticSeverity } from 'vscode-languageserver';
-import { ErrorRecovery } from '../errorRecovery';
-import { SymbolType } from '../common';
+import { ErrorRecovery } from '../errorRecovery.js';
+import { SymbolType } from '../common.js';
 
 describe('ErrorRecovery', () => {
     

@@ -1,8 +1,8 @@
 // src/tests/unit/documentModel.test.ts
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { parseDocument } from '../../documentModel';
-import { SymbolType } from '../../common';
+import { parseDocument } from '../../documentModel.js';
+import { SymbolType } from '../../common.js';
 
 describe('Document Model', () => {
   describe('parseDocument', () => {

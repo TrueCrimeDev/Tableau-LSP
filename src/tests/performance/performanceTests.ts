@@ -2,12 +2,12 @@
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { performance } from 'perf_hooks';
-import { parseDocument } from '../../documentModel';
-import { getDiagnostics } from '../../diagnosticsProvider';
-import { provideHover } from '../../hoverProvider';
-import { provideCompletion } from '../../completionProvider';
-import { buildSignatureHelp } from '../../signatureProvider';
-import { IncrementalParser } from '../../incrementalParser';
+import { parseDocument } from '../../documentModel.js';
+import { getDiagnostics } from '../../diagnosticsProvider.js';
+import { provideHover } from '../../hoverProvider.js';
+import { provideCompletion } from '../../completionProvider.js';
+import { buildSignatureHelp } from '../../signatureProvider.js';
+import { IncrementalParser } from '../../incrementalParser.js';
 import { Position } from 'vscode-languageserver';
 
 /**

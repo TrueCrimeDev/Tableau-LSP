@@ -2,8 +2,8 @@
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Position } from 'vscode-languageserver';
-import { buildSignatureHelp, SignaturePerformanceAPI } from '../../signatureProvider';
-import { parseDocument } from '../../documentModel';
+import { buildSignatureHelp, SignaturePerformanceAPI } from '../../signatureProvider.js';
+import { parseDocument } from '../../documentModel.js';
 
 describe('Signature Help Performance Optimization', () => {
   beforeEach(() => {

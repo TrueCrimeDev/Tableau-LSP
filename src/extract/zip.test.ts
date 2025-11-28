@@ -22,7 +22,7 @@ jest.mock('unzipper', () => ({
 }));
 
 import type { Uri } from 'vscode';
-import { extractFromFile, extractFromTwbx } from './zip';
+import { extractFromFile, extractFromTwbx } from './zip.js';
 
 const sampleXml = `
 <workbook name="Archive Workbook">

@@ -1,4 +1,4 @@
-import { cleanXmlContent } from './xmlCleaner';
+import { cleanXmlContent } from './xmlCleaner.js';
 
 describe('xmlCleaner', () => {
     describe('cleanXmlContent', () => {

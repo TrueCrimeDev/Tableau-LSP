@@ -8,8 +8,8 @@ import {
     InsertTextFormat
 } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { ParsedDocument, FUNCTION_SIGNATURES, SymbolType } from './common';
-import { FieldParser } from './fieldParser';
+import { ParsedDocument, FUNCTION_SIGNATURES, SymbolType } from './common.js';
+import { FieldParser } from './fieldParser.js';
 import * as fs from 'fs';
 import * as path from 'path';
 

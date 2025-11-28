@@ -2,9 +2,9 @@
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { CompletionItemKind, InsertTextFormat, TextDocumentPositionParams } from 'vscode-languageserver';
-import { provideCompletion } from '../../completionProvider';
-import { parseDocument } from '../../documentModel';
-import { FieldParser } from '../../fieldParser';
+import { provideCompletion } from '../../completionProvider.js';
+import { parseDocument } from '../../documentModel.js';
+import { FieldParser } from '../../fieldParser.js';
 
 describe('Snippet Completion', () => {
   describe('Basic Snippet Completion', () => {

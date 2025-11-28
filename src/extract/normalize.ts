@@ -1,5 +1,5 @@
 // Normalization & filtering utilities - Python-style implementation
-import { ExtractedCalculation } from './types';
+import { ExtractedCalculation } from './types.js';
 
 // Complete list of 66 Tableau keywords (matching Python script)
 const KEYWORDS = [
