@@ -1,4 +1,0 @@
-// Test file for IF hover functionality
-IF [Sales] > 0 THEN "Positive" ELSE "Zero or Negative" END
-
-SUM([Sales])
