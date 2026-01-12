@@ -2,14 +2,51 @@
 // Total datasources: 1
 // Total calculations: 1
 // Total fields: 3
+// Total parameters: 0
+// Total filters: 0
+// Total dashboards: 0
+// Total worksheets: 0
+// Total hierarchies: 0
 
 // === DATASOURCES ===
 // DataTable_(DataTable) | Test_LSP.twb
 
-// === FIELDS ===
-// !Age | DataTable_(DataTable) | string | dimension | Test_LSP.twb
-// Firstname | DataTable_(DataTable) | string | dimension | Test_LSP.twb
-// Lastname | DataTable_(DataTable) | string | dimension | Test_LSP.twb
+// === PARAMETERS ===
+// (No parameters found)
+
+// === FILTERS ===
+// (No filters found)
+
+// === DASHBOARDS ===
+// (No dashboards found)
+
+// === WORKSHEETS ===
+// (No worksheets found)
+
+// === HIERARCHIES ===
+// (No hierarchies found)
+
+/*
+=== FIELDS (for declaration file) ===
+/**
+ * Field from datasource: DataTable (DataTable)
+ * Datatype: string | Role: dimension
+ */
+[!Age]: String
+
+/**
+ * Field from datasource: DataTable (DataTable)
+ * Datatype: string | Role: dimension
+ */
+[Firstname]: String
+
+/**
+ * Field from datasource: DataTable (DataTable)
+ * Datatype: string | Role: dimension
+ */
+[Lastname]: String
+
+*/
 
 // === CALCULATIONS ===
 // !Age | DataTable_(DataTable) | Test_LSP.twb

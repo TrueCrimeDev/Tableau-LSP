@@ -72,6 +72,23 @@
         "path": "./syntaxes/twbl.tmLanguage.json"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "tableauLsp",
+          "title": "Tableau LSP",
+          "icon": "images/tableau-icon.png"
+        }
+      ]
+    },
+    "views": {
+      "tableauLsp": [
+        {
+          "id": "tableauLanguageSupport.parsingGuide",
+          "name": "Parsing Guide"
+        }
+      ]
+    },
     "semanticTokenTypes": [
       {
         "id": "keyword",
@@ -302,6 +319,16 @@
       {
         "command": "tableau-language-support.showFunctionHelp",
         "title": "Show Function Help",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.showParsingGuide",
+        "title": "Show Parsing Guide",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.copyPreferencesToRepository",
+        "title": "Copy Preferences.tps to My Tableau Repository",
         "category": "Tableau"
       },
       {
