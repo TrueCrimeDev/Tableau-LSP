@@ -725,26 +725,72 @@ function getGuideHtml(nonce: string): string {
                     </div>
 
                     <div class="panel-block">
-                        <div class="panel-title">Scale Generator</div>
+                        <div class="panel-title">Advanced Gradient Generator</div>
                         <div class="generator">
-                            <div class="generator-row">
-                                <input id="scale-base-picker" type="color" value="#5CB8B2" aria-label="Scale base color">
-                                <input id="scale-base-hex" type="text" value="#5CB8B2" aria-label="Scale base hex">
-                                <input id="scale-steps" type="number" min="3" max="12" value="9" aria-label="Scale steps">
-                                <button class="btn secondary" id="scale-generate" type="button">Generate Scale</button>
+                            <div class="field">
+                                <label for="scale-base-picker">Base Color</label>
+                                <div class="generator-row">
+                                    <input id="scale-base-picker" type="color" value="#5CB8B2" aria-label="Scale base color">
+                                    <input id="scale-base-hex" type="text" value="#5CB8B2" aria-label="Scale base hex">
+                                </div>
                             </div>
+                            <div class="field">
+                                <label for="scale-steps">Steps</label>
+                                <input id="scale-steps" type="number" min="3" max="15" value="9" aria-label="Scale steps">
+                            </div>
+                            <div class="field">
+                                <label for="scale-easing">Easing Curve</label>
+                                <select id="scale-easing">
+                                    <option value="linear">Linear</option>
+                                    <option value="easeIn">Ease In (slower start)</option>
+                                    <option value="easeOut" selected>Ease Out (slower end)</option>
+                                    <option value="easeInOut">Ease In Out (smooth)</option>
+                                </select>
+                            </div>
+                            <button class="btn secondary" id="scale-generate" type="button" style="width: 100%;">Generate Scale</button>
                             <div class="scale-preview" id="scale-preview"></div>
                             <div class="preview-actions">
                                 <button class="btn" id="scale-apply" type="button">Apply to Editor</button>
                             </div>
                         </div>
+                        <div class="panel-title" style="margin-top: 1.5rem;">Multi-Stop Gradient</div>
                         <div class="generator">
-                            <div class="generator-row">
-                                <input id="blend-start-picker" type="color" value="#F4B860" aria-label="Blend start color">
-                                <input id="blend-end-picker" type="color" value="#3D5A80" aria-label="Blend end color">
-                                <input id="blend-steps" type="number" min="3" max="12" value="7" aria-label="Blend steps">
-                                <button class="btn secondary" id="blend-generate" type="button">Blend Colors</button>
+                            <div class="field">
+                                <label for="blend-start-picker">Start Color</label>
+                                <div class="generator-row">
+                                    <input id="blend-start-picker" type="color" value="#F4B860" aria-label="Blend start color">
+                                    <input id="blend-start-hex" type="text" value="#F4B860" aria-label="Blend start hex">
+                                </div>
                             </div>
+                            <div class="field">
+                                <label for="blend-end-picker">End Color</label>
+                                <div class="generator-row">
+                                    <input id="blend-end-picker" type="color" value="#3D5A80" aria-label="Blend end color">
+                                    <input id="blend-end-hex" type="text" value="#3D5A80" aria-label="Blend end hex">
+                                </div>
+                            </div>
+                            <div class="field">
+                                <label for="blend-steps">Steps</label>
+                                <input id="blend-steps" type="number" min="3" max="15" value="7" aria-label="Blend steps">
+                            </div>
+                            <div class="field">
+                                <label for="blend-easing">Easing Curve</label>
+                                <select id="blend-easing">
+                                    <option value="linear" selected>Linear</option>
+                                    <option value="easeIn">Ease In (slower start)</option>
+                                    <option value="easeOut">Ease Out (slower end)</option>
+                                    <option value="easeInOut">Ease In Out (smooth)</option>
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label for="blend-colorspace">Color Space</label>
+                                <select id="blend-colorspace">
+                                    <option value="lab" selected>LAB (perceptual)</option>
+                                    <option value="rgb">RGB (direct)</option>
+                                    <option value="hsl">HSL (hue-based)</option>
+                                </select>
+                            </div>
+                            <button class="btn secondary" id="blend-generate" type="button" style="width: 100%;">Generate Gradient</button>
                             <div class="scale-preview" id="blend-preview"></div>
                             <div class="preview-actions">
                                 <button class="btn" id="blend-apply" type="button">Apply to Editor</button>
@@ -874,12 +920,17 @@ IF ... END</code></pre>
         const scaleBasePicker = document.getElementById('scale-base-picker');
         const scaleBaseHex = document.getElementById('scale-base-hex');
         const scaleSteps = document.getElementById('scale-steps');
+        const scaleEasing = document.getElementById('scale-easing');
         const scaleGenerateButton = document.getElementById('scale-generate');
         const scalePreview = document.getElementById('scale-preview');
         const scaleApplyButton = document.getElementById('scale-apply');
         const blendStartPicker = document.getElementById('blend-start-picker');
+        const blendStartHex = document.getElementById('blend-start-hex');
         const blendEndPicker = document.getElementById('blend-end-picker');
+        const blendEndHex = document.getElementById('blend-end-hex');
         const blendSteps = document.getElementById('blend-steps');
+        const blendEasing = document.getElementById('blend-easing');
+        const blendColorspace = document.getElementById('blend-colorspace');
         const blendGenerateButton = document.getElementById('blend-generate');
         const blendPreview = document.getElementById('blend-preview');
         const blendApplyButton = document.getElementById('blend-apply');
@@ -960,12 +1011,17 @@ IF ... END</code></pre>
             scaleBasePicker,
             scaleBaseHex,
             scaleSteps,
+            scaleEasing,
             scaleGenerateButton,
             scalePreview,
             scaleApplyButton,
             blendStartPicker,
+            blendStartHex,
             blendEndPicker,
+            blendEndHex,
             blendSteps,
+            blendEasing,
+            blendColorspace,
             blendGenerateButton,
             blendPreview,
             blendApplyButton,
@@ -1254,6 +1310,44 @@ IF ... END</code></pre>
                 }
             });
 
+            blendStartHex.addEventListener('input', () => {
+                const normalized = normalizeHex(blendStartHex.value);
+                if (normalized) {
+                    blendStartHex.classList.remove('invalid');
+                    blendStartHex.value = normalized;
+                    blendStartPicker.value = normalized;
+                } else {
+                    blendStartHex.classList.add('invalid');
+                }
+            });
+
+            blendStartPicker.addEventListener('input', () => {
+                const normalized = normalizeHex(blendStartPicker.value);
+                if (normalized) {
+                    blendStartHex.value = normalized;
+                    blendStartHex.classList.remove('invalid');
+                }
+            });
+
+            blendEndHex.addEventListener('input', () => {
+                const normalized = normalizeHex(blendEndHex.value);
+                if (normalized) {
+                    blendEndHex.classList.remove('invalid');
+                    blendEndHex.value = normalized;
+                    blendEndPicker.value = normalized;
+                } else {
+                    blendEndHex.classList.add('invalid');
+                }
+            });
+
+            blendEndPicker.addEventListener('input', () => {
+                const normalized = normalizeHex(blendEndPicker.value);
+                if (normalized) {
+                    blendEndHex.value = normalized;
+                    blendEndHex.classList.remove('invalid');
+                }
+            });
+
             scaleGenerateButton.addEventListener('click', () => {
                 const base = normalizeHex(scaleBaseHex.value) || normalizeHex(scaleBasePicker.value);
                 if (!base) {
@@ -1262,11 +1356,12 @@ IF ... END</code></pre>
                     return;
                 }
                 const steps = normalizeSteps(scaleSteps.value, 9);
+                const easing = scaleEasing.value || 'easeOut';
                 scaleSteps.value = String(steps);
                 scaleBaseHex.value = base;
                 scaleBasePicker.value = base;
 
-                const colors = generateScaleColors(base, steps);
+                const colors = generateScaleColors(base, steps, easing);
                 if (colors.length === 0) {
                     setStatus('Unable to generate scale colors.', 'error');
                     return;
@@ -1286,23 +1381,29 @@ IF ... END</code></pre>
             });
 
             blendGenerateButton.addEventListener('click', () => {
-                const start = normalizeHex(blendStartPicker.value);
-                const end = normalizeHex(blendEndPicker.value);
+                const start = normalizeHex(blendStartHex.value) || normalizeHex(blendStartPicker.value);
+                const end = normalizeHex(blendEndHex.value) || normalizeHex(blendEndPicker.value);
                 if (!start || !end) {
                     setStatus('Select valid blend colors.', 'error');
                     return;
                 }
                 const steps = normalizeSteps(blendSteps.value, 7);
+                const easing = blendEasing.value || 'linear';
+                const colorspace = blendColorspace.value || 'lab';
                 blendSteps.value = String(steps);
+                blendStartHex.value = start;
+                blendStartPicker.value = start;
+                blendEndHex.value = end;
+                blendEndPicker.value = end;
 
-                const colors = generateBlendColors(start, end, steps);
+                const colors = generateBlendColors(start, end, steps, easing, colorspace);
                 if (colors.length === 0) {
                     setStatus('Unable to blend colors.', 'error');
                     return;
                 }
                 state.blendColors = colors;
                 renderBlendPreview();
-                setStatus('Blend ready. Use Apply to Editor to load it.', 'info');
+                setStatus('Gradient ready. Use Apply to Editor to load it.', 'info');
             });
 
             blendApplyButton.addEventListener('click', () => {
@@ -1578,7 +1679,7 @@ IF ... END</code></pre>
             if (!Number.isFinite(parsed)) {
                 return fallback;
             }
-            return clampNumber(parsed, 3, 12);
+            return clampNumber(parsed, 3, 15);
         }
 
         function normalizeColorList(colors) {
@@ -1665,7 +1766,7 @@ IF ... END</code></pre>
             return 'linear-gradient(90deg, ' + stops + ')';
         }
 
-        function generateScaleColors(baseHex, steps) {
+        function generateScaleColors(baseHex, steps, easingType) {
             const normalized = normalizeHex(baseHex);
             if (!normalized) {
                 return [];
@@ -1674,42 +1775,100 @@ IF ... END</code></pre>
             if (!rgb) {
                 return [];
             }
-            const hsl = rgbToHsl(rgb);
-            const light = clampNumber(hsl.l + 35, 10, 95);
-            const dark = clampNumber(hsl.l - 35, 5, 85);
-            const start = Math.max(light, dark);
-            const end = Math.min(light, dark);
+
+            // Convert to LAB for perceptually uniform scaling
+            const baseLab = rgbToLab(rgb);
             const count = Math.max(2, steps);
             const colors = [];
 
+            // Create lighter and darker versions
+            const lightLab = { l: Math.min(baseLab.l + 40, 95), a: baseLab.a, b: baseLab.b };
+            const darkLab = { l: Math.max(baseLab.l - 40, 10), a: baseLab.a, b: baseLab.b };
+
             for (let i = 0; i < count; i += 1) {
-                const ratio = count === 1 ? 0 : i / (count - 1);
-                const l = start + (end - start) * ratio;
-                const step = hslToRgb({ h: hsl.h, s: hsl.s, l });
-                colors.push(rgbToHex(step));
+                let t = count === 1 ? 0 : i / (count - 1);
+                t = applyEasing(t, easingType);
+
+                const l = lightLab.l + (darkLab.l - lightLab.l) * t;
+                const a = lightLab.a + (darkLab.a - lightLab.a) * t;
+                const b = lightLab.b + (darkLab.b - lightLab.b) * t;
+
+                const stepRgb = labToRgb({ l, a, b });
+                colors.push(rgbToHex(stepRgb));
             }
 
             return colors;
         }
 
-        function generateBlendColors(startHex, endHex, steps) {
-            const start = hexToRgb(startHex);
-            const end = hexToRgb(endHex);
-            if (!start || !end) {
+        function generateBlendColors(startHex, endHex, steps, easingType, colorspace) {
+            const startRgb = hexToRgb(startHex);
+            const endRgb = hexToRgb(endHex);
+            if (!startRgb || !endRgb) {
                 return [];
             }
+
             const count = Math.max(2, steps);
             const colors = [];
 
-            for (let i = 0; i < count; i += 1) {
-                const ratio = count === 1 ? 0 : i / (count - 1);
-                const r = Math.round(start.r + (end.r - start.r) * ratio);
-                const g = Math.round(start.g + (end.g - start.g) * ratio);
-                const b = Math.round(start.b + (end.b - start.b) * ratio);
-                colors.push(rgbToHex({ r, g, b }));
+            if (colorspace === 'lab') {
+                // LAB interpolation (perceptually uniform)
+                const startLab = rgbToLab(startRgb);
+                const endLab = rgbToLab(endRgb);
+
+                for (let i = 0; i < count; i += 1) {
+                    let t = count === 1 ? 0 : i / (count - 1);
+                    t = applyEasing(t, easingType);
+
+                    const l = startLab.l + (endLab.l - startLab.l) * t;
+                    const a = startLab.a + (endLab.a - startLab.a) * t;
+                    const b = startLab.b + (endLab.b - startLab.b) * t;
+
+                    const rgb = labToRgb({ l, a, b });
+                    colors.push(rgbToHex(rgb));
+                }
+            } else if (colorspace === 'hsl') {
+                // HSL interpolation (hue-based)
+                const startHsl = rgbToHsl(startRgb);
+                const endHsl = rgbToHsl(endRgb);
+
+                for (let i = 0; i < count; i += 1) {
+                    let t = count === 1 ? 0 : i / (count - 1);
+                    t = applyEasing(t, easingType);
+
+                    const h = startHsl.h + (endHsl.h - startHsl.h) * t;
+                    const s = startHsl.s + (endHsl.s - startHsl.s) * t;
+                    const l = startHsl.l + (endHsl.l - startHsl.l) * t;
+
+                    const rgb = hslToRgb({ h, s, l });
+                    colors.push(rgbToHex(rgb));
+                }
+            } else {
+                // RGB interpolation (direct)
+                for (let i = 0; i < count; i += 1) {
+                    let t = count === 1 ? 0 : i / (count - 1);
+                    t = applyEasing(t, easingType);
+
+                    const r = Math.round(startRgb.r + (endRgb.r - startRgb.r) * t);
+                    const g = Math.round(startRgb.g + (endRgb.g - startRgb.g) * t);
+                    const b = Math.round(startRgb.b + (endRgb.b - startRgb.b) * t);
+                    colors.push(rgbToHex({ r, g, b }));
+                }
             }
 
             return colors;
+        }
+
+        function applyEasing(t, type) {
+            switch (type) {
+                case 'easeIn':
+                    return t * t * t;
+                case 'easeOut':
+                    return 1 - Math.pow(1 - t, 3);
+                case 'easeInOut':
+                    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+                default:
+                    return t;
+            }
         }
 
         function hexToRgb(value) {
@@ -1813,6 +1972,70 @@ IF ... END</code></pre>
                 return p + (q - p) * (2 / 3 - value) * 6;
             }
             return p;
+        }
+
+        function rgbToLab(rgb) {
+            // RGB to XYZ
+            let r = rgb.r / 255;
+            let g = rgb.g / 255;
+            let b = rgb.b / 255;
+
+            r = r > 0.04045 ? Math.pow((r + 0.055) / 1.055, 2.4) : r / 12.92;
+            g = g > 0.04045 ? Math.pow((g + 0.055) / 1.055, 2.4) : g / 12.92;
+            b = b > 0.04045 ? Math.pow((b + 0.055) / 1.055, 2.4) : b / 12.92;
+
+            let x = (r * 0.4124 + g * 0.3576 + b * 0.1805) * 100;
+            let y = (r * 0.2126 + g * 0.7152 + b * 0.0722) * 100;
+            let z = (r * 0.0193 + g * 0.1192 + b * 0.9505) * 100;
+
+            // XYZ to LAB
+            x = x / 95.047;
+            y = y / 100.000;
+            z = z / 108.883;
+
+            x = x > 0.008856 ? Math.pow(x, 1/3) : (7.787 * x) + 16/116;
+            y = y > 0.008856 ? Math.pow(y, 1/3) : (7.787 * y) + 16/116;
+            z = z > 0.008856 ? Math.pow(z, 1/3) : (7.787 * z) + 16/116;
+
+            return {
+                l: (116 * y) - 16,
+                a: 500 * (x - y),
+                b: 200 * (y - z)
+            };
+        }
+
+        function labToRgb(lab) {
+            // LAB to XYZ
+            let y = (lab.l + 16) / 116;
+            let x = lab.a / 500 + y;
+            let z = y - lab.b / 200;
+
+            x = Math.pow(x, 3) > 0.008856 ? Math.pow(x, 3) : (x - 16/116) / 7.787;
+            y = Math.pow(y, 3) > 0.008856 ? Math.pow(y, 3) : (y - 16/116) / 7.787;
+            z = Math.pow(z, 3) > 0.008856 ? Math.pow(z, 3) : (z - 16/116) / 7.787;
+
+            x = x * 95.047;
+            y = y * 100.000;
+            z = z * 108.883;
+
+            // XYZ to RGB
+            x = x / 100;
+            y = y / 100;
+            z = z / 100;
+
+            let r = x *  3.2406 + y * -1.5372 + z * -0.4986;
+            let g = x * -0.9689 + y *  1.8758 + z *  0.0415;
+            let b = x *  0.0557 + y * -0.2040 + z *  1.0570;
+
+            r = r > 0.0031308 ? 1.055 * Math.pow(r, 1/2.4) - 0.055 : 12.92 * r;
+            g = g > 0.0031308 ? 1.055 * Math.pow(g, 1/2.4) - 0.055 : 12.92 * g;
+            b = b > 0.0031308 ? 1.055 * Math.pow(b, 1/2.4) - 0.055 : 12.92 * b;
+
+            return {
+                r: clampNumber(Math.round(r * 255), 0, 255),
+                g: clampNumber(Math.round(g * 255), 0, 255),
+                b: clampNumber(Math.round(b * 255), 0, 255)
+            };
         }
 
         function clampNumber(value, min, max) {
