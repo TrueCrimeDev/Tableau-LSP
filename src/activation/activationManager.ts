@@ -170,9 +170,11 @@ export class ActivationManager {
      */
     private async initializeHelp(context: vscode.ExtensionContext, result: ActivationResult): Promise<void> {
         try {
+            const { registerParsingGuideView } = await import('../views/parsingGuideView.js');
+            registerParsingGuideView(context);
             result.features.help = true;
             console.log('Tableau LSP: Help system initialized successfully');
-            
+
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             result.warnings.push(`Help system initialization failed: ${errorMessage}`);
