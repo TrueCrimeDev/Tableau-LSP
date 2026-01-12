@@ -333,8 +333,8 @@ export async function generateFullNotesFile(
     }
     hierarchiesSection.push('\n');
 
-    // 8. Build fields section (using JSDoc format for declaration file compatibility)
-    const fieldsSection: string[] = ['/*\n=== FIELDS (for declaration file) ===\n'];
+    // 8. Build fields section (using single-line comments to avoid LSP parsing issues)
+    const fieldsSection: string[] = ['// === FIELDS ===\n'];
     if (result.fields && result.fields.length > 0) {
         for (const field of result.fields) {
             // Map Tableau datatypes to TypeScript-like types
@@ -348,22 +348,17 @@ export async function generateFullNotesFile(
             };
             const mappedType = datatypeMap[field.datatype?.toLowerCase() || ''] || 'String';
 
-            // Generate JSDoc-style comment with field metadata
+            // Generate field metadata comment
             const role = field.role || 'unknown';
             const datatype = field.datatype || 'unknown';
 
-            fieldsSection.push(
-                `/**\n` +
-                ` * Field from datasource: ${field.datasource}\n` +
-                ` * Datatype: ${datatype} | Role: ${role}\n` +
-                ` */\n` +
-                `[${field.name}]: ${mappedType}\n\n`
-            );
+            fieldsSection.push(`// Field: [${field.name}] : ${mappedType}\n`);
+            fieldsSection.push(`//   Datasource: ${field.datasource} | Type: ${datatype} | Role: ${role}\n`);
         }
     } else {
-        fieldsSection.push('(No fields found)\n');
+        fieldsSection.push('// (No fields found)\n');
     }
-    fieldsSection.push('*/\n\n');
+    fieldsSection.push('\n');
 
     // 9. Build calculations section
     const calculationsSection: string[] = ['// === CALCULATIONS ===\n'];
