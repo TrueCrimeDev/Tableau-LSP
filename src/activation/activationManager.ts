@@ -75,6 +75,9 @@ export class ActivationManager {
             // Initialize color provider for .tps files
             await this.initializeColorProvider(context, result);
 
+            // Initialize color decorator for .tps files
+            await this.initializeColorDecorator(context, result);
+
             // Determine overall success
             result.success = result.features.languageServer || result.features.commands;
             
@@ -199,6 +202,21 @@ export class ActivationManager {
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             result.warnings.push(`Color provider initialization failed: ${errorMessage}`);
+        }
+    }
+
+    /**
+     * Initialize color decorator for .tps files with error handling
+     */
+    private async initializeColorDecorator(context: vscode.ExtensionContext, result: ActivationResult): Promise<void> {
+        try {
+            const { registerTpsColorDecorator } = await import('../providers/tpsColorDecorator.js');
+            registerTpsColorDecorator(context);
+            console.log('Tableau LSP: Color decorator initialized successfully');
+
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            result.warnings.push(`Color decorator initialization failed: ${errorMessage}`);
         }
     }
 
