@@ -440,9 +440,10 @@ function extractFunctionArguments(text: string, startPos: number): Array<{text: 
     }
     
     if (parenCount > 0) {
-        // Unclosed parentheses - this might be a multi-line expression
-        // For now, return empty arguments to avoid false errors
-        return [];
+        // Unclosed parentheses - this is a multi-line expression
+        // Return undefined to signal that arguments couldn't be extracted
+        // This prevents false "expects X arguments, got 0" errors
+        return undefined;
     }
     
     parenEnd--; // Adjust to point to the closing parenthesis

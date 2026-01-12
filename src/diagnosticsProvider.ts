@@ -115,7 +115,14 @@ function validateFunctionSignatures(parsedDocument: ParsedDocument): Diagnostic[
      */
     function validateFunctionParameters(symbol: Symbol, signature: [number, number], diagnostics: Diagnostic[]): void {
         const [minArgs, maxArgs] = signature;
-        const argCount = symbol.arguments?.length || 0;
+
+        // If arguments is undefined, it means the parser couldn't extract them
+        // (likely due to multi-line expression). Skip validation.
+        if (symbol.arguments === undefined) {
+            return;
+        }
+
+        const argCount = symbol.arguments.length;
 
         // Skip validation in certain cases to reduce false positives:
         // 1. If we have no arguments but expect some (might be multi-line)
