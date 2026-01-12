@@ -63,6 +63,18 @@
           "TabLang"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "xml",
+        "extensions": [
+          ".tps"
+        ],
+        "aliases": [
+          "Tableau Preferences"
+        ],
+        "filenamePatterns": [
+          "**/Preferences.tps"
+        ]
       }
     ],
     "grammars": [

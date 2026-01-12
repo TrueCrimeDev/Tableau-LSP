@@ -20,6 +20,7 @@ export interface ActivationResult {
         commands: boolean;
         snippets: boolean;
         help: boolean;
+        colorProvider: boolean;
     };
 }
 
@@ -51,7 +52,8 @@ export class ActivationManager {
                 languageServer: false,
                 commands: false,
                 snippets: false,
-                help: false
+                help: false,
+                colorProvider: false
             }
         };
 
@@ -69,7 +71,10 @@ export class ActivationManager {
             
             // Initialize help system
             await this.initializeHelp(context, result);
-            
+
+            // Initialize color provider for .tps files
+            await this.initializeColorProvider(context, result);
+
             // Determine overall success
             result.success = result.features.languageServer || result.features.commands;
             
@@ -178,6 +183,22 @@ export class ActivationManager {
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             result.warnings.push(`Help system initialization failed: ${errorMessage}`);
+        }
+    }
+
+    /**
+     * Initialize color provider for .tps files with error handling
+     */
+    private async initializeColorProvider(context: vscode.ExtensionContext, result: ActivationResult): Promise<void> {
+        try {
+            const { registerTpsColorProvider } = await import('../providers/tpsColorProvider.js');
+            registerTpsColorProvider(context);
+            result.features.colorProvider = true;
+            console.log('Tableau LSP: Color provider initialized successfully');
+
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            result.warnings.push(`Color provider initialization failed: ${errorMessage}`);
         }
     }
 
