@@ -97,7 +97,8 @@
       "tableauLsp": [
         {
           "id": "tableauLanguageSupport.parsingGuide",
-          "name": "Parsing Guide"
+          "name": "Tableau Tools",
+          "type": "webview"
         }
       ]
     },
