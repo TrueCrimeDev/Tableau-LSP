@@ -49,7 +49,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             }
         });
 
-        view.webview.html = getGuideHtml(getNonce());
+        view.webview.html = getGuideHtml(view.webview, this.context, getNonce());
         void this.postPaletteData();
         view.onDidDispose(() => {
             if (this.view === view) {
@@ -153,403 +153,222 @@ export function registerParsingGuideView(context: vscode.ExtensionContext): void
     );
 }
 
-function getGuideHtml(nonce: string): string {
+function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext, nonce: string): string {
+    // Get URI for the Webview UI Toolkit
+    const toolkitUri = webview.asWebviewUri(
+        vscode.Uri.joinPath(context.extensionUri, 'node_modules', '@vscode', 'webview-ui-toolkit', 'dist', 'toolkit.js')
+    );
+
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}' ${toolkitUri};">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tableau LSP Guide</title>
+    <script type="module" src="${toolkitUri}"></script>
     <style>
-        :root {
-            --bg-0: #0f141a;
-            --bg-1: #151c24;
-            --bg-2: #1c2731;
-            --panel: rgba(21, 28, 36, 0.88);
-            --panel-border: rgba(255, 255, 255, 0.08);
-            --text: #e8edf2;
-            --muted: #a5b3c2;
-            --accent: #f4b860;
-            --accent-2: #5cb8b2;
-            --accent-3: #e07a5f;
-            --chip: rgba(244, 184, 96, 0.16);
-            --shadow: rgba(0, 0, 0, 0.35);
-            --code-bg: rgba(0, 0, 0, 0.35);
-        }
-
-        * {
-            box-sizing: border-box;
-        }
-
+        /* VS Code Native UI - Layout-only CSS */
         body {
+            padding: 0;
             margin: 0;
-            min-height: 100vh;
-            color: var(--text);
-            font-family: "Alegreya Sans", "Avenir Next", "Avenir", "Gill Sans", "Trebuchet MS", sans-serif;
-            background:
-                radial-gradient(120% 120% at 120% -10%, rgba(92, 184, 178, 0.24), transparent 55%),
-                radial-gradient(90% 90% at -10% 10%, rgba(244, 184, 96, 0.24), transparent 55%),
-                linear-gradient(160deg, var(--bg-0), var(--bg-1) 45%, var(--bg-2));
-        }
-
-        body::before {
-            content: "";
-            position: fixed;
-            inset: 0;
-            background-image:
-                linear-gradient(130deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.02) 40%, transparent 60%),
-                linear-gradient(0deg, rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0));
-            opacity: 0.6;
-            pointer-events: none;
+            font-family: var(--vscode-font-family);
+            font-size: var(--vscode-font-size);
+            color: var(--vscode-foreground);
+            background-color: var(--vscode-sideBar-background);
         }
 
         .shell {
-            position: relative;
-            padding: 18px 16px 24px;
+            padding: 16px;
         }
 
         .hero {
-            padding: 16px 16px 18px;
-            border-radius: 16px;
-            border: 1px solid var(--panel-border);
-            background: linear-gradient(135deg, rgba(244, 184, 96, 0.14), rgba(92, 184, 178, 0.08));
-            box-shadow: 0 16px 30px var(--shadow);
+            padding: 12px 0;
+            margin-bottom: 16px;
         }
 
         .eyebrow {
             text-transform: uppercase;
-            letter-spacing: 0.18em;
-            font-size: 0.7rem;
-            color: var(--accent-2);
+            letter-spacing: 0.1em;
+            font-size: 0.75rem;
+            opacity: 0.8;
+            margin-bottom: 4px;
         }
 
         h1 {
-            margin: 8px 0 6px;
-            font-size: 1.35rem;
-            color: var(--text);
+            margin: 4px 0;
+            font-size: 1.2rem;
+            font-weight: 600;
         }
 
         .subtitle {
-            color: var(--muted);
             font-size: 0.9rem;
-            margin: 0;
+            opacity: 0.8;
+            margin: 4px 0 0 0;
         }
 
         .menu {
-            margin: 16px 0 10px;
-            display: grid;
-            gap: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-bottom: 16px;
         }
 
         .menu-title {
             font-size: 0.75rem;
-            letter-spacing: 0.16em;
             text-transform: uppercase;
-            color: var(--muted);
+            letter-spacing: 0.1em;
+            opacity: 0.6;
+            margin-bottom: 4px;
         }
 
         .menu a {
             text-decoration: none;
-            color: var(--text);
-            padding: 8px 12px;
-            border-radius: 12px;
-            background: rgba(255, 255, 255, 0.06);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+            color: var(--vscode-textLink-foreground);
+            padding: 6px 8px;
+            border-radius: 4px;
+            transition: background-color 0.1s ease, color 0.1s ease;
         }
 
         .menu a:hover {
-            border-color: rgba(244, 184, 96, 0.45);
-            background: rgba(244, 184, 96, 0.12);
-            transform: translateY(-1px);
+            background-color: var(--vscode-list-hoverBackground);
+            color: var(--vscode-textLink-activeForeground);
         }
 
         main {
-            display: grid;
-            gap: 14px;
-        }
-
-        .card {
-            border-radius: 16px;
-            padding: 14px 16px;
-            border: 1px solid var(--panel-border);
-            background: var(--panel);
-            box-shadow: 0 12px 24px var(--shadow);
-            animation: rise 0.6s ease both;
-            animation-delay: var(--delay, 0s);
-        }
-
-        h2 {
-            margin: 0 0 8px;
-            font-size: 1.05rem;
-            color: var(--accent);
-        }
-
-        p {
-            margin: 0 0 10px;
-            color: var(--muted);
-            line-height: 1.5;
-        }
-
-        ul {
-            margin: 0;
-            padding-left: 18px;
-            color: var(--text);
-            line-height: 1.5;
-        }
-
-        li + li {
-            margin-top: 6px;
-        }
-
-        .chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 2px 8px;
-            border-radius: 999px;
-            background: var(--chip);
-            color: var(--accent);
-            font-size: 0.72rem;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
-        }
-
-        code {
-            font-family: "JetBrains Mono", "Fira Code", "Consolas", "Courier New", monospace;
-            background: var(--code-bg);
-            padding: 2px 5px;
-            border-radius: 6px;
-            color: var(--accent-2);
-        }
-
-        pre {
-            margin: 10px 0 0;
-            padding: 10px 12px;
-            background: var(--code-bg);
-            border-radius: 12px;
-            overflow-x: auto;
-            color: var(--text);
-            font-size: 0.78rem;
-        }
-
-        .note {
-            color: var(--muted);
-            font-size: 0.82rem;
-        }
-
-        .cta {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 100%;
-            margin-top: 8px;
-            padding: 10px 12px;
-            border-radius: 12px;
-            border: 1px solid rgba(244, 184, 96, 0.5);
-            background: rgba(244, 184, 96, 0.16);
-            color: var(--text);
-            font-weight: 600;
-            letter-spacing: 0.02em;
-            cursor: pointer;
-            transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
-        }
-
-        .cta:hover {
-            transform: translateY(-1px);
-            border-color: rgba(244, 184, 96, 0.8);
-            background: rgba(244, 184, 96, 0.24);
-        }
-
-        .palette-grid {
-            display: grid;
+            display: flex;
+            flex-direction: column;
             gap: 12px;
         }
 
+        .card {
+            padding: 0;
+            margin-bottom: 20px;
+        }
+
+        h2 {
+            margin: 0 0 8px 0;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .chip {
+            display: inline-block;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            opacity: 0.7;
+            margin-bottom: 8px;
+        }
+
+        .palette-grid,
         .panel-block {
-            display: grid;
-            gap: 10px;
-            padding: 12px;
-            border-radius: 14px;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            background: rgba(0, 0, 0, 0.2);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 20px;
         }
 
         .panel-title {
-            font-size: 0.78rem;
-            letter-spacing: 0.18em;
-            text-transform: uppercase;
-            color: var(--muted);
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+            opacity: 0.9;
         }
 
         .field {
-            display: grid;
-            gap: 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-bottom: 8px;
         }
 
         .field label {
-            font-size: 0.8rem;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
-            color: var(--muted);
-        }
-
-        .field input,
-        .field select {
-            background: rgba(0, 0, 0, 0.35);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            color: var(--text);
-            padding: 8px 10px;
-            border-radius: 10px;
             font-size: 0.85rem;
+            font-weight: 600;
         }
 
-        .palette-list {
-            display: grid;
-            gap: 8px;
-            padding: 8px;
-            border-radius: 12px;
-            background: rgba(0, 0, 0, 0.25);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+        .palette-list,
+        .theme-list {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
         }
 
-        .palette-item {
-            border-radius: 10px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            background: rgba(255, 255, 255, 0.05);
-            padding: 8px 10px;
-            text-align: left;
-            color: var(--text);
-            cursor: pointer;
-            display: grid;
+        .palette-item,
+        .theme-card {
+            padding: 10px 8px;
+            background-color: transparent;
+            display: flex;
+            flex-direction: column;
             gap: 6px;
-            transition: border-color 0.2s ease, background 0.2s ease;
+            border-left: 2px solid transparent;
+            cursor: pointer;
+            transition: background-color 0.1s ease;
+        }
+
+        .theme-card:hover {
+            background-color: var(--vscode-list-hoverBackground);
+        }
+
+        .theme-card-content {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            flex: 1;
+        }
+
+        .theme-card-actions {
+            display: flex;
+            gap: 4px;
+            margin-top: 4px;
         }
 
         .palette-item.active {
-            border-color: rgba(92, 184, 178, 0.7);
-            background: rgba(92, 184, 178, 0.12);
+            background-color: var(--vscode-list-activeSelectionBackground);
+            border-left-color: var(--vscode-focusBorder);
         }
 
-        .palette-bar {
-            height: 10px;
-            border-radius: 999px;
-            border: 1px solid rgba(255, 255, 255, 0.18);
+        .palette-item:hover {
+            background-color: var(--vscode-list-hoverBackground);
+        }
+
+        .palette-bar,
+        .theme-bar {
+            height: 12px;
+            border-radius: 4px;
         }
 
         .palette-name {
             font-weight: 600;
         }
 
-        .palette-meta {
+        .palette-meta,
+        .theme-meta {
+            font-size: 0.8rem;
+            opacity: 0.7;
             display: flex;
             gap: 8px;
-            flex-wrap: wrap;
-            font-size: 0.75rem;
-            color: var(--muted);
         }
 
         .palette-chips {
             display: flex;
+            gap: 4px;
             flex-wrap: wrap;
-            gap: 6px;
         }
 
         .chip-color {
-            width: 18px;
-            height: 18px;
-            border-radius: 999px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 1px solid var(--vscode-input-border);
         }
 
-        .color-builder {
-            display: grid;
-            gap: 8px;
-        }
-
+        .color-builder,
         .generator {
-            display: grid;
-            gap: 8px;
-        }
-
-        .generator-row {
-            display: grid;
-            grid-template-columns: auto 1fr auto auto;
-            gap: 6px;
-            align-items: center;
-        }
-
-        .generator-row input[type="number"] {
-            width: 78px;
-        }
-
-        .scale-preview {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(36px, 1fr));
-            gap: 6px;
-        }
-
-        .preview-actions {
             display: flex;
-            justify-content: flex-end;
+            flex-direction: column;
             gap: 8px;
-        }
-
-        .scale-swatch {
-            display: grid;
-            gap: 4px;
-            justify-items: center;
-        }
-
-        .scale-color {
-            width: 100%;
-            height: 28px;
-            border-radius: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-
-        .scale-label {
-            font-size: 0.65rem;
-            color: var(--muted);
-        }
-
-        .theme-list {
-            display: grid;
-            gap: 8px;
-        }
-
-        .theme-card {
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            background: rgba(255, 255, 255, 0.04);
-            padding: 10px 12px;
-            text-align: left;
-            color: var(--text);
-            display: grid;
-            gap: 6px;
-            cursor: pointer;
-            transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
-        }
-
-        .theme-card.active {
-            border-color: rgba(244, 184, 96, 0.6);
-            background: rgba(244, 184, 96, 0.12);
-        }
-
-        .theme-card:hover {
-            transform: translateY(-1px);
-        }
-
-        .theme-bar {
-            height: 14px;
-            border-radius: 999px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-
-        .theme-meta {
-            font-size: 0.75rem;
-            color: var(--muted);
         }
 
         .color-row,
@@ -562,106 +381,345 @@ function getGuideHtml(nonce: string): string {
 
         .color-row input[type="color"],
         .color-add input[type="color"] {
-            width: 36px;
-            height: 32px;
-            padding: 0;
-            border: none;
-            background: transparent;
-        }
-
-        .color-row input[type="text"],
-        .color-add input[type="text"] {
-            width: 100%;
-        }
-
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 8px 10px;
-            border-radius: 10px;
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            background: rgba(255, 255, 255, 0.06);
-            color: var(--text);
-            font-weight: 600;
+            width: 32px;
+            height: 28px;
+            border: 1px solid var(--vscode-input-border);
+            padding: 2px;
+            background-color: var(--vscode-input-background);
             cursor: pointer;
-            transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+            transition: border-color 0.1s ease;
         }
 
-        .btn.secondary {
-            background: rgba(92, 184, 178, 0.12);
-            border-color: rgba(92, 184, 178, 0.5);
+        .color-row input[type="color"]:hover,
+        .color-add input[type="color"]:hover {
+            border-color: var(--vscode-focusBorder);
         }
 
-        .btn.danger {
-            background: rgba(224, 122, 95, 0.15);
-            border-color: rgba(224, 122, 95, 0.6);
+        .color-row input[type="color"]::-webkit-color-swatch-wrapper,
+        .color-add input[type="color"]::-webkit-color-swatch-wrapper {
+            padding: 0;
         }
 
-        .btn:hover {
-            transform: translateY(-1px);
-            border-color: rgba(244, 184, 96, 0.7);
+        .color-row input[type="color"]::-webkit-color-swatch,
+        .color-add input[type="color"]::-webkit-color-swatch {
+            border: none;
+            border-radius: 2px;
+        }
+
+        .generator-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .scale-preview {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(40px, 1fr));
+            gap: 6px;
+        }
+
+        .scale-swatch {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .scale-color {
+            width: 100%;
+            height: 28px;
+            border-radius: 4px;
+            border: 1px solid var(--vscode-input-border);
+        }
+
+        .scale-label {
+            font-size: 0.7rem;
+            opacity: 0.7;
+        }
+
+        .preview-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
         }
 
         .button-grid {
-            display: grid;
-            gap: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
         }
 
         .status {
             margin-top: 8px;
-            font-size: 0.82rem;
-            color: var(--muted);
+            font-size: 0.85rem;
+            padding: 8px;
+            border-radius: 4px;
         }
 
         .status.success {
-            color: #7ddf9b;
+            color: var(--vscode-notificationsInfoIcon-foreground);
+            background-color: var(--vscode-inputValidation-infoBackground);
         }
 
         .status.error {
-            color: #f08b74;
+            color: var(--vscode-notificationsErrorIcon-foreground);
+            background-color: var(--vscode-inputValidation-errorBackground);
+        }
+
+        .status.info {
+            opacity: 0.8;
+        }
+
+        .note {
+            font-size: 0.85rem;
+            opacity: 0.7;
+            margin: 4px 0;
+        }
+
+        code {
+            font-family: var(--vscode-editor-font-family);
+            background-color: var(--vscode-textCodeBlock-background);
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+
+        pre {
+            font-family: var(--vscode-editor-font-family);
+            background-color: var(--vscode-textCodeBlock-background);
+            padding: 8px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+
+        details {
+            margin: 8px 0;
+        }
+
+        summary {
+            cursor: pointer;
+            padding: 8px;
+            background-color: transparent;
+            font-weight: 600;
+            margin-bottom: 8px;
+            list-style: none;
+            transition: background-color 0.1s ease;
+            border-radius: 4px;
+        }
+
+        summary:hover {
+            background-color: var(--vscode-list-hoverBackground);
+        }
+
+        summary::-webkit-details-marker {
+            display: none;
+        }
+
+        details[open] > summary {
+            margin-bottom: 12px;
+        }
+
+        ul {
+            margin: 0;
+            padding-left: 20px;
+            line-height: 1.6;
+        }
+
+        li + li {
+            margin-top: 4px;
         }
 
         .invalid {
-            border-color: rgba(224, 122, 95, 0.8);
+            outline: 2px solid var(--vscode-inputValidation-errorBorder);
+        }
+
+        /* Custom class for danger button styling */
+        .danger-button {
+            background-color: var(--vscode-button-secondaryBackground) !important;
+            color: var(--vscode-errorForeground) !important;
+        }
+
+        .danger-button:hover {
+            background-color: var(--vscode-button-secondaryHoverBackground) !important;
         }
 
         @media (max-width: 460px) {
             .color-row,
             .color-add {
-                grid-template-columns: auto 1fr auto;
-                grid-template-rows: auto auto;
-            }
-
-            .color-row .btn,
-            .color-add .btn {
-                grid-column: span 3;
+                grid-template-columns: auto 1fr;
+                grid-template-rows: auto auto auto;
             }
         }
 
-        @keyframes rise {
-            from {
-                opacity: 0;
-                transform: translateY(8px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+        /* Custom Color Picker Modal */
+        .color-picker-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.6);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
         }
 
-        @media (prefers-reduced-motion: reduce) {
-            .card {
-                animation: none;
-            }
+        .color-picker-modal.active {
+            display: flex;
+        }
 
-            .menu a {
-                transition: none;
-            }
+        .color-picker-panel {
+            background-color: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 6px;
+            padding: 16px;
+            min-width: 320px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        }
+
+        .color-picker-title {
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .color-picker-main {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .color-picker-square {
+            width: 200px;
+            height: 200px;
+            position: relative;
+            cursor: crosshair;
+            border: 1px solid var(--vscode-input-border);
+        }
+
+        .color-picker-square-gradient {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to top, #000, transparent),
+                        linear-gradient(to right, #fff, transparent);
+        }
+
+        .color-picker-cursor {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            border: 2px solid #fff;
+            border-radius: 50%;
+            margin: -6px 0 0 -6px;
+            box-shadow: 0 0 0 1px #000;
+            pointer-events: none;
+        }
+
+        .color-picker-hue {
+            width: 20px;
+            height: 200px;
+            position: relative;
+            cursor: pointer;
+            border: 1px solid var(--vscode-input-border);
+            background: linear-gradient(to bottom,
+                #f00 0%, #ff0 17%, #0f0 33%,
+                #0ff 50%, #00f 67%, #f0f 83%, #f00 100%);
+        }
+
+        .color-picker-hue-cursor {
+            position: absolute;
+            left: -2px;
+            width: 24px;
+            height: 4px;
+            background: #fff;
+            border: 1px solid #000;
+            margin-top: -2px;
+            pointer-events: none;
+        }
+
+        .color-picker-preview {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .color-preview-box {
+            width: 48px;
+            height: 48px;
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 4px;
+        }
+
+        .color-picker-inputs {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .color-picker-input-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .color-picker-input-row label {
+            width: 32px;
+            font-size: 0.85rem;
+        }
+
+        .color-picker-input-row vscode-text-field {
+            flex: 1;
+        }
+
+        .color-picker-buttons {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
         }
     </style>
 </head>
 <body>
+    <!-- Custom Color Picker Modal -->
+    <div class="color-picker-modal" id="color-picker-modal">
+        <div class="color-picker-panel">
+            <div class="color-picker-title">Choose Color</div>
+            <div class="color-picker-main">
+                <div class="color-picker-square" id="picker-square">
+                    <div class="color-picker-square-gradient" id="picker-square-gradient"></div>
+                    <div class="color-picker-cursor" id="picker-square-cursor"></div>
+                </div>
+                <div class="color-picker-hue" id="picker-hue">
+                    <div class="color-picker-hue-cursor" id="picker-hue-cursor"></div>
+                </div>
+            </div>
+            <div class="color-picker-preview">
+                <div class="color-preview-box" id="picker-preview"></div>
+                <div class="color-picker-inputs">
+                    <div class="color-picker-input-row">
+                        <label>R</label>
+                        <vscode-text-field id="picker-r" type="number" min="0" max="255" value="0"></vscode-text-field>
+                    </div>
+                    <div class="color-picker-input-row">
+                        <label>G</label>
+                        <vscode-text-field id="picker-g" type="number" min="0" max="255" value="0"></vscode-text-field>
+                    </div>
+                    <div class="color-picker-input-row">
+                        <label>B</label>
+                        <vscode-text-field id="picker-b" type="number" min="0" max="255" value="0"></vscode-text-field>
+                    </div>
+                </div>
+            </div>
+            <div class="color-picker-input-row" style="margin-bottom: 12px;">
+                <label>Hex</label>
+                <vscode-text-field id="picker-hex" value="#000000"></vscode-text-field>
+            </div>
+            <div class="color-picker-buttons">
+                <vscode-button id="picker-cancel" appearance="secondary">Cancel</vscode-button>
+                <vscode-button id="picker-ok" appearance="primary">OK</vscode-button>
+            </div>
+        </div>
+    </div>
+
     <div class="shell">
         <header class="hero">
             <div class="eyebrow">Tableau</div>
@@ -693,36 +751,40 @@ function getGuideHtml(nonce: string): string {
                         <div class="palette-list" id="palette-list"></div>
                     </div>
 
+                    <vscode-divider></vscode-divider>
+
                     <div class="panel-block">
                         <div class="panel-title">Palette Editor</div>
                         <div class="field">
                             <label for="palette-name">Palette name</label>
-                            <input id="palette-name" type="text" placeholder="My Palette">
+                            <vscode-text-field id="palette-name" placeholder="My Palette"></vscode-text-field>
                         </div>
                         <div class="field">
                             <label for="palette-type">Palette type</label>
-                            <select id="palette-type">
-                                <option value="regular">Categorical (regular)</option>
-                                <option value="ordered-sequential">Sequential (ordered-sequential)</option>
-                                <option value="ordered-diverging">Diverging (ordered-diverging)</option>
-                            </select>
+                            <vscode-dropdown id="palette-type">
+                                <vscode-option value="regular">Categorical (regular)</vscode-option>
+                                <vscode-option value="ordered-sequential">Sequential (ordered-sequential)</vscode-option>
+                                <vscode-option value="ordered-diverging">Diverging (ordered-diverging)</vscode-option>
+                            </vscode-dropdown>
                         </div>
 
                         <div class="color-builder">
                             <div class="color-add">
                                 <input id="new-color-picker" type="color" value="#F4B860" aria-label="New color picker">
-                                <input id="new-color-hex" type="text" value="#F4B860" aria-label="New color hex">
-                                <button class="btn secondary" id="add-color" type="button">Add Color</button>
+                                <vscode-text-field id="new-color-hex" value="#F4B860" aria-label="New color hex"></vscode-text-field>
+                                <vscode-button id="add-color" appearance="secondary">Add Color</vscode-button>
                             </div>
                             <div id="colors-list"></div>
                         </div>
 
                         <div class="button-grid">
-                            <button class="btn secondary" id="save-palette" type="button">Save Palette</button>
-                            <button class="btn" id="new-palette" type="button">New Palette</button>
-                            <button class="btn danger" id="delete-palette" type="button">Delete Palette</button>
+                            <vscode-button id="save-palette" appearance="primary">Save Palette</vscode-button>
+                            <vscode-button id="new-palette" appearance="secondary">New Palette</vscode-button>
+                            <vscode-button id="delete-palette" appearance="secondary" class="danger-button">Delete Palette</vscode-button>
                         </div>
                     </div>
+
+                    <vscode-divider></vscode-divider>
 
                     <div class="panel-block">
                         <div class="panel-title">Advanced Gradient Generator</div>
@@ -731,26 +793,26 @@ function getGuideHtml(nonce: string): string {
                                 <label for="scale-base-picker">Base Color</label>
                                 <div class="generator-row">
                                     <input id="scale-base-picker" type="color" value="#5CB8B2" aria-label="Scale base color">
-                                    <input id="scale-base-hex" type="text" value="#5CB8B2" aria-label="Scale base hex">
+                                    <vscode-text-field id="scale-base-hex" value="#5CB8B2" aria-label="Scale base hex"></vscode-text-field>
                                 </div>
                             </div>
                             <div class="field">
                                 <label for="scale-steps">Steps</label>
-                                <input id="scale-steps" type="number" min="3" max="15" value="9" aria-label="Scale steps">
+                                <vscode-text-field id="scale-steps" type="number" min="3" max="15" value="9" aria-label="Scale steps"></vscode-text-field>
                             </div>
                             <div class="field">
                                 <label for="scale-easing">Easing Curve</label>
-                                <select id="scale-easing">
-                                    <option value="linear">Linear</option>
-                                    <option value="easeIn">Ease In (slower start)</option>
-                                    <option value="easeOut" selected>Ease Out (slower end)</option>
-                                    <option value="easeInOut">Ease In Out (smooth)</option>
-                                </select>
+                                <vscode-dropdown id="scale-easing">
+                                    <vscode-option value="linear">Linear</vscode-option>
+                                    <vscode-option value="easeIn">Ease In (slower start)</vscode-option>
+                                    <vscode-option value="easeOut" selected>Ease Out (slower end)</vscode-option>
+                                    <vscode-option value="easeInOut">Ease In Out (smooth)</vscode-option>
+                                </vscode-dropdown>
                             </div>
-                            <button class="btn secondary" id="scale-generate" type="button" style="width: 100%;">Generate Scale</button>
+                            <vscode-button id="scale-generate" appearance="secondary" style="width: 100%;">Generate Scale</vscode-button>
                             <div class="scale-preview" id="scale-preview"></div>
                             <div class="preview-actions">
-                                <button class="btn" id="scale-apply" type="button">Apply to Editor</button>
+                                <vscode-button id="scale-apply" appearance="primary">Apply to Editor</vscode-button>
                             </div>
                         </div>
                         <div class="panel-title" style="margin-top: 1.5rem;">Multi-Stop Gradient</div>
@@ -759,141 +821,97 @@ function getGuideHtml(nonce: string): string {
                                 <label for="blend-start-picker">Start Color</label>
                                 <div class="generator-row">
                                     <input id="blend-start-picker" type="color" value="#F4B860" aria-label="Blend start color">
-                                    <input id="blend-start-hex" type="text" value="#F4B860" aria-label="Blend start hex">
+                                    <vscode-text-field id="blend-start-hex" value="#F4B860" aria-label="Blend start hex"></vscode-text-field>
                                 </div>
                             </div>
                             <div class="field">
                                 <label for="blend-end-picker">End Color</label>
                                 <div class="generator-row">
                                     <input id="blend-end-picker" type="color" value="#3D5A80" aria-label="Blend end color">
-                                    <input id="blend-end-hex" type="text" value="#3D5A80" aria-label="Blend end hex">
+                                    <vscode-text-field id="blend-end-hex" value="#3D5A80" aria-label="Blend end hex"></vscode-text-field>
                                 </div>
                             </div>
                             <div class="field">
                                 <label for="blend-steps">Steps</label>
-                                <input id="blend-steps" type="number" min="3" max="15" value="7" aria-label="Blend steps">
+                                <vscode-text-field id="blend-steps" type="number" min="3" max="15" value="7" aria-label="Blend steps"></vscode-text-field>
                             </div>
                             <div class="field">
                                 <label for="blend-easing">Easing Curve</label>
-                                <select id="blend-easing">
-                                    <option value="linear" selected>Linear</option>
-                                    <option value="easeIn">Ease In (slower start)</option>
-                                    <option value="easeOut">Ease Out (slower end)</option>
-                                    <option value="easeInOut">Ease In Out (smooth)</option>
-                                </select>
+                                <vscode-dropdown id="blend-easing">
+                                    <vscode-option value="linear" selected>Linear</vscode-option>
+                                    <vscode-option value="easeIn">Ease In (slower start)</vscode-option>
+                                    <vscode-option value="easeOut">Ease Out (slower end)</vscode-option>
+                                    <vscode-option value="easeInOut">Ease In Out (smooth)</vscode-option>
+                                </vscode-dropdown>
                             </div>
                             <div class="field">
                                 <label for="blend-colorspace">Color Space</label>
-                                <select id="blend-colorspace">
-                                    <option value="lab" selected>LAB (perceptual)</option>
-                                    <option value="rgb">RGB (direct)</option>
-                                    <option value="hsl">HSL (hue-based)</option>
-                                </select>
+                                <vscode-dropdown id="blend-colorspace">
+                                    <vscode-option value="lab" selected>LAB (perceptual)</vscode-option>
+                                    <vscode-option value="rgb">RGB (direct)</vscode-option>
+                                    <vscode-option value="hsl">HSL (hue-based)</vscode-option>
+                                </vscode-dropdown>
                             </div>
-                            <button class="btn secondary" id="blend-generate" type="button" style="width: 100%;">Generate Gradient</button>
+                            <vscode-button id="blend-generate" appearance="secondary" style="width: 100%;">Generate Gradient</vscode-button>
                             <div class="scale-preview" id="blend-preview"></div>
                             <div class="preview-actions">
-                                <button class="btn" id="blend-apply" type="button">Apply to Editor</button>
+                                <vscode-button id="blend-apply" appearance="primary">Apply to Editor</vscode-button>
                             </div>
                         </div>
                     </div>
+
+                    <vscode-divider></vscode-divider>
 
                     <div class="panel-block">
                         <div class="panel-title">Theme Vault</div>
                         <div class="theme-list" id="theme-list"></div>
-                        <button class="btn secondary" id="add-theme-palette" type="button">Add Theme Palette to List</button>
                     </div>
+
+                    <vscode-divider></vscode-divider>
 
                     <div class="panel-block">
                         <div class="panel-title">File Actions</div>
-                        <div class="button-grid">
-                            <button class="btn secondary" id="save-file" type="button">Save to Preferences.tps</button>
-                            <button class="btn" id="reload-file" type="button">Reload from Preferences.tps</button>
-                            <button class="btn" id="open-preferences" type="button">Open Preferences.tps Template</button>
-                            <button class="btn" id="copy-preferences" type="button">Copy to My Tableau Repository</button>
+                        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                            <vscode-button id="save-file" appearance="primary" style="flex: 1;">Save</vscode-button>
+                            <vscode-button id="reload-file" appearance="secondary" style="flex: 1;">Reload</vscode-button>
                         </div>
+                        <details style="margin-bottom: 12px;">
+                            <summary style="font-size: 0.85rem;">More Actions</summary>
+                            <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;">
+                                <vscode-button id="open-preferences" appearance="secondary">Open Template</vscode-button>
+                                <vscode-button id="copy-preferences" appearance="secondary">Copy to Repository</vscode-button>
+                            </div>
+                        </details>
 
                         <div class="status" id="palette-status"></div>
-                        <p class="note" id="palette-source">Source: not loaded yet.</p>
-                        <p class="note">Restart Tableau Desktop after updating the file.</p>
+                        <p class="note" id="palette-source" style="font-size: 0.8rem; margin: 4px 0;">Source: not loaded yet</p>
                     </div>
                 </div>
             </section>
 
-            <section class="card" id="commands" style="--delay: 0.1s;">
-                <span class="chip">Commands</span>
-                <h2>Most Used Actions</h2>
-                <ul>
-                    <li><code>Format Tableau Expression</code> and <code>Validate Tableau Expression</code></li>
-                    <li><code>Insert IF Statement</code>, <code>Insert CASE Statement</code>, <code>Insert LOD Expression</code></li>
-                    <li><code>Show Function Help</code> for hover and reference guidance</li>
-                    <li><code>Extract Calculations</code> to build a clean workbook inventory</li>
-                </ul>
-            </section>
+            <vscode-divider></vscode-divider>
 
-            <section class="card" id="guide" style="--delay: 0.15s;">
-                <span class="chip">Reference Guide</span>
-                <h2>.twbl Parsing and Language Support</h2>
+            <section class="card">
                 <details>
-                    <summary style="cursor: pointer; font-weight: 600; margin-bottom: 1rem; padding: 0.5rem; background: rgba(0,0,0,0.05); border-radius: 4px;">
-                        Quick Start
-                    </summary>
-                    <ul>
-                        <li>Open a <code>.twbl</code> file and the extension activates automatically.</li>
-                        <li>Hover for function and field help, and use completion for syntax hints.</li>
-                        <li>Use the Problems panel for parser feedback while you type.</li>
-                        <li>Formatting and validation commands help keep expressions readable.</li>
-                    </ul>
-                </details>
+                    <summary><strong>Commands & Reference</strong></summary>
+                    <div style="margin-top: 12px;">
+                        <h3 style="font-size: 0.9rem; margin: 8px 0;">Most Used Commands</h3>
+                        <ul style="font-size: 0.85rem;">
+                            <li><code>Format Tableau Expression</code> and <code>Validate Tableau Expression</code></li>
+                            <li><code>Insert IF Statement</code>, <code>Insert CASE Statement</code>, <code>Insert LOD Expression</code></li>
+                            <li><code>Show Function Help</code> for hover and reference guidance</li>
+                            <li><code>Extract Calculations</code> to build a clean workbook inventory</li>
+                        </ul>
 
-                <details>
-                    <summary style="cursor: pointer; font-weight: 600; margin-bottom: 1rem; padding: 0.5rem; background: rgba(0,0,0,0.05); border-radius: 4px;">
-                        Parsing Rules
-                    </summary>
-                    <h3>Structure That Parses Cleanly</h3>
-                    <ul>
-                        <li>Separate calculations with a blank line to reduce ambiguity.</li>
-                        <li>Optional header format: <code>// Name - short description</code>.</li>
-                        <li>Put <code>IF</code>, <code>THEN</code>, <code>ELSE</code>, <code>END</code> on their own lines for multi-line logic.</li>
-                        <li>For <code>CASE</code>, keep <code>WHEN</code> and <code>THEN</code> on separate lines.</li>
-                        <li>LOD blocks are easiest to parse when the braces and colon are explicit.</li>
-                        <li>Avoid non-ASCII characters such as smart quotes or emoji.</li>
-                    </ul>
-                </details>
-
-                <details>
-                    <summary style="cursor: pointer; font-weight: 600; margin-bottom: 1rem; padding: 0.5rem; background: rgba(0,0,0,0.05); border-radius: 4px;">
-                        Parser Tips
-                    </summary>
-                    <h3>Stabilize Diagnostics</h3>
-                    <ul>
-                        <li>Inline <code>IF ... THEN</code> on one line can confuse multi-line parsing.</li>
-                        <li>Align <code>END</code> with the opening keyword.</li>
-                        <li>Use <code>AND</code>/<code>OR</code> on separate lines for long conditions.</li>
-                        <li>Run <code>Tableau: Inspect Tableau Problems</code> for targeted guidance.</li>
-                    </ul>
-                </details>
-
-                <details>
-                    <summary style="cursor: pointer; font-weight: 600; margin-bottom: 1rem; padding: 0.5rem; background: rgba(0,0,0,0.05); border-radius: 4px;">
-                        Extraction Output
-                    </summary>
-                    <h3>Output Shape</h3>
-                    <p>Extraction creates a structured <code>.twbl</code> file with summary and sections.</p>
-                    <pre><code>Total workbooks: 1
-Total datasources: 2
-Total calculations: 3
-Total fields: 15
-
-=== DATASOURCES ===
-Datasource | Workbook.twb
-
-=== FIELDS ===
-Field | Datasource | datatype | role | Workbook.twb
-
-=== CALCULATIONS ===
-// Caption | Datasource | Workbook.twb
-IF ... END</code></pre>
+                        <h3 style="font-size: 0.9rem; margin: 16px 0 8px 0;">.twbl Parsing Tips</h3>
+                        <ul style="font-size: 0.85rem;">
+                            <li>Separate calculations with a blank line</li>
+                            <li>Use header format: <code>// Name - description</code></li>
+                            <li>Put <code>IF</code>, <code>THEN</code>, <code>ELSE</code>, <code>END</code> on their own lines</li>
+                            <li>Align <code>END</code> with opening keyword</li>
+                            <li>Avoid non-ASCII characters (smart quotes, emoji)</li>
+                        </ul>
+                    </div>
                 </details>
             </section>
         </main>
@@ -935,7 +953,6 @@ IF ... END</code></pre>
         const blendPreview = document.getElementById('blend-preview');
         const blendApplyButton = document.getElementById('blend-apply');
         const themeList = document.getElementById('theme-list');
-        const addThemeButton = document.getElementById('add-theme-palette');
 
         const themePresets = [
             {
@@ -991,7 +1008,6 @@ IF ... END</code></pre>
         const state = {
             palettes: [],
             selectedName: '',
-            themeIndex: 0,
             scaleColors: [],
             blendColors: [],
             editor: {
@@ -1025,8 +1041,7 @@ IF ... END</code></pre>
             blendGenerateButton,
             blendPreview,
             blendApplyButton,
-            themeList,
-            addThemeButton
+            themeList
         ];
 
         if (requiredElements.some(element => !element)) {
@@ -1420,21 +1435,15 @@ IF ... END</code></pre>
                 if (!(target instanceof HTMLElement)) {
                     return;
                 }
-                const card = target.closest('.theme-card');
-                if (!card) {
+                const button = target.closest('[data-action="add-theme"]');
+                if (!button) {
                     return;
                 }
-                const index = Number(card.dataset.index);
+                const index = Number(button.dataset.index);
                 if (Number.isNaN(index)) {
                     return;
                 }
-                const maxIndex = Math.max(0, themePresets.length - 1);
-                state.themeIndex = clampNumber(index, 0, maxIndex);
-                renderThemes();
-            });
-
-            addThemeButton.addEventListener('click', () => {
-                const theme = themePresets[state.themeIndex] || themePresets[0];
+                const theme = themePresets[index];
                 if (!theme) {
                     setStatus('No theme available.', 'error');
                     return;
@@ -1458,7 +1467,7 @@ IF ... END</code></pre>
                     colors: palette.colors.slice()
                 };
                 renderAll();
-                setStatus('Theme palette added to the list.', 'success');
+                setStatus('Theme "' + theme.name + '" added to your palette library.', 'success');
             });
 
             window.addEventListener('message', event => {
@@ -1531,7 +1540,7 @@ IF ... END</code></pre>
                 const paletteName = escapeHtml(palette.name);
                 const gradient = buildGradient(colors);
                 return [
-                    '<button class="palette-item' + activeClass + '" type="button" data-index="' + index + '">',
+                    '<div class="palette-item' + activeClass + '" data-index="' + index + '" role="button" tabindex="0">',
                     '    <div class="palette-name">' + paletteName + '</div>',
                     '    <div class="palette-meta">',
                     '        <span>' + paletteType + '</span>',
@@ -1539,7 +1548,7 @@ IF ... END</code></pre>
                     '    </div>',
                     '    <div class="palette-bar" style="background:' + gradient + ';"></div>',
                     '    <div class="palette-chips">' + chips + '</div>',
-                    '</button>'
+                    '</div>'
                 ].join('');
             }).join('');
         }
@@ -1560,10 +1569,10 @@ IF ... END</code></pre>
                 return [
                     '<div class="color-row" data-index="' + index + '">',
                     '    <input class="color-picker" type="color" value="' + pickerValue + '" aria-label="Color ' + (index + 1) + '">',
-                    '    <input class="color-hex' + invalidClass + '" type="text" value="' + escapeHtml(hexValue) + '" aria-label="Hex ' + (index + 1) + '">',
-                    '    <button class="btn" data-action="up" type="button">Up</button>',
-                    '    <button class="btn" data-action="down" type="button">Down</button>',
-                    '    <button class="btn danger" data-action="remove" type="button">Remove</button>',
+                    '    <vscode-text-field class="color-hex' + invalidClass + '" value="' + escapeHtml(hexValue) + '" aria-label="Hex ' + (index + 1) + '"></vscode-text-field>',
+                    '    <vscode-button data-action="up" appearance="icon"><span class="codicon codicon-arrow-up"></span></vscode-button>',
+                    '    <vscode-button data-action="down" appearance="icon"><span class="codicon codicon-arrow-down"></span></vscode-button>',
+                    '    <vscode-button data-action="remove" appearance="icon" class="danger-button"><span class="codicon codicon-trash"></span></vscode-button>',
                     '</div>'
                 ].join('');
             }).join('');
@@ -1580,16 +1589,20 @@ IF ... END</code></pre>
             themeList.innerHTML = themePresets.map((theme, index) => {
                 const colors = normalizeColorList(theme.colors);
                 const gradient = buildGradient(colors);
-                const activeClass = index === state.themeIndex ? ' active' : '';
                 const name = escapeHtml(theme.name);
                 const tags = Array.isArray(theme.tags) ? theme.tags.map(tag => escapeHtml(tag)).filter(Boolean) : [];
                 const tagText = tags.length ? ' | ' + tags.join(', ') : '';
                 const metaText = name + ' | ' + colors.length + ' colors' + tagText;
                 return [
-                    '<button class="theme-card' + activeClass + '" type="button" data-index="' + index + '">',
-                    '    <div class="theme-bar" style="background:' + gradient + ';"></div>',
-                    '    <div class="theme-meta">' + metaText + '</div>',
-                    '</button>'
+                    '<div class="theme-card" data-index="' + index + '">',
+                    '    <div class="theme-card-content">',
+                    '        <div class="theme-bar" style="background:' + gradient + ';"></div>',
+                    '        <div class="theme-meta">' + metaText + '</div>',
+                    '    </div>',
+                    '    <div class="theme-card-actions">',
+                    '        <vscode-button appearance="primary" data-action="add-theme" data-index="' + index + '">Add to Library</vscode-button>',
+                    '    </div>',
+                    '</div>'
                 ].join('');
             }).join('');
         }
