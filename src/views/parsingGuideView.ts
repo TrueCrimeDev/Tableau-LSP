@@ -63,6 +63,12 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 case 'deletePalette':
                     void this.deletePalette(payload.paletteName);
                     break;
+                case 'parseWorkbook':
+                    void this.postWorkbookData();
+                    break;
+                case 'importWorkbookPalette':
+                    void this.importWorkbookPalette(payload.palette);
+                    break;
                 default:
                     break;
             }
@@ -71,6 +77,15 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         view.webview.html = getGuideHtml(view.webview, this.context, getNonce());
         void this.postPaletteData();
         void this.postContextData();
+        void this.postWorkbookData();
+
+        // Auto-update workbook inspector when user switches to a .twb file
+        this.context.subscriptions.push(
+            vscode.window.onDidChangeActiveTextEditor(() => {
+                void this.postWorkbookData();
+            })
+        );
+
         view.onDidDispose(() => {
             if (this.view === view) {
                 this.view = undefined;
@@ -350,6 +365,65 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             }
         });
     }
+
+    private async postWorkbookData(): Promise<void> {
+        if (!this.view) {
+            return;
+        }
+
+        const activeEditor = vscode.window.activeTextEditor;
+        if (!activeEditor) {
+            await this.view.webview.postMessage({ type: 'workbookCleared' });
+            return;
+        }
+
+        const uri = activeEditor.document.uri;
+        if (!uri.path.toLowerCase().endsWith('.twb')) {
+            await this.view.webview.postMessage({ type: 'workbookCleared' });
+            return;
+        }
+
+        try {
+            const parser = new TWBParser();
+            const workbook = await parser.parseWorkbook(uri);
+            const fileName = uri.path.split('/').pop() ?? uri.path;
+            await this.view.webview.postMessage({
+                type: 'workbookParsed',
+                fileName,
+                filePath: uri.fsPath,
+                palettes: workbook.palettes
+            });
+        } catch (error: unknown) {
+            const msg = error instanceof Error ? error.message : String(error);
+            await this.view.webview.postMessage({ type: 'workbookError', message: msg });
+        }
+    }
+
+    private async importWorkbookPalette(rawPalette: unknown): Promise<void> {
+        const palette = coercePalette(rawPalette);
+        if (!palette) {
+            await this.postStatus('Invalid palette data.', 'error');
+            return;
+        }
+
+        try {
+            const loadResult = await loadPreferencesText(this.context, true);
+            const palettes = parsePalettes(loadResult.text);
+
+            let finalName = palette.name;
+            const nameConflict = palettes.some(p => p.name.toLowerCase() === finalName.toLowerCase());
+            if (nameConflict) {
+                finalName = `${palette.name} (Workbook)`;
+            }
+
+            palettes.push({ ...palette, name: finalName });
+            await this.savePalettes(palettes);
+            await this.postStatus(`Imported \u201c${finalName}\u201d to library.`, 'success');
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            await this.postStatus(`Failed to import palette: ${message}`, 'error');
+        }
+    }
 }
 
 export function registerParsingGuideView(context: vscode.ExtensionContext): void {
@@ -459,6 +533,15 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         .library-help:hover {
             opacity: 1;
             background-color: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+        }
+
+        .workbook-info {
+            font-size: 0.8rem;
+            opacity: 0.6;
+            padding: 3px 8px 2px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .panel-title {
@@ -1061,6 +1144,16 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             </div>
             <div class="palette-list" id="palette-list"></div>
         </section>
+        <section class="library-section">
+            <div class="library-header">
+                <span class="library-title">Workbook</span>
+                <div class="library-header-actions">
+                    <vscode-button id="parse-workbook-btn" appearance="icon" title="Refresh workbook palettes"><span class="codicon codicon-refresh"></span></vscode-button>
+                </div>
+            </div>
+            <div class="workbook-info" id="workbook-info">Open a .twb file to inspect its palettes.</div>
+            <div class="palette-list" id="workbook-palette-list"></div>
+        </section>
         <main>
             <details id="builder-tools">
                 <summary class="builder-summary">Builder Tools</summary>
@@ -1272,6 +1365,9 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         const blendPreview = document.getElementById('blend-preview');
         const blendApplyButton = document.getElementById('blend-apply');
         const themeList = document.getElementById('theme-list');
+        const workbookPaletteList = document.getElementById('workbook-palette-list');
+        const workbookInfo = document.getElementById('workbook-info');
+        const parseWorkbookBtn = document.getElementById('parse-workbook-btn');
 
         const themePresets = [
             {
@@ -1333,7 +1429,9 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                 name: '',
                 type: 'regular',
                 colors: []
-            }
+            },
+            workbookPalettes: [],
+            workbookFileName: ''
         };
 
         const requiredElements = [
@@ -1875,6 +1973,36 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                 setStatus('Theme "' + theme.name + '" added to your palette library.', 'success');
             });
 
+            if (parseWorkbookBtn) {
+                parseWorkbookBtn.addEventListener('click', () => {
+                    vscode.postMessage({ type: 'parseWorkbook' });
+                });
+            }
+
+            if (workbookPaletteList) {
+                workbookPaletteList.addEventListener('click', event => {
+                    const target = event.target;
+                    if (!(target instanceof HTMLElement)) {
+                        return;
+                    }
+                    const button = target.closest('[data-action="import-workbook"]');
+                    if (!button || !(button instanceof HTMLElement)) {
+                        return;
+                    }
+                    const idx = Number(button.dataset.index);
+                    const palette = state.workbookPalettes[idx];
+                    if (!palette) {
+                        return;
+                    }
+                    const colors = normalizeColorList(palette.colors).filter(Boolean);
+                    vscode.postMessage({
+                        type: 'importWorkbookPalette',
+                        palette: { name: palette.name, type: palette.type, colors }
+                    });
+                    setStatus('Importing \u201c' + escapeHtml(palette.name) + '\u201d\u2026', 'info');
+                });
+            }
+
             window.addEventListener('message', event => {
                 const message = event.data;
                 if (!message || typeof message !== 'object') {
@@ -1908,6 +2036,28 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                 }
                 if (message.type === 'paletteStatus') {
                     setStatus(message.message || 'Update complete.', message.tone || 'info');
+                }
+                if (message.type === 'workbookParsed') {
+                    state.workbookPalettes = coercePaletteList(message.palettes);
+                    state.workbookFileName = typeof message.fileName === 'string' ? message.fileName : '';
+                    renderWorkbookPalettes();
+                }
+                if (message.type === 'workbookCleared') {
+                    state.workbookPalettes = [];
+                    state.workbookFileName = '';
+                    renderWorkbookPalettes();
+                }
+                if (message.type === 'workbookError') {
+                    state.workbookPalettes = [];
+                    state.workbookFileName = '';
+                    if (workbookInfo) {
+                        workbookInfo.textContent = typeof message.message === 'string'
+                            ? message.message
+                            : 'Workbook error.';
+                    }
+                    if (workbookPaletteList) {
+                        workbookPaletteList.innerHTML = '';
+                    }
                 }
             });
 
@@ -2057,6 +2207,52 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             state.editor.colors = colors.slice();
             state.editor.type = normalizePaletteType(type);
             renderAll();
+        }
+
+        function renderWorkbookPalettes() {
+            if (!workbookInfo || !workbookPaletteList) {
+                return;
+            }
+
+            if (state.workbookFileName) {
+                workbookInfo.textContent = state.workbookFileName;
+                workbookInfo.title = state.workbookFileName;
+            } else {
+                workbookInfo.textContent = 'Open a .twb file to inspect its palettes.';
+                workbookInfo.title = '';
+            }
+
+            if (state.workbookPalettes.length === 0) {
+                workbookPaletteList.innerHTML = state.workbookFileName
+                    ? '<div class="note" style="padding:4px 8px;">No custom palettes in this workbook.</div>'
+                    : '';
+                return;
+            }
+
+            workbookPaletteList.innerHTML = state.workbookPalettes.map((palette, index) => {
+                const colors = normalizeColorList(palette.colors);
+                const paletteType = escapeHtml(palette.type || 'regular');
+                const paletteName = escapeHtml(palette.name);
+                const gradient = buildGradient(colors);
+                return [
+                    '<div class="palette-item" data-index="' + index + '">',
+                    '    <div class="palette-bar" style="background:' + gradient + ';"></div>',
+                    '    <div class="palette-info">',
+                    '        <div class="palette-row">',
+                    '            <span class="palette-name">' + paletteName + '</span>',
+                    '            <div class="palette-actions">',
+                    '                <vscode-button appearance="icon" data-action="import-workbook" data-index="' + index + '" title="Import to library"><span class="codicon codicon-arrow-up"></span></vscode-button>',
+                    '            </div>',
+                    '        </div>',
+                    '        <div class="palette-meta">',
+                    '            <span>' + paletteType + '</span>',
+                    '            <span>\u00B7</span>',
+                    '            <span>' + colors.length + ' colors</span>',
+                    '        </div>',
+                    '    </div>',
+                    '</div>'
+                ].join('');
+            }).join('');
         }
 
         function updateSourceLabel(label, path) {
