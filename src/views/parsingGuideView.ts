@@ -385,7 +385,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         }
 
         .shell {
-            padding: 16px;
+            padding: 0 8px 16px;
         }
 
         main {
@@ -414,47 +414,56 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         }
 
         .library-section {
-            padding: 8px 0 0 0;
+            margin: 0 -8px 4px;
         }
 
         .library-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 0 0 6px 0;
+            height: 22px;
+            padding: 0 8px 0 8px;
+            background-color: var(--vscode-sideBarSectionHeader-background);
+            border-top: 1px solid var(--vscode-sideBarSectionHeader-border);
+            border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border);
         }
 
         .library-title {
-            font-size: 0.75rem;
+            font-size: 0.688rem;
             text-transform: uppercase;
             letter-spacing: 0.08em;
-            opacity: 0.7;
-            font-weight: 600;
+            font-weight: 700;
+            color: var(--vscode-sideBarSectionHeader-foreground, var(--vscode-foreground));
+            opacity: 0.9;
+            user-select: none;
         }
 
         .library-header-actions {
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 0;
         }
 
         .library-help {
             font-size: 0.8rem;
             font-weight: 700;
-            color: var(--vscode-textLink-foreground);
+            color: var(--vscode-icon-foreground);
             text-decoration: none;
-            width: 20px;
-            height: 20px;
+            width: 22px;
+            height: 22px;
             display: flex;
             align-items: center;
             justify-content: center;
-            border-radius: 50%;
             opacity: 0.7;
         }
 
         .library-help:hover {
             opacity: 1;
-            background-color: var(--vscode-list-hoverBackground);
+            background-color: var(--vscode-toolbar-hoverBackground);
+        }
+
+        .palette-list-body {
+            padding: 2px 0;
         }
 
         .panel-title {
@@ -480,19 +489,19 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         .theme-list {
             display: flex;
             flex-direction: column;
-            gap: 4px;
+            gap: 0;
         }
 
         .palette-item,
         .theme-card {
-            padding: 10px 8px;
+            padding: 5px 8px;
             background-color: transparent;
             display: flex;
             flex-direction: column;
-            gap: 6px;
+            gap: 4px;
             border-left: 2px solid transparent;
             cursor: pointer;
-            transition: background-color 0.1s ease;
+            transition: background-color 0.05s ease;
         }
 
         .theme-card:hover {
@@ -514,17 +523,28 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
 
         .palette-item.active {
             background-color: var(--vscode-list-activeSelectionBackground);
+            color: var(--vscode-list-activeSelectionForeground);
             border-left-color: var(--vscode-focusBorder);
         }
 
-        .palette-item:hover {
+        .palette-item.active .palette-meta {
+            opacity: 0.85;
+            color: var(--vscode-list-activeSelectionForeground);
+        }
+
+        .palette-item:hover:not(.active) {
             background-color: var(--vscode-list-hoverBackground);
+        }
+
+        .palette-item:focus-visible {
+            outline: 1px solid var(--vscode-focusBorder);
+            outline-offset: -1px;
         }
 
         .palette-bar,
         .theme-bar {
-            height: 16px;
-            border-radius: 4px;
+            height: 14px;
+            border-radius: 2px;
         }
 
         .palette-name {
@@ -706,37 +726,50 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             margin-bottom: 12px;
         }
 
+        details#builder-tools {
+            margin: 8px -8px 0;
+        }
+
         .builder-summary {
-            font-size: 0.75rem;
+            font-size: 0.688rem;
             text-transform: uppercase;
             letter-spacing: 0.08em;
-            opacity: 0.7;
-            font-weight: 600;
-            padding: 8px 0;
+            font-weight: 700;
+            color: var(--vscode-sideBarSectionHeader-foreground, var(--vscode-foreground));
+            opacity: 0.9;
+            padding: 0 8px;
             margin-bottom: 0;
             cursor: pointer;
             list-style: none;
             display: flex;
             align-items: center;
             gap: 6px;
-            border-radius: 4px;
-            transition: opacity 0.1s ease;
+            height: 22px;
+            background-color: var(--vscode-sideBarSectionHeader-background);
+            border-top: 1px solid var(--vscode-sideBarSectionHeader-border);
+            border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border);
+            user-select: none;
         }
 
         .builder-summary:hover {
+            background-color: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
             opacity: 1;
-            background-color: var(--vscode-list-hoverBackground);
         }
 
         .builder-summary::before {
             content: '▶';
-            font-size: 0.6rem;
-            transition: transform 0.15s ease;
+            font-size: 0.5rem;
+            transition: transform 0.12s ease;
             display: inline-block;
+            opacity: 0.7;
         }
 
         details[open] > .builder-summary::before {
             transform: rotate(90deg);
+        }
+
+        details#builder-tools > section.card {
+            padding: 8px 8px 0;
         }
 
         ul {
@@ -946,8 +979,8 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             <div class="library-header">
                 <span class="library-title">Palette Library</span>
                 <div class="library-header-actions">
-                    <vscode-button id="new-palette-add" appearance="icon" title="Add palette">+</vscode-button>
-                    <a class="library-help" href="#guide" title="Reference guide">?</a>
+                    <vscode-button id="new-palette-add" appearance="icon" title="Add palette"><span class="codicon codicon-add"></span></vscode-button>
+                    <a class="library-help" href="#guide" title="Reference guide"><span class="codicon codicon-book"></span></a>
                 </div>
             </div>
             <div class="palette-list" id="palette-list"></div>
@@ -1335,6 +1368,29 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                     type: palette.type,
                     colors: palette.colors.slice()
                 };
+                renderAll();
+            });
+
+            paletteList.addEventListener('keydown', event => {
+                if (event.key !== 'Enter' && event.key !== ' ') {
+                    return;
+                }
+                const target = event.target;
+                if (!(target instanceof HTMLElement)) {
+                    return;
+                }
+                const item = target.closest('.palette-item');
+                if (!item) {
+                    return;
+                }
+                event.preventDefault();
+                const index = Number(item.dataset.index);
+                const palette = state.palettes[index];
+                if (!palette) {
+                    return;
+                }
+                state.selectedName = palette.name;
+                state.editor = { name: palette.name, type: palette.type, colors: palette.colors.slice() };
                 renderAll();
             });
 
