@@ -487,9 +487,20 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             gap: 0;
         }
 
-        .palette-item,
+        .palette-item {
+            display: grid;
+            grid-template-columns: 52px 1fr;
+            align-items: stretch;
+            padding: 4px 4px 4px 0;
+            background-color: transparent;
+            border-left: 2px solid transparent;
+            cursor: pointer;
+            transition: background-color 0.05s ease;
+            min-height: 40px;
+        }
+
         .theme-card {
-            padding: 5px 8px;
+            padding: 4px 8px;
             background-color: transparent;
             display: flex;
             flex-direction: column;
@@ -515,6 +526,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
 
         .palette-item.active {
             background-color: var(--vscode-list-inactiveSelectionBackground);
+            box-shadow: inset 0 0 0 2000px rgba(0, 0, 0, 0.18);
             border-left-color: var(--vscode-focusBorder);
         }
 
@@ -531,29 +543,47 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             outline-offset: -1px;
         }
 
-        .palette-bar,
+        .palette-bar {
+            /* fills the left grid column — height is driven by the right column */
+            border-radius: 2px;
+            align-self: stretch;
+        }
+
         .theme-bar {
             height: 8px;
             border-radius: 2px;
         }
 
+        .palette-info {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 0;
+            padding: 0 4px 0 6px;
+            overflow: hidden;
+        }
+
         .palette-name {
             font-weight: 600;
+            font-size: 0.85rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .palette-meta,
         .theme-meta {
-            font-size: 0.8rem;
-            opacity: 0.7;
+            font-size: 0.75rem;
+            opacity: 0.65;
             display: flex;
-            gap: 8px;
+            gap: 4px;
         }
 
         .palette-row {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 4px;
+            gap: 2px;
         }
 
         .palette-actions {
@@ -563,11 +593,14 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         }
 
         .color-builder {
-            display: flex;
-            flex-wrap: wrap;
+            display: block;
+            line-height: 0;
             gap: 4px;
-            align-items: flex-start;
             margin-bottom: 4px;
+        }
+
+        .color-builder .color-row {
+            margin: 0 4px 6px 0;
         }
 
         .generator {
@@ -578,11 +611,12 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
 
         /* individual swatch card in the color editor */
         .color-row {
-            display: flex;
+            display: inline-flex;
             flex-direction: column;
             align-items: center;
             gap: 2px;
-            width: 40px;
+            width: 42px;
+            vertical-align: top;
         }
 
         .color-row input[type="color"] {
@@ -594,6 +628,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             cursor: pointer;
             transition: border-color 0.1s ease;
             border-radius: 2px;
+            display: block;
         }
 
         .color-row input[type="color"]:hover {
@@ -609,12 +644,18 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             border-radius: 1px;
         }
 
+        /* constrain the remove button inside a swatch card */
+        .color-row vscode-button {
+            width: 24px;
+            height: 20px;
+        }
+
         .swatch-hex-label {
             font-size: 0.55rem;
             font-family: var(--vscode-editor-font-family);
             opacity: 0.65;
             text-align: center;
-            width: 40px;
+            width: 42px;
             overflow: hidden;
             white-space: nowrap;
         }
@@ -1905,18 +1946,20 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                 return [
                     '<div class="palette-item' + activeClass + '" data-index="' + index + '" role="button" tabindex="0">',
                     '    <div class="palette-bar" style="background:' + gradient + ';"></div>',
-                    '    <div class="palette-row">',
-                    '        <span class="palette-name">' + paletteName + '</span>',
-                    '        <div class="palette-actions">',
-                    '            <vscode-button class="action-apply" data-action="apply" data-index="' + index + '" appearance="icon" title="Apply to workbook">\u26A1</vscode-button>',
-                    '            <vscode-button class="action-edit" data-action="edit" data-index="' + index + '" appearance="icon" title="Edit palette">\u270E</vscode-button>',
-                    '            <vscode-button class="action-archive" data-action="archive" data-index="' + index + '" appearance="icon" title="Archive palette">\u22EF</vscode-button>',
+                    '    <div class="palette-info">',
+                    '        <div class="palette-row">',
+                    '            <span class="palette-name">' + paletteName + '</span>',
+                    '            <div class="palette-actions">',
+                    '                <vscode-button class="action-apply" data-action="apply" data-index="' + index + '" appearance="icon" title="Apply to workbook">\u26A1</vscode-button>',
+                    '                <vscode-button class="action-edit" data-action="edit" data-index="' + index + '" appearance="icon" title="Edit palette">\u270E</vscode-button>',
+                    '                <vscode-button class="action-archive" data-action="archive" data-index="' + index + '" appearance="icon" title="Archive palette">\u22EF</vscode-button>',
+                    '            </div>',
                     '        </div>',
-                    '    </div>',
-                    '    <div class="palette-meta">',
-                    '        <span>' + paletteType + '</span>',
-                    '        <span>\u00B7</span>',
-                    '        <span>' + colors.length + ' colors</span>',
+                    '        <div class="palette-meta">',
+                    '            <span>' + paletteType + '</span>',
+                    '            <span>\u00B7</span>',
+                    '            <span>' + colors.length + ' colors</span>',
+                    '        </div>',
                     '    </div>',
                     '</div>'
                 ].join('');
