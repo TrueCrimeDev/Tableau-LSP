@@ -424,7 +424,6 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             height: 22px;
             padding: 0 8px 0 8px;
             background-color: var(--vscode-sideBarSectionHeader-background);
-            border-top: 1px solid var(--vscode-sideBarSectionHeader-border);
             border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border);
         }
 
@@ -459,11 +458,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
 
         .library-help:hover {
             opacity: 1;
-            background-color: var(--vscode-toolbar-hoverBackground);
-        }
-
-        .palette-list-body {
-            padding: 2px 0;
+            background-color: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
         }
 
         .panel-title {
@@ -528,7 +523,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         }
 
         .palette-item.active .palette-meta {
-            opacity: 0.85;
+            opacity: 1;
             color: var(--vscode-list-activeSelectionForeground);
         }
 
@@ -1131,7 +1126,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
 
             <vscode-divider></vscode-divider>
 
-            <section class="card">
+            <section class="card" id="guide">
                 <details>
                     <summary><strong>Commands & Reference</strong></summary>
                     <div style="margin-top: 12px;">
