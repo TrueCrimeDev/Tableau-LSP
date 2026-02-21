@@ -523,7 +523,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
 
         .palette-bar,
         .theme-bar {
-            height: 12px;
+            height: 16px;
             border-radius: 4px;
         }
 
@@ -539,17 +539,17 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             gap: 8px;
         }
 
-        .palette-chips {
+        .palette-row {
             display: flex;
+            align-items: center;
+            justify-content: space-between;
             gap: 4px;
-            flex-wrap: wrap;
         }
 
-        .chip-color {
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            border: 1px solid var(--vscode-input-border);
+        .palette-actions {
+            display: flex;
+            gap: 0;
+            flex-shrink: 0;
         }
 
         .color-builder,
@@ -1099,6 +1099,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         const addColorButton = document.getElementById('add-color');
         const savePaletteButton = document.getElementById('save-palette');
         const newPaletteButton = document.getElementById('new-palette');
+        const newPaletteAddButton = document.getElementById('new-palette-add');
         const archivePaletteButton = document.getElementById('archive-palette');
         const deletePaletteButton = document.getElementById('delete-palette');
         const applyToWorkbookButton = document.getElementById('apply-to-workbook');
@@ -1247,6 +1248,42 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                 if (!(target instanceof HTMLElement)) {
                     return;
                 }
+
+                // Check if a card action button was clicked
+                const actionButton = target.closest('[data-action]');
+                if (actionButton instanceof HTMLElement) {
+                    event.stopPropagation();
+                    const idx = Number(actionButton.dataset.index);
+                    const palette = state.palettes[idx];
+                    if (!palette) {
+                        return;
+                    }
+                    const action = actionButton.dataset.action;
+                    if (action === 'apply') {
+                        const colors = normalizeColorList(palette.colors).filter(Boolean);
+                        vscode.postMessage({
+                            type: 'applyToWorkbook',
+                            palette: { name: palette.name, type: palette.type, colors }
+                        });
+                        setStatus('Applying \u201c' + escapeHtml(palette.name) + '\u201d to workbook\u2026', 'info');
+                    } else if (action === 'edit') {
+                        state.selectedName = palette.name;
+                        state.editor = { name: palette.name, type: palette.type, colors: palette.colors.slice() };
+                        const builderDetails = document.getElementById('builder-tools');
+                        if (builderDetails instanceof HTMLDetailsElement) {
+                            builderDetails.open = true;
+                        }
+                        renderAll();
+                        if (builderDetails) {
+                            builderDetails.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                    } else if (action === 'archive') {
+                        vscode.postMessage({ type: 'archivePalette', paletteName: palette.name });
+                    }
+                    return;
+                }
+
+                // Fall through: clicking the card body selects the palette
                 const item = target.closest('.palette-item');
                 if (!item) {
                     return;
@@ -1425,6 +1462,28 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                     paletteNameInput.value = '';
                     paletteTypeSelect.value = 'regular';
                     renderAll();
+                    setStatus('New palette ready.', 'info');
+                });
+            }
+
+            if (newPaletteAddButton) {
+                newPaletteAddButton.addEventListener('click', () => {
+                    state.selectedName = '';
+                    state.editor = { name: '', type: 'regular', colors: [] };
+                    if (paletteNameInput) {
+                        paletteNameInput.value = '';
+                    }
+                    if (paletteTypeSelect) {
+                        paletteTypeSelect.value = 'regular';
+                    }
+                    const builderDetails = document.getElementById('builder-tools');
+                    if (builderDetails instanceof HTMLDetailsElement) {
+                        builderDetails.open = true;
+                    }
+                    renderAll();
+                    if (builderDetails) {
+                        builderDetails.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
                     setStatus('New palette ready.', 'info');
                 });
             }
@@ -1736,23 +1795,26 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             }
             paletteList.innerHTML = state.palettes.map((palette, index) => {
                 const colors = normalizeColorList(palette.colors);
-                const chips = colors.slice(0, 8).map(color => {
-                    const safeColor = sanitizeColor(color);
-                    return '<span class="chip-color" style="background:' + safeColor + ';"></span>';
-                }).join('');
                 const activeClass = palette.name === state.selectedName ? ' active' : '';
                 const paletteType = escapeHtml(palette.type || 'regular');
                 const paletteName = escapeHtml(palette.name);
                 const gradient = buildGradient(colors);
                 return [
                     '<div class="palette-item' + activeClass + '" data-index="' + index + '" role="button" tabindex="0">',
-                    '    <div class="palette-name">' + paletteName + '</div>',
+                    '    <div class="palette-bar" style="background:' + gradient + ';"></div>',
+                    '    <div class="palette-row">',
+                    '        <span class="palette-name">' + paletteName + '</span>',
+                    '        <div class="palette-actions">',
+                    '            <vscode-button class="action-apply" data-action="apply" data-index="' + index + '" appearance="icon" title="Apply to workbook">\u26A1</vscode-button>',
+                    '            <vscode-button class="action-edit" data-action="edit" data-index="' + index + '" appearance="icon" title="Edit palette">\u270E</vscode-button>',
+                    '            <vscode-button class="action-archive" data-action="archive" data-index="' + index + '" appearance="icon" title="Archive palette">\u22EF</vscode-button>',
+                    '        </div>',
+                    '    </div>',
                     '    <div class="palette-meta">',
                     '        <span>' + paletteType + '</span>',
+                    '        <span>\u00B7</span>',
                     '        <span>' + colors.length + ' colors</span>',
                     '    </div>',
-                    '    <div class="palette-bar" style="background:' + gradient + ';"></div>',
-                    '    <div class="palette-chips">' + chips + '</div>',
                     '</div>'
                 ].join('');
             }).join('');
