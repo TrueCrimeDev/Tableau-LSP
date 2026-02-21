@@ -4,12 +4,15 @@ import {
     PaletteDefinition,
     PaletteType,
     applyPaletteChanges,
+    appendToArchive,
     copyPreferencesToRepository,
     getWorkspacePreferencesUri,
     loadPreferencesText,
     parsePalettes,
     writePreferencesText
 } from '../preferences/preferencesFile.js';
+import { TWBParser } from '../parsers/twbParser.js';
+import { WorkbookError } from '../types/workbook.js';
 
 export const PARSING_GUIDE_VIEW_ID = 'tableauLanguageSupport.parsingGuide';
 export const PARSING_GUIDE_CONTAINER_ID = 'tableauLsp';
@@ -22,7 +25,8 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
     public resolveWebviewView(view: vscode.WebviewView): void {
         this.view = view;
         view.webview.options = {
-            enableScripts: true
+            enableScripts: true,
+            localResourceRoots: [this.context.extensionUri]
         };
 
         view.webview.onDidReceiveMessage(message => {
@@ -30,7 +34,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 return;
             }
 
-            const payload = message as { type?: string; palettes?: unknown };
+            const payload = message as { type?: string; palettes?: unknown; palette?: unknown; paletteName?: unknown };
             switch (payload.type) {
                 case 'openPreferencesTemplate':
                     void this.openPreferencesTemplate();
@@ -41,8 +45,23 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 case 'requestPalettes':
                     void this.postPaletteData();
                     break;
+                case 'requestContext':
+                    void this.postContextData();
+                    break;
                 case 'savePalettes':
                     void this.savePalettes(payload.palettes);
+                    break;
+                case 'applyToWorkbook':
+                    void this.applyPaletteToWorkbook(payload.palette);
+                    break;
+                case 'updatePalette':
+                    void this.updatePalette(payload.palette);
+                    break;
+                case 'archivePalette':
+                    void this.archivePalette(payload.paletteName);
+                    break;
+                case 'deletePalette':
+                    void this.deletePalette(payload.paletteName);
                     break;
                 default:
                     break;
@@ -51,6 +70,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
 
         view.webview.html = getGuideHtml(view.webview, this.context, getNonce());
         void this.postPaletteData();
+        void this.postContextData();
         view.onDidDispose(() => {
             if (this.view === view) {
                 this.view = undefined;
@@ -107,6 +127,175 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    private async updatePalette(rawPalette: unknown): Promise<void> {
+        try {
+            const updatedPalette = coercePalette(rawPalette);
+            if (!updatedPalette) {
+                await this.postStatus('Invalid palette data.', 'error');
+                return;
+            }
+
+            const loadResult = await loadPreferencesText(this.context, true);
+            const palettes = parsePalettes(loadResult.text);
+            const paletteIndex = palettes.findIndex(palette => palette.name === updatedPalette.name);
+
+            if (paletteIndex < 0) {
+                await this.postStatus(`Palette "${updatedPalette.name}" not found.`, 'error');
+                return;
+            }
+
+            palettes[paletteIndex] = updatedPalette;
+            await this.savePalettes(palettes);
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            await this.postStatus(`Failed to update palette: ${message}`, 'error');
+        }
+    }
+
+    private async archivePalette(rawPaletteName: unknown): Promise<void> {
+        try {
+            if (typeof rawPaletteName !== 'string' || rawPaletteName.trim().length === 0) {
+                await this.postStatus('Invalid palette name.', 'error');
+                return;
+            }
+
+            const loadResult = await loadPreferencesText(this.context, true);
+            const palettes = parsePalettes(loadResult.text);
+            const paletteIndex = palettes.findIndex(palette => palette.name === rawPaletteName);
+
+            if (paletteIndex < 0) {
+                await this.postStatus(`Palette "${rawPaletteName}" not found.`, 'error');
+                return;
+            }
+
+            const palette = palettes[paletteIndex];
+            const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+            await appendToArchive(palette, workspaceUri);
+
+            palettes.splice(paletteIndex, 1);
+            await this.savePalettes(palettes);
+            await this.postStatus(`Palette "${rawPaletteName}" archived.`, 'success');
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            await this.postStatus(`Failed to archive palette: ${message}`, 'error');
+        }
+    }
+
+    private async deletePalette(rawPaletteName: unknown): Promise<void> {
+        try {
+            if (typeof rawPaletteName !== 'string' || rawPaletteName.trim().length === 0) {
+                await this.postStatus('Invalid palette name.', 'error');
+                return;
+            }
+
+            const loadResult = await loadPreferencesText(this.context, true);
+            const palettes = parsePalettes(loadResult.text);
+            const filteredPalettes = palettes.filter(palette => palette.name !== rawPaletteName);
+
+            if (filteredPalettes.length === palettes.length) {
+                await this.postStatus(`Palette "${rawPaletteName}" not found.`, 'error');
+                return;
+            }
+
+            await this.savePalettes(filteredPalettes);
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            await this.postStatus(`Failed to delete palette: ${message}`, 'error');
+        }
+    }
+
+    private async applyPaletteToWorkbook(rawPalette: unknown): Promise<void> {
+        const initialPalette = coercePalette(rawPalette);
+        if (!initialPalette) {
+            await this.postStatus('Invalid palette data.', 'error');
+            return;
+        }
+        let palette: PaletteDefinition = initialPalette;
+
+        const activeEditor = vscode.window.activeTextEditor;
+        if (!activeEditor) {
+            await this.postStatus('No active workbook file. Open a .twb file first.', 'error');
+            return;
+        }
+
+        const workbookUri = activeEditor.document.uri;
+        const path = workbookUri.path.toLowerCase();
+        if (!path.endsWith('.twb') && !path.endsWith('.twbx')) {
+            await this.postStatus('Active file is not a Tableau workbook (.twb or .twbx).', 'error');
+            return;
+        }
+        if (path.endsWith('.twbx')) {
+            await this.postStatus('Packaged workbooks (.twbx) are not yet supported.', 'error');
+            return;
+        }
+
+        try {
+            const parser = new TWBParser();
+            const workbookDoc = await parser.parseWorkbook(workbookUri);
+            const existingPalette = workbookDoc.palettes.find(
+                current => current.name.toLowerCase() === palette.name.toLowerCase()
+            );
+
+            if (existingPalette) {
+                const choice = await vscode.window.showWarningMessage(
+                    `A palette named "${existingPalette.name}" already exists in this workbook.`,
+                    'Replace',
+                    'Rename',
+                    'Cancel'
+                );
+
+                if (!choice || choice === 'Cancel') {
+                    await this.postStatus('Cancelled palette application.', 'info');
+                    return;
+                }
+
+                if (choice === 'Rename') {
+                    const newName = await vscode.window.showInputBox({
+                        prompt: 'Enter a new palette name',
+                        value: `${palette.name} (Copy)`,
+                        validateInput: value => {
+                            if (!value || value.trim().length === 0) {
+                                return 'Palette name cannot be empty.';
+                            }
+                            const hasConflict = workbookDoc.palettes.some(
+                                current => current.name.toLowerCase() === value.trim().toLowerCase()
+                            );
+                            return hasConflict ? 'A palette with this name already exists.' : null;
+                        }
+                    });
+
+                    if (!newName) {
+                        await this.postStatus('Cancelled palette application.', 'info');
+                        return;
+                    }
+
+                    palette = {
+                        ...palette,
+                        name: newName.trim()
+                    };
+                }
+            }
+
+            const updateResult = parser.upsertPalette(workbookDoc, palette);
+            if (!updateResult.hasChanges) {
+                await this.postStatus('No workbook changes were required.', 'info');
+                return;
+            }
+
+            await parser.writeWorkbook(workbookUri, updateResult.updatedXml);
+            const action = existingPalette ? 'updated' : 'added';
+            await this.postStatus(`Successfully ${action} palette "${palette.name}".`, 'success');
+        } catch (error: unknown) {
+            if (error instanceof WorkbookError) {
+                await this.postStatus(`Workbook error: ${error.message}`, 'error');
+                return;
+            }
+
+            const message = error instanceof Error ? error.message : String(error);
+            await this.postStatus(`Failed to apply palette to workbook: ${message}`, 'error');
+        }
+    }
+
     private async postPaletteData(): Promise<void> {
         if (!this.view) {
             return;
@@ -144,6 +333,23 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             tone
         });
     }
+
+    private async postContextData(): Promise<void> {
+        if (!this.view) {
+            return;
+        }
+
+        const workspaceUri = getWorkspacePreferencesUri();
+        await this.view.webview.postMessage({
+            type: 'contextChanged',
+            context: {
+                mode: 'system',
+                sourceType: workspaceUri ? 'preferences' : 'extension-template',
+                sourceLabel: workspaceUri ? 'Workspace config/Preferences.tps' : 'Extension template',
+                sourceUri: workspaceUri?.toString() ?? ''
+            }
+        });
+    }
 }
 
 export function registerParsingGuideView(context: vscode.ExtensionContext): void {
@@ -156,7 +362,7 @@ export function registerParsingGuideView(context: vscode.ExtensionContext): void
 function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext, nonce: string): string {
     // Get URI for the Webview UI Toolkit
     const toolkitUri = webview.asWebviewUri(
-        vscode.Uri.joinPath(context.extensionUri, 'node_modules', '@vscode', 'webview-ui-toolkit', 'dist', 'toolkit.js')
+        vscode.Uri.joinPath(context.extensionUri, 'media', 'toolkit.js')
     );
 
     return `<!DOCTYPE html>
@@ -180,59 +386,6 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
 
         .shell {
             padding: 16px;
-        }
-
-        .hero {
-            padding: 12px 0;
-            margin-bottom: 16px;
-        }
-
-        .eyebrow {
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            font-size: 0.75rem;
-            opacity: 0.8;
-            margin-bottom: 4px;
-        }
-
-        h1 {
-            margin: 4px 0;
-            font-size: 1.2rem;
-            font-weight: 600;
-        }
-
-        .subtitle {
-            font-size: 0.9rem;
-            opacity: 0.8;
-            margin: 4px 0 0 0;
-        }
-
-        .menu {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            margin-bottom: 16px;
-        }
-
-        .menu-title {
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            opacity: 0.6;
-            margin-bottom: 4px;
-        }
-
-        .menu a {
-            text-decoration: none;
-            color: var(--vscode-textLink-foreground);
-            padding: 6px 8px;
-            border-radius: 4px;
-            transition: background-color 0.1s ease, color 0.1s ease;
-        }
-
-        .menu a:hover {
-            background-color: var(--vscode-list-hoverBackground);
-            color: var(--vscode-textLink-activeForeground);
         }
 
         main {
@@ -721,19 +874,6 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
     </div>
 
     <div class="shell">
-        <header class="hero">
-            <div class="eyebrow">Tableau</div>
-            <h1>Tableau Tools</h1>
-            <p class="subtitle">Color palette builder, workbook extraction, and .twbl language support.</p>
-        </header>
-
-        <nav class="menu">
-            <div class="menu-title">Tools</div>
-            <a href="#palettes">Color Palettes</a>
-            <a href="#commands">Commands</a>
-            <a href="#guide">Reference Guide</a>
-        </nav>
-
         <main>
             <section class="card" id="palettes" style="--delay: 0.05s;">
                 <span class="chip">Color Palettes</span>
@@ -780,7 +920,9 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                         <div class="button-grid">
                             <vscode-button id="save-palette" appearance="primary">Save Palette</vscode-button>
                             <vscode-button id="new-palette" appearance="secondary">New Palette</vscode-button>
+                            <vscode-button id="archive-palette" appearance="secondary">Archive Palette</vscode-button>
                             <vscode-button id="delete-palette" appearance="secondary" class="danger-button">Delete Palette</vscode-button>
+                            <vscode-button id="apply-to-workbook" appearance="secondary">Apply to Active Workbook</vscode-button>
                         </div>
                     </div>
 
@@ -928,7 +1070,9 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         const addColorButton = document.getElementById('add-color');
         const savePaletteButton = document.getElementById('save-palette');
         const newPaletteButton = document.getElementById('new-palette');
+        const archivePaletteButton = document.getElementById('archive-palette');
         const deletePaletteButton = document.getElementById('delete-palette');
+        const applyToWorkbookButton = document.getElementById('apply-to-workbook');
         const saveFileButton = document.getElementById('save-file');
         const reloadFileButton = document.getElementById('reload-file');
         const openButton = document.getElementById('open-preferences');
@@ -1262,20 +1406,52 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                         setStatus('Select a palette to delete.', 'error');
                         return;
                     }
-                    const index = state.palettes.findIndex(item => item.name === state.selectedName);
-                    if (index >= 0) {
-                        state.palettes.splice(index, 1);
+                    vscode.postMessage({
+                        type: 'deletePalette',
+                        paletteName: state.selectedName
+                    });
+                });
+            }
+
+            if (archivePaletteButton) {
+                archivePaletteButton.addEventListener('click', () => {
+                    if (!state.selectedName) {
+                        setStatus('Select a palette to archive.', 'error');
+                        return;
                     }
-                    state.selectedName = '';
-                    state.editor = {
-                        name: '',
-                        type: 'regular',
-                        colors: []
-                    };
-                    paletteNameInput.value = '';
-                    paletteTypeSelect.value = 'regular';
-                    renderAll();
-                    setStatus('Palette removed from the sidebar list.', 'success');
+                    vscode.postMessage({
+                        type: 'archivePalette',
+                        paletteName: state.selectedName
+                    });
+                });
+            }
+
+            if (applyToWorkbookButton) {
+                applyToWorkbookButton.addEventListener('click', () => {
+                    const name = paletteNameInput.value.trim();
+                    if (!name) {
+                        setStatus('Palette name is required before applying.', 'error');
+                        return;
+                    }
+                    const normalizedColors = state.editor.colors.map(color => normalizeHex(color));
+                    if (normalizedColors.some(color => !color)) {
+                        setStatus('Fix invalid colors before applying.', 'error');
+                        return;
+                    }
+                    const colors = normalizedColors.filter(Boolean);
+                    if (colors.length === 0) {
+                        setStatus('Add at least one color before applying.', 'error');
+                        return;
+                    }
+
+                    vscode.postMessage({
+                        type: 'applyToWorkbook',
+                        palette: {
+                            name,
+                            type: normalizePaletteType(paletteTypeSelect.value),
+                            colors
+                        }
+                    });
                 });
             }
 
@@ -2090,6 +2266,32 @@ async function fileExists(uri: vscode.Uri): Promise<boolean> {
     } catch {
         return false;
     }
+}
+
+function coercePalette(rawPalette: unknown): PaletteDefinition | null {
+    if (!isPaletteDefinition(rawPalette)) {
+        return null;
+    }
+
+    const name = rawPalette.name.trim();
+    if (!name) {
+        return null;
+    }
+
+    const colors = rawPalette.colors
+        .filter((color): color is string => typeof color === 'string')
+        .map(color => color.trim())
+        .filter(Boolean);
+
+    if (colors.length === 0) {
+        return null;
+    }
+
+    return {
+        name,
+        type: sanitizePaletteType(rawPalette.type),
+        colors
+    };
 }
 
 function coercePalettes(rawPalettes: unknown): PaletteDefinition[] {
