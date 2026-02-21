@@ -1775,6 +1775,9 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                 if (!message || typeof message !== 'object') {
                     return;
                 }
+                if (message.type === 'contextChanged' && message.context) {
+                    updateSourceLabel(message.context.sourceLabel, message.context.sourceUri);
+                }
                 if (message.type === 'palettesLoaded') {
                     state.palettes = coercePaletteList(message.palettes);
                     const selected = state.selectedName
