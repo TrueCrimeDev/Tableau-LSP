@@ -706,6 +706,39 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             margin-bottom: 12px;
         }
 
+        .builder-summary {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            opacity: 0.7;
+            font-weight: 600;
+            padding: 8px 0;
+            margin-bottom: 0;
+            cursor: pointer;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 4px;
+            transition: opacity 0.1s ease;
+        }
+
+        .builder-summary:hover {
+            opacity: 1;
+            background-color: var(--vscode-list-hoverBackground);
+        }
+
+        .builder-summary::before {
+            content: '▶';
+            font-size: 0.6rem;
+            transition: transform 0.15s ease;
+            display: inline-block;
+        }
+
+        details[open] > .builder-summary::before {
+            transform: rotate(90deg);
+        }
+
         ul {
             margin: 0;
             padding-left: 20px;
@@ -920,6 +953,8 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             <div class="palette-list" id="palette-list"></div>
         </section>
         <main>
+            <details id="builder-tools">
+                <summary class="builder-summary">Builder Tools</summary>
             <section class="card" id="palettes" style="--delay: 0.05s;">
                 <div class="palette-grid">
                     <div class="panel-block">
@@ -1059,6 +1094,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                     </div>
                 </div>
             </section>
+            </details>
 
             <vscode-divider></vscode-divider>
 
