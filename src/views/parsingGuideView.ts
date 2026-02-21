@@ -405,21 +405,56 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             font-weight: 600;
         }
 
-        .chip {
-            display: inline-block;
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            opacity: 0.7;
-            margin-bottom: 8px;
-        }
-
         .palette-grid,
         .panel-block {
             display: flex;
             flex-direction: column;
             gap: 8px;
             margin-bottom: 20px;
+        }
+
+        .library-section {
+            padding: 8px 0 0 0;
+        }
+
+        .library-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 0 6px 0;
+        }
+
+        .library-title {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            opacity: 0.7;
+            font-weight: 600;
+        }
+
+        .library-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .library-help {
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--vscode-textLink-foreground);
+            text-decoration: none;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            opacity: 0.7;
+        }
+
+        .library-help:hover {
+            opacity: 1;
+            background-color: var(--vscode-list-hoverBackground);
         }
 
         .panel-title {
@@ -874,25 +909,19 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
     </div>
 
     <div class="shell">
+        <section class="library-section">
+            <div class="library-header">
+                <span class="library-title">Palette Library</span>
+                <div class="library-header-actions">
+                    <vscode-button id="new-palette-add" appearance="icon" title="Add palette">+</vscode-button>
+                    <a class="library-help" href="#guide" title="Reference guide">?</a>
+                </div>
+            </div>
+            <div class="palette-list" id="palette-list"></div>
+        </section>
         <main>
             <section class="card" id="palettes" style="--delay: 0.05s;">
-                <span class="chip">Color Palettes</span>
-                <h2>Preferences.tps Builder</h2>
-                <p>Build palettes here, save them to <code>config/Preferences.tps</code>, then copy to your Tableau repository.</p>
-                <ul>
-                    <li><code>regular</code> for categorical palettes.</li>
-                    <li><code>ordered-sequential</code> for sequential palettes.</li>
-                    <li><code>ordered-diverging</code> for diverging palettes.</li>
-                    <li>Use hex colors in the builder.</li>
-                </ul>
                 <div class="palette-grid">
-                    <div class="panel-block">
-                        <div class="panel-title">Palette Library</div>
-                        <div class="palette-list" id="palette-list"></div>
-                    </div>
-
-                    <vscode-divider></vscode-divider>
-
                     <div class="panel-block">
                         <div class="panel-title">Palette Editor</div>
                         <div class="field">
