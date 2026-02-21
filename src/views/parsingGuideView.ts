@@ -503,28 +503,23 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             background-color: var(--vscode-list-hoverBackground);
         }
 
-        .theme-card-content {
+        .theme-row {
             display: flex;
-            flex-direction: column;
+            align-items: center;
             gap: 6px;
+        }
+
+        .theme-row .theme-bar {
             flex: 1;
         }
 
-        .theme-card-actions {
-            display: flex;
-            gap: 4px;
-            margin-top: 4px;
-        }
-
         .palette-item.active {
-            background-color: var(--vscode-list-activeSelectionBackground);
-            color: var(--vscode-list-activeSelectionForeground);
+            background-color: var(--vscode-list-inactiveSelectionBackground);
             border-left-color: var(--vscode-focusBorder);
         }
 
         .palette-item.active .palette-meta {
-            opacity: 1;
-            color: var(--vscode-list-activeSelectionForeground);
+            opacity: 0.7;
         }
 
         .palette-item:hover:not(.active) {
@@ -538,7 +533,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
 
         .palette-bar,
         .theme-bar {
-            height: 14px;
+            height: 8px;
             border-radius: 2px;
         }
 
@@ -567,22 +562,71 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             flex-shrink: 0;
         }
 
-        .color-builder,
+        .color-builder {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            align-items: flex-start;
+            margin-bottom: 4px;
+        }
+
         .generator {
             display: flex;
             flex-direction: column;
             gap: 8px;
         }
 
-        .color-row,
+        /* individual swatch card in the color editor */
+        .color-row {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            width: 40px;
+        }
+
+        .color-row input[type="color"] {
+            width: 36px;
+            height: 36px;
+            border: 1px solid var(--vscode-input-border);
+            padding: 1px;
+            background-color: var(--vscode-input-background);
+            cursor: pointer;
+            transition: border-color 0.1s ease;
+            border-radius: 2px;
+        }
+
+        .color-row input[type="color"]:hover {
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .color-row input[type="color"]::-webkit-color-swatch-wrapper {
+            padding: 0;
+        }
+
+        .color-row input[type="color"]::-webkit-color-swatch {
+            border: none;
+            border-radius: 1px;
+        }
+
+        .swatch-hex-label {
+            font-size: 0.55rem;
+            font-family: var(--vscode-editor-font-family);
+            opacity: 0.65;
+            text-align: center;
+            width: 40px;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+
+        /* add-color row keeps the original horizontal grid layout */
         .color-add {
             display: grid;
-            grid-template-columns: auto 1fr auto auto auto;
+            grid-template-columns: auto 1fr auto;
             gap: 6px;
             align-items: center;
         }
 
-        .color-row input[type="color"],
         .color-add input[type="color"] {
             width: 32px;
             height: 28px;
@@ -593,17 +637,14 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             transition: border-color 0.1s ease;
         }
 
-        .color-row input[type="color"]:hover,
         .color-add input[type="color"]:hover {
             border-color: var(--vscode-focusBorder);
         }
 
-        .color-row input[type="color"]::-webkit-color-swatch-wrapper,
         .color-add input[type="color"]::-webkit-color-swatch-wrapper {
             padding: 0;
         }
 
-        .color-row input[type="color"]::-webkit-color-swatch,
         .color-add input[type="color"]::-webkit-color-swatch {
             border: none;
             border-radius: 2px;
@@ -792,10 +833,9 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         }
 
         @media (max-width: 460px) {
-            .color-row,
             .color-add {
                 grid-template-columns: auto 1fr;
-                grid-template-rows: auto auto auto;
+                grid-template-rows: auto auto;
             }
         }
 
@@ -1446,26 +1486,10 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                     const normalized = normalizeHex(target.value);
                     if (normalized) {
                         state.editor.colors[index] = normalized;
-                        const hexInput = row.querySelector('.color-hex');
-                        if (hexInput instanceof HTMLInputElement) {
-                            hexInput.value = normalized;
-                            hexInput.classList.remove('invalid');
+                        const label = row.querySelector('.swatch-hex-label');
+                        if (label) {
+                            label.textContent = normalized;
                         }
-                    }
-                }
-
-                if (target.classList.contains('color-hex')) {
-                    const normalized = normalizeHex(target.value);
-                    if (normalized) {
-                        target.classList.remove('invalid');
-                        target.value = normalized;
-                        state.editor.colors[index] = normalized;
-                        const picker = row.querySelector('.color-picker');
-                        if (picker instanceof HTMLInputElement) {
-                            picker.value = normalized;
-                        }
-                    } else {
-                        target.classList.add('invalid');
                     }
                 }
             });
@@ -1487,21 +1511,10 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                 if (Number.isNaN(index)) {
                     return;
                 }
-                const action = button.dataset.action;
-                if (action === 'remove') {
+                if (button.dataset.action === 'remove') {
                     state.editor.colors.splice(index, 1);
+                    renderColors();
                 }
-                if (action === 'up' && index > 0) {
-                    const temp = state.editor.colors[index - 1];
-                    state.editor.colors[index - 1] = state.editor.colors[index];
-                    state.editor.colors[index] = temp;
-                }
-                if (action === 'down' && index < state.editor.colors.length - 1) {
-                    const temp = state.editor.colors[index + 1];
-                    state.editor.colors[index + 1] = state.editor.colors[index];
-                    state.editor.colors[index] = temp;
-                }
-                renderColors();
             });
 
             if (savePaletteButton) {
@@ -1922,14 +1935,11 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                 const normalized = normalizeHex(color);
                 const pickerValue = normalized || '#000000';
                 const hexValue = normalized || color;
-                const invalidClass = normalized ? '' : ' invalid';
                 return [
                     '<div class="color-row" data-index="' + index + '">',
-                    '    <input class="color-picker" type="color" value="' + pickerValue + '" aria-label="Color ' + (index + 1) + '">',
-                    '    <vscode-text-field class="color-hex' + invalidClass + '" value="' + escapeHtml(hexValue) + '" aria-label="Hex ' + (index + 1) + '"></vscode-text-field>',
-                    '    <vscode-button data-action="up" appearance="icon"><span class="codicon codicon-arrow-up"></span></vscode-button>',
-                    '    <vscode-button data-action="down" appearance="icon"><span class="codicon codicon-arrow-down"></span></vscode-button>',
-                    '    <vscode-button data-action="remove" appearance="icon" class="danger-button"><span class="codicon codicon-trash"></span></vscode-button>',
+                    '    <input class="color-picker" type="color" value="' + pickerValue + '" aria-label="Color ' + (index + 1) + '" title="' + escapeHtml(hexValue) + '">',
+                    '    <span class="swatch-hex-label">' + escapeHtml(hexValue) + '</span>',
+                    '    <vscode-button data-action="remove" appearance="icon" class="danger-button" title="Remove"><span class="codicon codicon-close"></span></vscode-button>',
                     '</div>'
                 ].join('');
             }).join('');
@@ -1952,13 +1962,11 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                 const metaText = name + ' | ' + colors.length + ' colors' + tagText;
                 return [
                     '<div class="theme-card" data-index="' + index + '">',
-                    '    <div class="theme-card-content">',
+                    '    <div class="theme-row">',
                     '        <div class="theme-bar" style="background:' + gradient + ';"></div>',
-                    '        <div class="theme-meta">' + metaText + '</div>',
+                    '        <vscode-button appearance="icon" data-action="add-theme" data-index="' + index + '" title="Add ' + name + ' to library"><span class="codicon codicon-add"></span></vscode-button>',
                     '    </div>',
-                    '    <div class="theme-card-actions">',
-                    '        <vscode-button appearance="primary" data-action="add-theme" data-index="' + index + '">Add to Library</vscode-button>',
-                    '    </div>',
+                    '    <div class="theme-meta">' + metaText + '</div>',
                     '</div>'
                 ].join('');
             }).join('');
