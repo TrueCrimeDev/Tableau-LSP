@@ -443,7 +443,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}' ${toolkitUri};">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; font-src ${webview.cspSource}; style-src 'unsafe-inline'; script-src 'nonce-${nonce}' ${webview.cspSource};">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tableau LSP Guide</title>
     <script type="module" src="${toolkitUri}"></script>
@@ -702,29 +702,21 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             vertical-align: top;
         }
 
-        .color-row input[type="color"] {
+        .color-row .color-swatch-btn {
             width: 36px;
             height: 36px;
             border: 1px solid var(--vscode-input-border);
-            padding: 1px;
-            background-color: var(--vscode-input-background);
+            padding: 0;
+            background-color: #000;
             cursor: pointer;
             transition: border-color 0.1s ease;
             border-radius: 2px;
             display: block;
+            flex-shrink: 0;
         }
 
-        .color-row input[type="color"]:hover {
+        .color-row .color-swatch-btn:hover {
             border-color: var(--vscode-focusBorder);
-        }
-
-        .color-row input[type="color"]::-webkit-color-swatch-wrapper {
-            padding: 0;
-        }
-
-        .color-row input[type="color"]::-webkit-color-swatch {
-            border: none;
-            border-radius: 1px;
         }
 
         /* constrain the remove button inside a swatch card */
@@ -751,27 +743,22 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             align-items: center;
         }
 
-        .color-add input[type="color"] {
+        .color-add .color-swatch-btn,
+        .generator-row .color-swatch-btn {
             width: 32px;
             height: 28px;
             border: 1px solid var(--vscode-input-border);
-            padding: 2px;
-            background-color: var(--vscode-input-background);
+            padding: 0;
+            background-color: #000;
             cursor: pointer;
             transition: border-color 0.1s ease;
-        }
-
-        .color-add input[type="color"]:hover {
-            border-color: var(--vscode-focusBorder);
-        }
-
-        .color-add input[type="color"]::-webkit-color-swatch-wrapper {
-            padding: 0;
-        }
-
-        .color-add input[type="color"]::-webkit-color-swatch {
-            border: none;
             border-radius: 2px;
+            flex-shrink: 0;
+        }
+
+        .color-add .color-swatch-btn:hover,
+        .generator-row .color-swatch-btn:hover {
+            border-color: var(--vscode-focusBorder);
         }
 
         .generator-row {
@@ -1176,7 +1163,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
 
                         <div class="color-builder">
                             <div class="color-add">
-                                <input id="new-color-picker" type="color" value="#F4B860" aria-label="New color picker">
+                                <button id="new-color-swatch" class="color-swatch-btn" style="background-color:#F4B860" aria-label="Pick new color" title="Pick color"></button>
                                 <vscode-text-field id="new-color-hex" value="#F4B860" aria-label="New color hex"></vscode-text-field>
                                 <vscode-button id="add-color" appearance="secondary">Add Color</vscode-button>
                             </div>
@@ -1200,7 +1187,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                             <div class="field">
                                 <label for="scale-base-picker">Base Color</label>
                                 <div class="generator-row">
-                                    <input id="scale-base-picker" type="color" value="#5CB8B2" aria-label="Scale base color">
+                                    <button id="scale-base-swatch" class="color-swatch-btn" style="background-color:#5CB8B2" aria-label="Pick scale base color" title="Pick color"></button>
                                     <vscode-text-field id="scale-base-hex" value="#5CB8B2" aria-label="Scale base hex"></vscode-text-field>
                                 </div>
                             </div>
@@ -1228,14 +1215,14 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                             <div class="field">
                                 <label for="blend-start-picker">Start Color</label>
                                 <div class="generator-row">
-                                    <input id="blend-start-picker" type="color" value="#F4B860" aria-label="Blend start color">
+                                    <button id="blend-start-swatch" class="color-swatch-btn" style="background-color:#F4B860" aria-label="Pick blend start color" title="Pick color"></button>
                                     <vscode-text-field id="blend-start-hex" value="#F4B860" aria-label="Blend start hex"></vscode-text-field>
                                 </div>
                             </div>
                             <div class="field">
                                 <label for="blend-end-picker">End Color</label>
                                 <div class="generator-row">
-                                    <input id="blend-end-picker" type="color" value="#3D5A80" aria-label="Blend end color">
+                                    <button id="blend-end-swatch" class="color-swatch-btn" style="background-color:#3D5A80" aria-label="Pick blend end color" title="Pick color"></button>
                                     <vscode-text-field id="blend-end-hex" value="#3D5A80" aria-label="Blend end hex"></vscode-text-field>
                                 </div>
                             </div>
@@ -1328,11 +1315,182 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
     <script nonce="${nonce}">
         const vscode = acquireVsCodeApi();
 
+        // ── Custom Color Picker ──────────────────────────────────────────────
+        (function setupColorPicker() {
+            const modal = document.getElementById('color-picker-modal');
+            const square = document.getElementById('picker-square');
+            const squareGradient = document.getElementById('picker-square-gradient');
+            const squareCursor = document.getElementById('picker-square-cursor');
+            const hueBar = document.getElementById('picker-hue');
+            const hueCursor = document.getElementById('picker-hue-cursor');
+            const preview = document.getElementById('picker-preview');
+            const rField = document.getElementById('picker-r');
+            const gField = document.getElementById('picker-g');
+            const bField = document.getElementById('picker-b');
+            const hexField = document.getElementById('picker-hex');
+            const cancelBtn = document.getElementById('picker-cancel');
+            const okBtn = document.getElementById('picker-ok');
+
+            if (!modal || !square || !hueBar) { return; }
+
+            let hue = 0, sat = 100, val = 50; // H 0-360, S/V 0-100
+            let resolveCallback = null;
+            let squareDragging = false, hueDragging = false;
+
+            function hsvToRgb(h, s, v) {
+                s /= 100; v /= 100;
+                const c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c;
+                let r = 0, g = 0, b = 0;
+                if (h < 60)       { r = c; g = x; }
+                else if (h < 120) { r = x; g = c; }
+                else if (h < 180) { g = c; b = x; }
+                else if (h < 240) { g = x; b = c; }
+                else if (h < 300) { r = x; b = c; }
+                else              { r = c; b = x; }
+                return { r: Math.round((r + m) * 255), g: Math.round((g + m) * 255), b: Math.round((b + m) * 255) };
+            }
+
+            function rgbToHsv(r, g, b) {
+                r /= 255; g /= 255; b /= 255;
+                const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+                let h = 0;
+                const s = max === 0 ? 0 : d / max, v = max;
+                if (d > 0) {
+                    if (max === r)      { h = ((g - b) / d + (g < b ? 6 : 0)) / 6 * 360; }
+                    else if (max === g) { h = ((b - r) / d + 2) / 6 * 360; }
+                    else                { h = ((r - g) / d + 4) / 6 * 360; }
+                }
+                return { h, s: s * 100, v: v * 100 };
+            }
+
+            function toHex(r, g, b) {
+                return '#' + [r, g, b].map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('');
+            }
+
+            function parseHex(hex) {
+                const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+                return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : null;
+            }
+
+            function syncUI() {
+                // Update gradient background to match current hue
+                const hRgb = hsvToRgb(hue, 100, 100);
+                squareGradient.style.background =
+                    'linear-gradient(to top,#000,transparent),linear-gradient(to right,#fff,rgb(' +
+                    hRgb.r + ',' + hRgb.g + ',' + hRgb.b + '))';
+
+                // Update square cursor position
+                squareCursor.style.left = (sat / 100 * square.offsetWidth) + 'px';
+                squareCursor.style.top = ((1 - val / 100) * square.offsetHeight) + 'px';
+
+                // Update hue cursor position
+                hueCursor.style.top = (hue / 360 * hueBar.offsetHeight) + 'px';
+
+                // Update inputs and preview
+                const rgb = hsvToRgb(hue, sat, val);
+                const hex = toHex(rgb.r, rgb.g, rgb.b);
+                if (rField) { rField.value = String(rgb.r); }
+                if (gField) { gField.value = String(rgb.g); }
+                if (bField) { bField.value = String(rgb.b); }
+                if (hexField) { hexField.value = hex; }
+                if (preview) { preview.style.backgroundColor = hex; }
+            }
+
+            function setFromSquare(e) {
+                const rect = square.getBoundingClientRect();
+                sat = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * 100;
+                val = (1 - Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))) * 100;
+                syncUI();
+            }
+
+            function setFromHue(e) {
+                const rect = hueBar.getBoundingClientRect();
+                hue = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)) * 360;
+                syncUI();
+            }
+
+            square.addEventListener('mousedown', e => { squareDragging = true; setFromSquare(e); e.preventDefault(); });
+            hueBar.addEventListener('mousedown', e => { hueDragging = true; setFromHue(e); e.preventDefault(); });
+            document.addEventListener('mousemove', e => {
+                if (squareDragging) { setFromSquare(e); }
+                if (hueDragging)    { setFromHue(e); }
+            });
+            document.addEventListener('mouseup', () => { squareDragging = false; hueDragging = false; });
+
+            // Touch support
+            function toMouse(e) { return e.touches ? e.touches[0] : e; }
+            square.addEventListener('touchstart', e => { squareDragging = true; setFromSquare(toMouse(e)); e.preventDefault(); }, { passive: false });
+            hueBar.addEventListener('touchstart', e => { hueDragging = true; setFromHue(toMouse(e)); e.preventDefault(); }, { passive: false });
+            document.addEventListener('touchmove', e => {
+                if (squareDragging) { setFromSquare(toMouse(e)); }
+                if (hueDragging)    { setFromHue(toMouse(e)); }
+            }, { passive: false });
+            document.addEventListener('touchend', () => { squareDragging = false; hueDragging = false; });
+
+            function syncFromRgb() {
+                const r = Math.max(0, Math.min(255, parseInt(rField ? rField.value : '0') || 0));
+                const g = Math.max(0, Math.min(255, parseInt(gField ? gField.value : '0') || 0));
+                const b = Math.max(0, Math.min(255, parseInt(bField ? bField.value : '0') || 0));
+                const hsv = rgbToHsv(r, g, b);
+                hue = hsv.h; sat = hsv.s; val = hsv.v;
+                syncUI();
+            }
+
+            [rField, gField, bField].forEach(f => {
+                if (f) {
+                    f.addEventListener('input', syncFromRgb);
+                    f.addEventListener('change', syncFromRgb);
+                }
+            });
+
+            if (hexField) {
+                hexField.addEventListener('input', () => {
+                    const parsed = parseHex(hexField.value);
+                    if (parsed) {
+                        const hsv = rgbToHsv(parsed.r, parsed.g, parsed.b);
+                        hue = hsv.h; sat = hsv.s; val = hsv.v;
+                        syncUI();
+                    }
+                });
+            }
+
+            // Close on backdrop click
+            modal.addEventListener('click', e => { if (e.target === modal) { closeWith(null); } });
+
+            if (cancelBtn) { cancelBtn.addEventListener('click', () => closeWith(null)); }
+            if (okBtn) {
+                okBtn.addEventListener('click', () => {
+                    const rgb = hsvToRgb(hue, sat, val);
+                    closeWith(toHex(rgb.r, rgb.g, rgb.b));
+                });
+            }
+
+            function closeWith(result) {
+                modal.classList.remove('active');
+                if (resolveCallback) { resolveCallback(result); resolveCallback = null; }
+            }
+
+            window.openColorPicker = function(initialHex) {
+                return new Promise(resolve => {
+                    resolveCallback = resolve;
+                    const parsed = parseHex(initialHex || '#000000');
+                    if (parsed) {
+                        const hsv = rgbToHsv(parsed.r, parsed.g, parsed.b);
+                        hue = hsv.h; sat = hsv.s; val = hsv.v;
+                    }
+                    modal.classList.add('active');
+                    // Sync after layout so offsets are correct
+                    requestAnimationFrame(syncUI);
+                });
+            };
+        })();
+        // ────────────────────────────────────────────────────────────────────
+
         const paletteList = document.getElementById('palette-list');
         const paletteNameInput = document.getElementById('palette-name');
         const paletteTypeSelect = document.getElementById('palette-type');
         const colorsList = document.getElementById('colors-list');
-        const newColorPicker = document.getElementById('new-color-picker');
+        const newColorSwatch = document.getElementById('new-color-swatch');
         const newColorHex = document.getElementById('new-color-hex');
         const addColorButton = document.getElementById('add-color');
         const savePaletteButton = document.getElementById('save-palette');
@@ -1347,16 +1505,16 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         const copyButton = document.getElementById('copy-preferences');
         const statusLabel = document.getElementById('palette-status');
         const sourceLabel = document.getElementById('palette-source');
-        const scaleBasePicker = document.getElementById('scale-base-picker');
+        const scaleBaseSwatch = document.getElementById('scale-base-swatch');
         const scaleBaseHex = document.getElementById('scale-base-hex');
         const scaleSteps = document.getElementById('scale-steps');
         const scaleEasing = document.getElementById('scale-easing');
         const scaleGenerateButton = document.getElementById('scale-generate');
         const scalePreview = document.getElementById('scale-preview');
         const scaleApplyButton = document.getElementById('scale-apply');
-        const blendStartPicker = document.getElementById('blend-start-picker');
+        const blendStartSwatch = document.getElementById('blend-start-swatch');
         const blendStartHex = document.getElementById('blend-start-hex');
-        const blendEndPicker = document.getElementById('blend-end-picker');
+        const blendEndSwatch = document.getElementById('blend-end-swatch');
         const blendEndHex = document.getElementById('blend-end-hex');
         const blendSteps = document.getElementById('blend-steps');
         const blendEasing = document.getElementById('blend-easing');
@@ -1439,18 +1597,18 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             paletteNameInput,
             paletteTypeSelect,
             colorsList,
-            newColorPicker,
+            newColorSwatch,
             newColorHex,
-            scaleBasePicker,
+            scaleBaseSwatch,
             scaleBaseHex,
             scaleSteps,
             scaleEasing,
             scaleGenerateButton,
             scalePreview,
             scaleApplyButton,
-            blendStartPicker,
+            blendStartSwatch,
             blendStartHex,
-            blendEndPicker,
+            blendEndSwatch,
             blendEndHex,
             blendSteps,
             blendEasing,
@@ -1467,24 +1625,20 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                 statusLabel.className = 'status error';
             }
         } else {
-            const normalizedScaleBase = normalizeHex(scaleBaseHex.value) || normalizeHex(scaleBasePicker.value);
+            const normalizedScaleBase = normalizeHex(scaleBaseHex.value);
             if (normalizedScaleBase) {
                 scaleBaseHex.value = normalizedScaleBase;
-                scaleBasePicker.value = normalizedScaleBase;
+                scaleBaseSwatch.style.backgroundColor = normalizedScaleBase;
                 scaleBaseHex.classList.remove('invalid');
             }
 
-            const normalizedBlendStart = normalizeHex(blendStartPicker.value);
-            if (normalizedBlendStart) {
-                blendStartPicker.value = normalizedBlendStart;
-            }
-            const normalizedBlendEnd = normalizeHex(blendEndPicker.value);
-            if (normalizedBlendEnd) {
-                blendEndPicker.value = normalizedBlendEnd;
-            }
+            const blendStartInitial = normalizeHex(blendStartHex.value) || '#F4B860';
+            blendStartSwatch.style.backgroundColor = blendStartInitial;
+            const blendEndInitial = normalizeHex(blendEndHex.value) || '#3D5A80';
+            blendEndSwatch.style.backgroundColor = blendEndInitial;
 
             state.scaleColors = generateScaleColors(scaleBaseHex.value, normalizeSteps(scaleSteps.value, 9));
-            state.blendColors = generateBlendColors(blendStartPicker.value, blendEndPicker.value, normalizeSteps(blendSteps.value, 7));
+            state.blendColors = generateBlendColors(blendStartInitial, blendEndInitial, normalizeSteps(blendSteps.value, 7));
 
             paletteList.addEventListener('click', event => {
                 const target = event.target;
@@ -1576,10 +1730,12 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                 state.editor.type = paletteTypeSelect.value;
             });
 
-            newColorPicker.addEventListener('input', () => {
-                const normalized = normalizeHex(newColorPicker.value);
-                if (normalized) {
-                    newColorHex.value = normalized;
+            newColorSwatch.addEventListener('click', async () => {
+                const current = normalizeHex(newColorHex.value) || '#F4B860';
+                const picked = await window.openColorPicker(current);
+                if (picked) {
+                    newColorSwatch.style.backgroundColor = picked;
+                    newColorHex.value = picked;
                     newColorHex.classList.remove('invalid');
                 }
             });
@@ -1589,7 +1745,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                 if (normalized) {
                     newColorHex.classList.remove('invalid');
                     newColorHex.value = normalized;
-                    newColorPicker.value = normalized;
+                    newColorSwatch.style.backgroundColor = normalized;
                 } else {
                     newColorHex.classList.add('invalid');
                 }
@@ -1597,7 +1753,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
 
             if (addColorButton) {
                 addColorButton.addEventListener('click', () => {
-                    const normalized = normalizeHex(newColorHex.value) || normalizeHex(newColorPicker.value);
+                    const normalized = normalizeHex(newColorHex.value);
                     if (!normalized) {
                         setStatus('Enter a valid hex color before adding.', 'error');
                         return;
@@ -1607,37 +1763,31 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                 });
             }
 
-            colorsList.addEventListener('input', event => {
-                const target = event.target;
-                if (!(target instanceof HTMLInputElement)) {
-                    return;
-                }
-                const row = target.closest('.color-row');
-                if (!row) {
-                    return;
-                }
-                const index = Number(row.dataset.index);
-                if (Number.isNaN(index) || !state.editor.colors[index]) {
-                    return;
-                }
-
-                if (target.classList.contains('color-picker')) {
-                    const normalized = normalizeHex(target.value);
-                    if (normalized) {
-                        state.editor.colors[index] = normalized;
-                        const label = row.querySelector('.swatch-hex-label');
-                        if (label) {
-                            label.textContent = normalized;
-                        }
-                    }
-                }
-            });
-
             colorsList.addEventListener('click', event => {
                 const target = event.target;
                 if (!(target instanceof HTMLElement)) {
                     return;
                 }
+
+                // Swatch button click — open color picker
+                const swatch = target.closest('.color-picker');
+                if (swatch instanceof HTMLElement) {
+                    const row = swatch.closest('.color-row');
+                    if (!row) { return; }
+                    const index = Number(row.dataset.index);
+                    if (Number.isNaN(index)) { return; }
+                    const current = state.editor.colors[index] || '#000000';
+                    window.openColorPicker(current).then(picked => {
+                        if (!picked) { return; }
+                        state.editor.colors[index] = picked;
+                        swatch.style.backgroundColor = picked;
+                        const label = row.querySelector('.swatch-hex-label');
+                        if (label) { label.textContent = picked; }
+                    });
+                    return;
+                }
+
+                // Remove button
                 const button = target.closest('button[data-action]');
                 if (!button) {
                     return;
@@ -1809,10 +1959,12 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                 });
             }
 
-            scaleBasePicker.addEventListener('input', () => {
-                const normalized = normalizeHex(scaleBasePicker.value);
-                if (normalized) {
-                    scaleBaseHex.value = normalized;
+            scaleBaseSwatch.addEventListener('click', async () => {
+                const current = normalizeHex(scaleBaseHex.value) || '#5CB8B2';
+                const picked = await window.openColorPicker(current);
+                if (picked) {
+                    scaleBaseSwatch.style.backgroundColor = picked;
+                    scaleBaseHex.value = picked;
                     scaleBaseHex.classList.remove('invalid');
                 }
             });
@@ -1822,7 +1974,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                 if (normalized) {
                     scaleBaseHex.classList.remove('invalid');
                     scaleBaseHex.value = normalized;
-                    scaleBasePicker.value = normalized;
+                    scaleBaseSwatch.style.backgroundColor = normalized;
                 } else {
                     scaleBaseHex.classList.add('invalid');
                 }
@@ -1833,16 +1985,18 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                 if (normalized) {
                     blendStartHex.classList.remove('invalid');
                     blendStartHex.value = normalized;
-                    blendStartPicker.value = normalized;
+                    blendStartSwatch.style.backgroundColor = normalized;
                 } else {
                     blendStartHex.classList.add('invalid');
                 }
             });
 
-            blendStartPicker.addEventListener('input', () => {
-                const normalized = normalizeHex(blendStartPicker.value);
-                if (normalized) {
-                    blendStartHex.value = normalized;
+            blendStartSwatch.addEventListener('click', async () => {
+                const current = normalizeHex(blendStartHex.value) || '#F4B860';
+                const picked = await window.openColorPicker(current);
+                if (picked) {
+                    blendStartSwatch.style.backgroundColor = picked;
+                    blendStartHex.value = picked;
                     blendStartHex.classList.remove('invalid');
                 }
             });
@@ -1852,22 +2006,24 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                 if (normalized) {
                     blendEndHex.classList.remove('invalid');
                     blendEndHex.value = normalized;
-                    blendEndPicker.value = normalized;
+                    blendEndSwatch.style.backgroundColor = normalized;
                 } else {
                     blendEndHex.classList.add('invalid');
                 }
             });
 
-            blendEndPicker.addEventListener('input', () => {
-                const normalized = normalizeHex(blendEndPicker.value);
-                if (normalized) {
-                    blendEndHex.value = normalized;
+            blendEndSwatch.addEventListener('click', async () => {
+                const current = normalizeHex(blendEndHex.value) || '#3D5A80';
+                const picked = await window.openColorPicker(current);
+                if (picked) {
+                    blendEndSwatch.style.backgroundColor = picked;
+                    blendEndHex.value = picked;
                     blendEndHex.classList.remove('invalid');
                 }
             });
 
             scaleGenerateButton.addEventListener('click', () => {
-                const base = normalizeHex(scaleBaseHex.value) || normalizeHex(scaleBasePicker.value);
+                const base = normalizeHex(scaleBaseHex.value);
                 if (!base) {
                     scaleBaseHex.classList.add('invalid');
                     setStatus('Enter a valid hex color for the scale base.', 'error');
@@ -1877,7 +2033,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                 const easing = scaleEasing.value || 'easeOut';
                 scaleSteps.value = String(steps);
                 scaleBaseHex.value = base;
-                scaleBasePicker.value = base;
+                scaleBaseSwatch.style.backgroundColor = base;
 
                 const colors = generateScaleColors(base, steps, easing);
                 if (colors.length === 0) {
@@ -1899,8 +2055,8 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             });
 
             blendGenerateButton.addEventListener('click', () => {
-                const start = normalizeHex(blendStartHex.value) || normalizeHex(blendStartPicker.value);
-                const end = normalizeHex(blendEndHex.value) || normalizeHex(blendEndPicker.value);
+                const start = normalizeHex(blendStartHex.value);
+                const end = normalizeHex(blendEndHex.value);
                 if (!start || !end) {
                     setStatus('Select valid blend colors.', 'error');
                     return;
@@ -1910,9 +2066,9 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                 const colorspace = blendColorspace.value || 'lab';
                 blendSteps.value = String(steps);
                 blendStartHex.value = start;
-                blendStartPicker.value = start;
+                blendStartSwatch.style.backgroundColor = start;
                 blendEndHex.value = end;
-                blendEndPicker.value = end;
+                blendEndSwatch.style.backgroundColor = end;
 
                 const colors = generateBlendColors(start, end, steps, easing, colorspace);
                 if (colors.length === 0) {
@@ -2126,11 +2282,11 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             }
             colorsList.innerHTML = state.editor.colors.map((color, index) => {
                 const normalized = normalizeHex(color);
-                const pickerValue = normalized || '#000000';
+                const swatchColor = normalized || '#000000';
                 const hexValue = normalized || color;
                 return [
                     '<div class="color-row" data-index="' + index + '">',
-                    '    <input class="color-picker" type="color" value="' + pickerValue + '" aria-label="Color ' + (index + 1) + '" title="' + escapeHtml(hexValue) + '">',
+                    '    <button class="color-swatch-btn color-picker" style="background-color:' + swatchColor + ';" aria-label="Edit color ' + (index + 1) + '" title="' + escapeHtml(hexValue) + '"></button>',
                     '    <span class="swatch-hex-label">' + escapeHtml(hexValue) + '</span>',
                     '    <vscode-button data-action="remove" appearance="icon" class="danger-button" title="Remove"><span class="codicon codicon-close"></span></vscode-button>',
                     '</div>'
