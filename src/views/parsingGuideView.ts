@@ -583,28 +583,19 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         }
 
         .theme-card {
-            padding: 4px 8px;
+            display: grid;
+            grid-template-columns: 52px 1fr;
+            align-items: stretch;
+            padding: 4px 4px 4px 0;
             background-color: transparent;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
             border-left: 2px solid transparent;
             cursor: pointer;
             transition: background-color 0.05s ease;
+            min-height: 40px;
         }
 
         .theme-card:hover {
             background-color: var(--vscode-list-hoverBackground);
-        }
-
-        .theme-row {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .theme-row .theme-bar {
-            flex: 1;
         }
 
         .palette-item.active {
@@ -630,11 +621,6 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             /* fills the left grid column — height is driven by the right column */
             border-radius: 2px;
             align-self: stretch;
-        }
-
-        .theme-bar {
-            height: 8px;
-            border-radius: 2px;
         }
 
         .palette-info {
@@ -2307,15 +2293,21 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                 const gradient = buildGradient(colors);
                 const name = escapeHtml(theme.name);
                 const tags = Array.isArray(theme.tags) ? theme.tags.map(tag => escapeHtml(tag)).filter(Boolean) : [];
-                const tagText = tags.length ? ' | ' + tags.join(', ') : '';
-                const metaText = name + ' | ' + colors.length + ' colors' + tagText;
                 return [
                     '<div class="theme-card" data-index="' + index + '">',
-                    '    <div class="theme-row">',
-                    '        <div class="theme-bar" style="background:' + gradient + ';"></div>',
-                    '        <vscode-button appearance="icon" data-action="add-theme" data-index="' + index + '" title="Add ' + name + ' to library"><span class="codicon codicon-add"></span></vscode-button>',
+                    '    <div class="palette-bar" style="background:' + gradient + ';"></div>',
+                    '    <div class="palette-info">',
+                    '        <div class="palette-row">',
+                    '            <span class="palette-name">' + name + '</span>',
+                    '            <div class="palette-actions">',
+                    '                <vscode-button appearance="icon" data-action="add-theme" data-index="' + index + '" title="Add ' + name + ' to library"><span class="codicon codicon-add"></span></vscode-button>',
+                    '            </div>',
+                    '        </div>',
+                    '        <div class="palette-meta">',
+                    '            <span>' + colors.length + ' colors</span>',
+                    tags.length ? '            <span>\u00B7</span><span>' + tags.join(', ') + '</span>' : '',
+                    '        </div>',
                     '    </div>',
-                    '    <div class="theme-meta">' + metaText + '</div>',
                     '</div>'
                 ].join('');
             }).join('');
