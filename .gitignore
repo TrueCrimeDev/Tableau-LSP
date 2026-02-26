@@ -80,6 +80,9 @@ typings/
 # DynamoDB Local files
 .dynamodb/
 
+# Worktrees
+.worktrees/
+
 # IDE
 .vscode/settings.json
 .vscode/launch.json
