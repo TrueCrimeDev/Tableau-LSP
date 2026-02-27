@@ -812,12 +812,12 @@ function tS(h){h.classList.toggle('c');const b=h.nextElementSibling;if(b&&b.clas
                         if (!data.calculations) { return; }
                         const calc = data.calculations[idx];
                         if (!calc) { return; }
-                        vscode.postMessage({ type: 'copyFormula', formula: calc.formula });
+                        vscode.postMessage({ type: 'copyFormula', formula: calc.formula || '' });
                     } else if (action === 'insert-formula') {
                         if (!data.calculations) { return; }
                         const calc = data.calculations[idx];
                         if (!calc) { return; }
-                        vscode.postMessage({ type: 'insertFormula', formula: calc.formula });
+                        vscode.postMessage({ type: 'insertFormula', formula: calc.formula || '' });
                     }
                 });
             }
