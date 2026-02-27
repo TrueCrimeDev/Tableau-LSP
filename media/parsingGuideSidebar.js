@@ -1069,7 +1069,7 @@ if (requiredElements.some((element) => !element)) {
   if (workbookSbEl) {
     workbookSbEl.addEventListener('click', (event) => {
       const target = event.target
-      if (!(target instanceof HTMLElement)) {
+      if (!(target instanceof Element)) {
         return
       }
       const button = target.closest('[data-action]')
