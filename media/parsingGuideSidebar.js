@@ -797,6 +797,16 @@ function tS(h){h.classList.toggle('c');const b=h.nextElementSibling;if(b&&b.clas
                             palette: { name: palette.name, type: palette.type, colors }
                         });
                         setStatus('Importing \u201c' + escapeHtml(palette.name) + '\u201d\u2026', 'info');
+                    } else if (action === 'copy-calc') {
+                        // Guard: button clicks inside the row have their own data-action and are handled below
+                        if (target.closest('button')) { return; }
+                        if (!data.calculations) { return; }
+                        const calc = data.calculations[idx];
+                        if (!calc) { return; }
+                        const rawCaption = calc.caption || 'Unnamed';
+                        const header = '// ' + rawCaption;
+                        vscode.postMessage({ type: 'copyFormula', formula: header + '\n' + (calc.formula || '') });
+                        setStatus('Copied \u201c' + rawCaption + '\u201d', 'success');
                     } else if (action === 'copy-formula') {
                         if (!data.calculations) { return; }
                         const calc = data.calculations[idx];
@@ -1144,7 +1154,7 @@ function tS(h){h.classList.toggle('c');const b=h.nextElementSibling;if(b&&b.clas
                 const firstLine = formula.split('\n')[0].slice(0, 120);
                 const highlighted = highlightFormula(firstLine);
                 const dtBadge = calc.datatype ? '<span class="ti-badge">' + escapeHtml(calc.datatype) + '</span>' : '';
-                return '<div class="tree-item" data-action="copy-calc" data-index="' + idx + '" title="Click to copy with header">' +
+                return '<div class="tree-item" data-action="copy-calc" data-index="' + idx + '" title="Copy formula with field name">' +
                     '<span class="ti-icon"><svg class="ic"><use href="#i-fx"/></svg></span>' +
                     '<span class="ti-label">' + caption + '</span>' +
                     dtBadge +
