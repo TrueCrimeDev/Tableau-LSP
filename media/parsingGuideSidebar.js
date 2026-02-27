@@ -798,8 +798,9 @@ function tS(h){h.classList.toggle('c');const b=h.nextElementSibling;if(b&&b.clas
                         });
                         setStatus('Importing \u201c' + escapeHtml(palette.name) + '\u201d\u2026', 'info');
                     } else if (action === 'copy-calc') {
-                        // Guard: button clicks inside the row have their own data-action and are handled below
-                        if (target.closest('button')) { return; }
+                        // Inner buttons (copy-formula, insert-formula) carry their own data-action, so
+                        // closest('[data-action]') resolves to the button first — this branch is only
+                        // reached when clicking the row itself (label, icon, or whitespace).
                         if (!data.calculations) { return; }
                         const calc = data.calculations[idx];
                         if (!calc) { return; }
