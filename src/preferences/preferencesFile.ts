@@ -21,6 +21,7 @@ export interface PreferencesLoadResult {
 const textDecoder = new TextDecoder('utf-8');
 const textEncoder = new TextEncoder();
 const workspaceRelativePath = ['config', 'Preferences.tps'];
+const archiveRelativePath = ['config', 'Preferences.archive.tps'];
 const repositoryRelativePath = ['Documents', 'My Tableau Repository', 'Preferences.tps'];
 
 export function getWorkspacePreferencesUri(): vscode.Uri | undefined {
@@ -29,6 +30,14 @@ export function getWorkspacePreferencesUri(): vscode.Uri | undefined {
         return undefined;
     }
     return vscode.Uri.joinPath(workspaceFolder.uri, ...workspaceRelativePath);
+}
+
+function getWorkspaceArchiveUri(workspaceUri?: vscode.Uri): vscode.Uri | undefined {
+    const root = workspaceUri ?? vscode.workspace.workspaceFolders?.[0]?.uri;
+    if (!root) {
+        return undefined;
+    }
+    return vscode.Uri.joinPath(root, ...archiveRelativePath);
 }
 
 export function getExtensionPreferencesUri(context: vscode.ExtensionContext): vscode.Uri {
@@ -97,6 +106,29 @@ export async function copyPreferencesToRepository(
     vscode.window.showInformationMessage(
         `Copied Preferences.tps from ${sourceLabel} to My Tableau Repository.`
     );
+}
+
+export async function appendToArchive(
+    palette: PaletteDefinition,
+    workspaceUri?: vscode.Uri
+): Promise<void> {
+    const archiveUri = getWorkspaceArchiveUri(workspaceUri);
+    if (!archiveUri) {
+        throw new Error('Open a workspace folder to archive palettes.');
+    }
+
+    const archiveDir = vscode.Uri.file(path.dirname(archiveUri.fsPath));
+    await vscode.workspace.fs.createDirectory(archiveDir);
+
+    const baseText = (await readTextIfExists(archiveUri)) ?? buildPreferencesDocument([]);
+    const existing = parsePalettes(baseText);
+    const normalizedName = palette.name.trim().toLowerCase();
+
+    const filtered = existing.filter(item => item.name.trim().toLowerCase() !== normalizedName);
+    filtered.push(normalizePalette(palette));
+
+    const updatedText = applyPaletteChanges(baseText, filtered);
+    await writePreferencesText(archiveUri, updatedText);
 }
 
 export function parsePalettes(text: string): PaletteDefinition[] {

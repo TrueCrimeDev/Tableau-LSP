@@ -1,4 +1,7 @@
 import * as vscode from 'vscode';
+import { TextDecoder } from 'util';
+import { basename, dirname, join } from 'path';
+import JSZip from 'jszip';
 
 import {
     PaletteDefinition,
@@ -12,13 +15,31 @@ import {
     writePreferencesText
 } from '../preferences/preferencesFile.js';
 import { TWBParser } from '../parsers/twbParser.js';
-import { WorkbookError } from '../types/workbook.js';
+import { RichWorkbookData, WorkbookError } from '../types/workbook.js';
+import { cleanXmlContent } from '../extract/xmlCleaner.js';
+import { resolveNames } from '../extract/nameResolver.js';
+import {
+    extractCalcsFromXml,
+    extractDatasourcesWithConnectionsFromXml,
+    extractFieldsFromXml,
+    extractWorksheetsFromXml
+} from '../extract/xml.js';
+import { filterAndDedupe, normalize, normalizeFormula } from '../extract/normalize.js';
+import { generateNotesFile } from '../extract/outputGenerator.js';
+import { extractFromFile } from '../extract/zip.js';
+import { getLogger } from '../logging/logger.js';
+
+const log = getLogger();
+const LOG_CAT = 'WorkbookInspector';
+const BUILD_STAMP = 'v6-2026-02-24';
 
 export const PARSING_GUIDE_VIEW_ID = 'tableauLanguageSupport.parsingGuide';
 export const PARSING_GUIDE_CONTAINER_ID = 'tableauLsp';
 
 class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
     private view: vscode.WebviewView | undefined;
+    private lastWorkbookUri: vscode.Uri | undefined;
+    private postWorkbookPending = false;
 
     public constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -29,12 +50,13 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             localResourceRoots: [this.context.extensionUri]
         };
 
+
         view.webview.onDidReceiveMessage(message => {
             if (!message || typeof message !== 'object') {
                 return;
             }
 
-            const payload = message as { type?: string; palettes?: unknown; palette?: unknown; paletteName?: unknown };
+            const payload = message as { type?: string; palettes?: unknown; palette?: unknown; paletteName?: unknown; path?: string; formula?: string };
             switch (payload.type) {
                 case 'openPreferencesTemplate':
                     void this.openPreferencesTemplate();
@@ -69,28 +91,161 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 case 'importWorkbookPalette':
                     void this.importWorkbookPalette(payload.palette);
                     break;
+                case 'extractCalculations':
+                    void this.extractCalculationsToFile();
+                    break;
+                case 'importPaletteFromFile':
+                    void this.importPaletteFromFile();
+                    break;
+                case 'revealFile':
+                    if (typeof payload.path === 'string') {
+                        void vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(payload.path));
+                    }
+                    break;
+                case 'copyFormula':
+                    if (typeof payload.formula === 'string') {
+                        void vscode.env.clipboard.writeText(payload.formula);
+                    }
+                    break;
+                case 'insertFormula': {
+                    const insertEditor = vscode.window.activeTextEditor;
+                    const insertFormula = payload.formula ?? '';
+                    if (insertEditor && insertFormula) {
+                        void insertEditor.edit(eb => {
+                            eb.insert(insertEditor.selection.active, insertFormula);
+                        });
+                    }
+                    break;
+                }
+                case 'requestCalcBank':
+                    void this.postCalcBankData();
+                    break;
+                case 'webviewDiag': {
+                    const diagMsg = (payload as { message?: string }).message ?? '(no message)';
+                    log.info(LOG_CAT, `[webview-diag] ${diagMsg}`);
+                    break;
+                }
                 default:
                     break;
             }
         });
 
         view.webview.html = getGuideHtml(view.webview, this.context, getNonce());
-        void this.postPaletteData();
-        void this.postContextData();
-        void this.postWorkbookData();
 
-        // Auto-update workbook inspector when user switches to a .twb file
+        // Populate lastWorkbookUri from any already-open documents on first mount
+        log.info(LOG_CAT, `resolveWebviewView [${BUILD_STAMP}]: view mounted, visible=${view.visible}`);
+        log.info(LOG_CAT, `resolveWebviewView: workspace.textDocuments count=${vscode.workspace.textDocuments.length}`);
+        for (const doc of vscode.workspace.textDocuments) {
+            const p = doc.uri.path.toLowerCase();
+            if (p.endsWith('.twb') || p.endsWith('.twbx')) {
+                this.lastWorkbookUri = doc.uri;
+                log.info(LOG_CAT, `resolveWebviewView: found .twb in textDocuments: ${doc.uri.fsPath}`);
+                break;
+            }
+        }
+
+        // Also scan open tabs (covers custom editors, large files not yet in textDocuments)
+        if (!this.lastWorkbookUri) {
+            const tabUri = this.findWorkbookUriFromTabs();
+            if (tabUri) {
+                this.lastWorkbookUri = tabUri;
+                log.info(LOG_CAT, `resolveWebviewView: found .twb in open tabs: ${tabUri.fsPath}`);
+            }
+        }
+        if (!this.lastWorkbookUri) {
+            log.info(LOG_CAT, 'resolveWebviewView: no .twb found in textDocuments or tabs');
+        }
+
+        // Listen for text editor focus changes.
+        // Only refresh when a workbook file becomes active — switching to a non-workbook
+        // file (e.g. a .twbl file to paste into) should not reset the sidebar.
         this.context.subscriptions.push(
-            vscode.window.onDidChangeActiveTextEditor(() => {
-                void this.postWorkbookData();
+            vscode.window.onDidChangeActiveTextEditor(editor => {
+                if (editor) {
+                    const p = editor.document.uri.path.toLowerCase();
+                    if (p.endsWith('.twb') || p.endsWith('.twbx')) {
+                        this.lastWorkbookUri = editor.document.uri;
+                        void this.postWorkbookData();
+                    }
+                }
             })
         );
+
+        // Listen for newly opened documents (catches first-time file open before editor focus)
+        this.context.subscriptions.push(
+            vscode.workspace.onDidOpenTextDocument(doc => {
+                const p = doc.uri.path.toLowerCase();
+                if (p.endsWith('.twb') || p.endsWith('.twbx')) {
+                    this.lastWorkbookUri = doc.uri;
+                    void this.postWorkbookData();
+                }
+            })
+        );
+
+        // Listen for tab changes — catches custom editors that don't fire onDidChangeActiveTextEditor.
+        // Only update when a workbook tab specifically becomes active; ignore all other tab changes
+        // so switching to a non-workbook tab doesn't reset lastWorkbookUri to whichever .twb
+        // happens to be first in the tab list.
+        this.context.subscriptions.push(
+            vscode.window.tabGroups.onDidChangeTabs(event => {
+                for (const tab of event.changed) {
+                    if (!tab.isActive) { continue; }
+                    const input = tab.input as { uri?: vscode.Uri } | null | undefined;
+                    const uri = input?.uri;
+                    if (uri) {
+                        const p = uri.path.toLowerCase();
+                        if (p.endsWith('.twb') || p.endsWith('.twbx')) {
+                            this.lastWorkbookUri = uri;
+                            void this.postWorkbookData();
+                        }
+                    }
+                }
+            })
+        );
+
+        // Re-push all data whenever the view becomes visible (e.g. user switches to this panel).
+        // postMessage silently drops messages when view.visible is false, so this ensures
+        // the workbook inspector is populated as soon as the user can actually see it.
+        view.onDidChangeVisibility(() => {
+            log.info(LOG_CAT, `onDidChangeVisibility: visible=${view.visible}`);
+            if (view.visible) {
+                // Reset pending flag so debounce never suppresses this visibility-triggered refresh.
+                this.postWorkbookPending = false;
+                void this.postPaletteData();
+                void this.postContextData();
+                void this.postWorkbookData();
+            }
+        });
+
+        // Explicitly push workbook data after a short delay to ensure the webview
+        // has fully loaded its JS and the view is rendered.
+        setTimeout(() => {
+            log.info(LOG_CAT, `initial delayed postWorkbookData: view exists=${!!this.view}, visible=${this.view?.visible}`);
+            void this.postWorkbookData();
+        }, 500);
 
         view.onDidDispose(() => {
             if (this.view === view) {
                 this.view = undefined;
             }
         });
+    }
+
+    /** Scans all open tabs for a .twb/.twbx, regardless of editor type. */
+    private findWorkbookUriFromTabs(): vscode.Uri | undefined {
+        for (const group of vscode.window.tabGroups.all) {
+            for (const tab of group.tabs) {
+                const input = tab.input as { uri?: vscode.Uri } | null | undefined;
+                const uri = input?.uri;
+                if (uri) {
+                    const p = uri.path.toLowerCase();
+                    if (p.endsWith('.twb') || p.endsWith('.twbx')) {
+                        return uri;
+                    }
+                }
+            }
+        }
+        return undefined;
     }
 
     private async openPreferencesTemplate(): Promise<void> {
@@ -368,34 +523,284 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
 
     private async postWorkbookData(): Promise<void> {
         if (!this.view) {
+            log.debug(LOG_CAT, 'postWorkbookData: no view, skipping');
+            return;
+        }
+
+        // Debounce: coalesce rapid-fire calls into a single execution.
+        if (this.postWorkbookPending) {
+            log.debug(LOG_CAT, 'postWorkbookData: already pending, skipping duplicate');
+            return;
+        }
+        this.postWorkbookPending = true;
+        // Yield to allow other listeners to fire, then proceed.
+        await new Promise<void>(resolve => setTimeout(resolve, 150));
+        this.postWorkbookPending = false;
+
+        // Re-check in case view was disposed or hidden during the wait.
+        // postMessage silently returns false when view.visible is false, so there
+        // is no point sending — onDidChangeVisibility will re-trigger when it shows.
+        if (!this.view || !this.view.visible) {
+            log.debug(LOG_CAT, `postWorkbookData: view not available after debounce (view=${!!this.view}, visible=${this.view?.visible})`);
+            return;
+        }
+
+        // Resolve the workbook URI.
+        // vscode.window.activeTextEditor is undefined when the sidebar webview has focus,
+        // so we fall back to the last seen workbook and then to any visible text editor.
+        let uri: vscode.Uri | undefined;
+        let source = '';
+
+        const activeEditor = vscode.window.activeTextEditor;
+        if (activeEditor) {
+            const p = activeEditor.document.uri.path.toLowerCase();
+            log.debug(LOG_CAT, `postWorkbookData: activeTextEditor path=${p}`);
+            if (p.endsWith('.twb') || p.endsWith('.twbx')) {
+                uri = activeEditor.document.uri;
+                this.lastWorkbookUri = uri;
+                source = 'activeTextEditor';
+            }
+        } else {
+            log.debug(LOG_CAT, 'postWorkbookData: activeTextEditor is undefined');
+        }
+
+        if (!uri && this.lastWorkbookUri) {
+            uri = this.lastWorkbookUri;
+            source = 'lastWorkbookUri';
+        }
+
+        if (!uri) {
+            const visibleTwb = vscode.window.visibleTextEditors.find(e => {
+                const p = e.document.uri.path.toLowerCase();
+                return p.endsWith('.twb') || p.endsWith('.twbx');
+            });
+            if (visibleTwb) {
+                uri = visibleTwb.document.uri;
+                this.lastWorkbookUri = uri;
+                source = 'visibleTextEditors';
+            }
+        }
+
+        // Fallback: scan all open tabs (catches custom editors, XML viewers, etc.)
+        if (!uri) {
+            const tabUri = this.findWorkbookUriFromTabs();
+            if (tabUri) {
+                uri = tabUri;
+                this.lastWorkbookUri = uri;
+                source = 'tabGroups';
+            }
+        }
+
+        // Fallback: scan workspace.textDocuments directly
+        if (!uri) {
+            const openDoc = vscode.workspace.textDocuments.find(d => {
+                const p = d.uri.path.toLowerCase();
+                return p.endsWith('.twb') || p.endsWith('.twbx');
+            });
+            if (openDoc) {
+                uri = openDoc.uri;
+                this.lastWorkbookUri = uri;
+                source = 'workspace.textDocuments';
+            }
+        }
+
+        if (!uri) {
+            log.info(LOG_CAT, 'postWorkbookData: no .twb/.twbx found anywhere, sending workbookCleared');
+            await this.view.webview.postMessage({ type: 'workbookCleared' });
+            return;
+        }
+
+        log.info(LOG_CAT, `postWorkbookData [${BUILD_STAMP}]: resolved from ${source} -> ${uri.fsPath}`);
+
+        const lowerPath = uri.path.toLowerCase();
+
+        try {
+            const fileName = basename(uri.fsPath);
+            let xml: string;
+
+            if (lowerPath.endsWith('.twbx')) {
+                log.info(LOG_CAT, 'postWorkbookData: reading .twbx archive');
+                const data = await vscode.workspace.fs.readFile(uri);
+                const zip = await JSZip.loadAsync(Buffer.from(data));
+                const twbEntries = Object.entries(zip.files).filter(
+                    ([entryPath, entry]) => !entry.dir && entryPath.toLowerCase().endsWith('.twb')
+                );
+                if (twbEntries.length === 0) {
+                    throw new Error('No .twb file found in the .twbx archive');
+                }
+                xml = await twbEntries[0][1].async('string');
+            } else {
+                // Prefer getting text from an already-open VS Code document
+                // (faster and avoids any workspace.fs.readFile edge cases).
+                const openDoc = vscode.workspace.textDocuments.find(
+                    d => d.uri.toString() === uri.toString()
+                );
+                if (openDoc) {
+                    log.info(LOG_CAT, 'postWorkbookData: reading from open document');
+                    xml = openDoc.getText();
+                } else {
+                    log.info(LOG_CAT, 'postWorkbookData: reading via workspace.fs.readFile');
+                    const data = await vscode.workspace.fs.readFile(uri);
+                    xml = new TextDecoder('utf-8').decode(data);
+                }
+            }
+            log.info(LOG_CAT, `postWorkbookData: read XML, length=${xml.length}`);
+
+            // Parse Tableau version from raw XML before cleaning
+            const versionMatch = /source-build='(\d{4}\.\d+)/.exec(xml);
+            const tableauVersion = versionMatch ? versionMatch[1] : '';
+
+            // Clean and resolve names
+            const cleaned = cleanXmlContent(xml);
+            const resolved = resolveNames(cleaned);
+
+            // Extract all data
+            const calculations = extractCalcsFromXml(resolved, fileName);
+            const datasourcesRaw = extractDatasourcesWithConnectionsFromXml(resolved, fileName);
+            const fields = extractFieldsFromXml(resolved, fileName);
+            const worksheets = extractWorksheetsFromXml(resolved, fileName);
+
+            // Parse custom palettes directly from the XML we already have
+            // (avoids a second file read via TWBParser).
+            let palettes: PaletteDefinition[] = [];
+            if (lowerPath.endsWith('.twb')) {
+                try {
+                    palettes = parsePalettes(xml);
+                } catch {
+                    palettes = [];
+                }
+            }
+
+            log.info(LOG_CAT, `postWorkbookData: extracted ${calculations.length} calcs, ${datasourcesRaw.length} datasources, ${fields.length} fields, ${worksheets.length} worksheets, ${palettes.length} palettes`);
+
+            const richData: RichWorkbookData = {
+                fileName,
+                filePath: uri.fsPath,
+                tableauVersion,
+                datasourceCount: datasourcesRaw.length,
+                calcCount: calculations.length,
+                sheetCount: worksheets.length,
+                datasources: datasourcesRaw.map(ds => ({
+                    caption: ds.caption ?? ds.name,
+                    connectionClass: ds.connection?.class ?? 'unknown'
+                })),
+                calculations: calculations.map(c => ({
+                    caption: c.title,
+                    datatype: '',
+                    formula: normalizeFormula(c.formula),
+                    datasource: c.datasource
+                })),
+                fields: fields.map(f => ({
+                    name: f.caption ?? f.name,
+                    datatype: f.datatype ?? ''
+                })),
+                worksheets: worksheets.map(w => w.name),
+                palettes
+            };
+
+            const posted = await this.view.webview.postMessage({
+                type: 'workbookParsed',
+                ...richData
+            });
+            log.info(LOG_CAT, `postWorkbookData: postMessage returned ${posted}`);
+        } catch (error: unknown) {
+            const msg = error instanceof Error ? error.message : String(error);
+            log.warn(LOG_CAT, `postWorkbookData: ERROR during parse/send: ${msg}`);
+            await this.view.webview.postMessage({ type: 'workbookError', message: msg });
+        }
+    }
+
+    private async postCalcBankData(): Promise<void> {
+        if (!this.view) { return; }
+        const folders = vscode.workspace.workspaceFolders;
+        if (!folders || folders.length === 0) {
+            await this.view.webview.postMessage({ type: 'calcBankLoaded', calcs: [], error: 'No workspace folder open.' });
+            return;
+        }
+        const bankUri = vscode.Uri.joinPath(folders[0].uri, '_calc_bank.twbl');
+        let text: string;
+        try {
+            const bytes = await vscode.workspace.fs.readFile(bankUri);
+            text = new TextDecoder('utf-8').decode(bytes);
+        } catch {
+            await this.view.webview.postMessage({ type: 'calcBankLoaded', calcs: [], error: 'No _calc_bank.twbl found in workspace root.' });
+            return;
+        }
+        // Parse blocks separated by blank lines. Each block: first line = "// Title", rest = formula.
+        const calcs: { title: string; formula: string }[] = [];
+        const blocks = text.split(/\n\s*\n/);
+        for (const block of blocks) {
+            const lines = block.trim().split('\n');
+            if (lines.length === 0 || !lines[0]) { continue; }
+            const firstLine = lines[0].trim();
+            if (!firstLine.startsWith('//')) { continue; }
+            const title = firstLine.replace(/^\/\/\s*/, '').trim();
+            const formula = lines.slice(1).join('\n').trim();
+            if (title) { calcs.push({ title, formula }); }
+        }
+        await this.view.webview.postMessage({ type: 'calcBankLoaded', calcs });
+    }
+
+    private async extractCalculationsToFile(): Promise<void> {
+        if (!this.view) {
             return;
         }
 
         const activeEditor = vscode.window.activeTextEditor;
         if (!activeEditor) {
-            await this.view.webview.postMessage({ type: 'workbookCleared' });
+            await this.postStatus('No active workbook file. Open a .twb or .twbx file first.', 'error');
             return;
         }
 
         const uri = activeEditor.document.uri;
-        if (!uri.path.toLowerCase().endsWith('.twb')) {
-            await this.view.webview.postMessage({ type: 'workbookCleared' });
+        const lowerPath = uri.path.toLowerCase();
+        if (!lowerPath.endsWith('.twb') && !lowerPath.endsWith('.twbx')) {
+            await this.postStatus('Active file is not a Tableau workbook (.twb or .twbx).', 'error');
             return;
         }
 
         try {
-            const parser = new TWBParser();
-            const workbook = await parser.parseWorkbook(uri);
-            const fileName = uri.path.split('/').pop() ?? uri.path;
-            await this.view.webview.postMessage({
-                type: 'workbookParsed',
-                fileName,
-                filePath: uri.fsPath,
-                palettes: workbook.palettes
-            });
+            const preprocessor = { clean: cleanXmlContent, resolveNames };
+            const calcs = await extractFromFile(uri, preprocessor);
+            const filtered = filterAndDedupe(normalize(calcs));
+            const outputPath = join(dirname(uri.fsPath), '_Calculations.notes');
+            await generateNotesFile(filtered, { outputPath, autoOpen: false });
+            await this.view.webview.postMessage({ type: 'extractResult', count: filtered.length });
         } catch (error: unknown) {
-            const msg = error instanceof Error ? error.message : String(error);
-            await this.view.webview.postMessage({ type: 'workbookError', message: msg });
+            const message = error instanceof Error ? error.message : String(error);
+            await this.postStatus(`Failed to extract calculations: ${message}`, 'error');
+        }
+    }
+
+    private async importPaletteFromFile(): Promise<void> {
+        const uris = await vscode.window.showOpenDialog({
+            canSelectMany: false,
+            filters: { 'Tableau Preferences': ['tps'], 'All Files': ['*'] },
+            openLabel: 'Import Palettes'
+        });
+        if (!uris || uris.length === 0) { return; }
+        try {
+            const data = await vscode.workspace.fs.readFile(uris[0]);
+            const xml = new TextDecoder('utf-8').decode(data);
+            const imported = parsePalettes(xml);
+            if (imported.length === 0) {
+                await this.postStatus('No palettes found in selected file.', 'info');
+                return;
+            }
+            const loadResult = await loadPreferencesText(this.context, true);
+            const existing = parsePalettes(loadResult.text);
+            let added = 0;
+            for (const p of imported) {
+                if (!existing.some(e => e.name.toLowerCase() === p.name.toLowerCase())) {
+                    existing.push(p);
+                    added++;
+                }
+            }
+            await this.savePalettes(existing);
+            await this.postStatus(`Imported ${added} palette${added !== 1 ? 's' : ''}.`, 'success');
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            await this.postStatus(`Import failed: ${message}`, 'error');
         }
     }
 
@@ -433,507 +838,303 @@ export function registerParsingGuideView(context: vscode.ExtensionContext): void
     );
 }
 
-function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext, nonce: string): string {
-    // Get URI for the Webview UI Toolkit
-    const toolkitUri = webview.asWebviewUri(
-        vscode.Uri.joinPath(context.extensionUri, 'media', 'toolkit.js')
-    );
-
+function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext, _nonce: string): string {
+    const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'parsingGuideSidebar.js'));
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; font-src ${webview.cspSource}; style-src 'unsafe-inline'; script-src 'nonce-${nonce}' ${webview.cspSource};">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src ${webview.cspSource};">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tableau LSP Guide</title>
-    <script type="module" src="${toolkitUri}"></script>
+    <title>Tableau LSP</title>
     <style>
-        /* VS Code Native UI - Layout-only CSS */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            padding: 0;
-            margin: 0;
-            font-family: var(--vscode-font-family);
-            font-size: var(--vscode-font-size);
-            color: var(--vscode-foreground);
-            background-color: var(--vscode-sideBar-background);
+            font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+            font-size: 13px; line-height: 1.4;
+            color: var(--vscode-sideBar-foreground);
+            background: var(--vscode-sideBar-background);
+            overflow-x: hidden;
+        }
+        body::-webkit-scrollbar { width: 10px; }
+        body::-webkit-scrollbar-track { background: transparent; }
+        body::-webkit-scrollbar-thumb { background: rgba(121,121,121,0.4); border-radius: 10px; border: 2px solid transparent; background-clip: content-box; }
+
+        /* ——— Icon ——— */
+        .ic {
+          width: 16px; height: 16px; fill: none; stroke: currentColor;
+          stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
+          display: inline-block; vertical-align: middle; flex-shrink: 0;
         }
 
-        .shell {
-            padding: 0 8px 16px;
+        /* ——— Icon Buttons ——— */
+        .ib {
+          width: 22px; height: 22px; display: inline-flex; align-items: center;
+          justify-content: center; background: transparent; border: none;
+          color: var(--vscode-icon-foreground); cursor: pointer;
+          border-radius: 3px; padding: 0;
+        }
+        .ib:hover { background: rgba(90,93,94,0.31); }
+
+        /* ——— Section Headers ——— */
+        .sh {
+          display: flex; align-items: center; height: 22px; padding: 0 8px;
+          background: var(--vscode-sideBarSectionHeader-background);
+          font-size: 11px; font-weight: 700; text-transform: uppercase;
+          letter-spacing: 0.04em; color: var(--vscode-sideBarSectionHeader-foreground);
+          cursor: pointer; user-select: none; flex-shrink: 0;
+          border-top: 1px solid var(--vscode-separator);
+        }
+        .sh:first-child { border-top: none; }
+        .sh .cv { width: 20px; display: inline-flex; align-items: center; justify-content: center; transition: transform 0.15s; }
+        .sh.c .cv { transform: rotate(-90deg); }
+        .sh .bg {
+          margin-left: auto; background: var(--vscode-badge-background);
+          color: var(--vscode-badge-foreground); font-size: 10px; font-weight: 600;
+          padding: 0 5px; border-radius: 8px; min-width: 18px;
+          text-align: center; line-height: 16px;
+        }
+        .sh .ha { margin-left: auto; display: flex; gap: 2px; opacity: 0; transition: opacity 0.1s; }
+        .sh:hover .ha { opacity: 1; }
+        .sh:hover .bg { display: none; }
+        .sb { overflow: hidden; }
+        .sb.c { display: none; }
+
+        /* ——— Subsection Headers ——— */
+        .ssh {
+          display: flex; align-items: center; padding: 4px 12px;
+          font-size: 11px; font-weight: 600; color: var(--vscode-descriptionForeground);
+          cursor: pointer; user-select: none;
+        }
+        .ssh:hover { color: var(--vscode-foreground); }
+        .ssh .cv { width: 16px; display: inline-flex; align-items: center; justify-content: center; transition: transform 0.15s; }
+        .ssh.c .cv { transform: rotate(-90deg); }
+
+        /* ——— Unified Row Item (Palette Library + Theme Vault) ——— */
+        .ri {
+          display: flex; align-items: center; height: 22px;
+          padding: 0 0 0 16px; cursor: pointer;
+        }
+        .ri:hover { background: var(--vscode-list-hoverBackground); }
+        .ri.sel { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+        .ri .cb {
+          width: 60px; height: 10px; border-radius: 2px;
+          flex-shrink: 0; margin-right: 8px;
+        }
+        .ri .lb {
+          flex: 1; white-space: nowrap; overflow: hidden;
+          text-overflow: ellipsis; font-size: 13px;
+        }
+        .ri .mt {
+          color: var(--vscode-descriptionForeground); font-size: 12px;
+          margin-left: 4px; flex-shrink: 0; margin-right: 4px;
+        }
+        .ri .ra { display: flex; gap: 0; margin-right: 4px; opacity: 0; flex-shrink: 0; }
+        .ri:hover .ra { opacity: 1; }
+        .ri:hover .mt { display: none; }
+
+        /* ——— Forms ——— */
+        .fs { padding: 8px 12px; }
+        .fs + .fs { padding-top: 0; }
+        .fg { margin-bottom: 8px; }
+        .fg:last-child { margin-bottom: 0; }
+        .fl { display: block; font-size: 12px; color: var(--vscode-foreground); margin-bottom: 3px; }
+        input[type="text"], input[type="number"] {
+          width: 100%; height: 26px; background: var(--vscode-input-background);
+          color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border);
+          border-radius: 0; padding: 3px 6px; font-size: 13px; font-family: inherit; outline: none;
+        }
+        input:focus { border-color: var(--vscode-focusBorder); }
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+          -webkit-appearance: none; appearance: none; margin: 0;
+        }
+        input[type="number"] {
+          -moz-appearance: textfield;
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='16'%3E%3Cpath d='M2 6l3-3 3 3' fill='none' stroke='%23999' stroke-width='1.2'/%3E%3Cpath d='M2 10l3 3 3-3' fill='none' stroke='%23999' stroke-width='1.2'/%3E%3C/svg%3E");
+          background-repeat: no-repeat; background-position: right 4px center;
+          padding-right: 18px;
+        }
+        select {
+          width: 100%; height: 26px; background: var(--vscode-dropdown-background);
+          color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border);
+          border-radius: 0; padding: 2px 6px; font-size: 13px; font-family: inherit;
+          outline: none; appearance: none; cursor: pointer;
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23ccc'/%3E%3C/svg%3E");
+          background-repeat: no-repeat; background-position: right 6px center;
+        }
+        select:focus { border-color: var(--vscode-focusBorder); }
+
+        /* ——— Buttons ——— */
+        .bt {
+          display: inline-flex; align-items: center; justify-content: center;
+          height: 26px; padding: 0 14px; border: none; border-radius: 0;
+          font-size: 13px; font-family: inherit; cursor: pointer; outline: none;
+          white-space: nowrap; gap: 6px;
+        }
+        .bt .ic { width: 14px; height: 14px; }
+        .bp { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+        .bp:hover { background: var(--vscode-button-hoverBackground); }
+        .bs { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+        .bs:hover { background: var(--vscode-button-secondaryHoverBackground); }
+        .bf { width: 100%; }
+        .br { display: flex; gap: 4px; margin-bottom: 6px; }
+        .br .bt { flex: 1; }
+
+        /* ——— Swatch Row ——— */
+        .sr { display: flex; gap: 0; margin: 6px 0; }
+        .sr .sw { flex: 1; height: 24px; cursor: pointer; position: relative; transition: transform 0.1s; }
+        .sr .sw:first-child { border-radius: 3px 0 0 3px; }
+        .sr .sw:last-child { border-radius: 0 3px 3px 0; }
+        .sr .sw:hover { transform: scaleY(1.3); z-index: 1; box-shadow: 0 0 0 1px rgba(255,255,255,0.3); }
+        .sr .sw .tp {
+          display: none; position: absolute; bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%);
+          background: #383838; color: #ccc; font-size: 11px; padding: 2px 6px; border-radius: 2px;
+          white-space: nowrap; pointer-events: none; z-index: 10; border: 1px solid #505050;
+          font-family: "SF Mono","Cascadia Code","Fira Code","Consolas",monospace;
+        }
+        .sr .sw:hover .tp { display: block; }
+
+        /* ——— Swatch + Apply combo ——— */
+        .sr-apply {
+          display: flex; align-items: stretch; gap: 0; margin: 6px 0;
+        }
+        .sr-apply .sr { flex: 1; margin: 0; border-radius: 3px 0 0 3px; }
+        .sr-apply .sr .sw:last-child { border-radius: 0; }
+        .sr-apply .apply-btn {
+          width: 28px; flex-shrink: 0; border: none; cursor: pointer;
+          background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+          display: flex; align-items: center; justify-content: center;
+          border-radius: 0 3px 3px 0; transition: background 0.1s;
+        }
+        .sr-apply .apply-btn:hover { background: var(--vscode-button-hoverBackground); }
+        .sr-apply .apply-btn svg { width: 14px; height: 14px; }
+
+        /* ——— Color Chips ——— */
+        .cl { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+        .cp { width: 22px; height: 22px; border-radius: 3px; cursor: pointer; border: 1px solid rgba(255,255,255,0.08); }
+        .cp:hover { border-color: rgba(255,255,255,0.3); }
+        .cp.add {
+          background: var(--vscode-input-background); border: 1px dashed var(--vscode-input-border);
+          display: flex; align-items: center; justify-content: center;
+          color: var(--vscode-descriptionForeground); font-size: 14px;
         }
 
-        main {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
+        /* ——— Color Input Row ——— */
+        .cr { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+        .cr .cv2 {
+          width: 26px; height: 26px; border-radius: 3px; flex-shrink: 0;
+          border: 1px solid rgba(255,255,255,0.08); cursor: pointer;
+        }
+        .cr input {
+          flex: 1; font-family: "SF Mono","Cascadia Code","Fira Code","Consolas",monospace; font-size: 12px;
         }
 
-        .card {
-            padding: 0;
-            margin-bottom: 20px;
+        /* ——— Empty State ——— */
+        .em { padding: 12px 16px; font-size: 12px; color: var(--vscode-descriptionForeground); text-align: center; }
+        .em a { color: var(--vscode-textLink-foreground); text-decoration: none; cursor: pointer; }
+
+        /* ——— Info Banner ——— */
+        .ib2 {
+          margin: 6px 0; padding: 6px 8px;
+          background: rgba(0,120,212,0.08); border: 1px solid rgba(0,120,212,0.25);
+          border-radius: 3px; font-size: 12px; color: var(--vscode-foreground);
+          display: flex; align-items: center; gap: 6px;
+        }
+        .ib2 .ic { color: #3794ff; width: 14px; height: 14px; }
+
+        /* ——— Commands ——— */
+        .cmdl { padding: 4px 12px 8px; }
+        .cmdi {
+          display: flex; align-items: center; gap: 8px;
+          padding: 3px 4px; font-size: 12px; border-radius: 3px; cursor: pointer;
+        }
+        .cmdi:hover { background: var(--vscode-list-hoverBackground); }
+        .cmdi .cic { width: 16px; text-align: center; color: var(--vscode-descriptionForeground); flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
+        .cmdi code {
+          background: var(--vscode-input-background); padding: 1px 5px; border-radius: 3px;
+          font-size: 11px; font-family: "SF Mono","Cascadia Code","Fira Code","Consolas",monospace;
+        }
+        .sep { height: 1px; background: var(--vscode-separator); margin: 4px 12px; }
+
+        /* ——— Workbook Parser ——— */
+        .wb-file {
+          display: flex; align-items: center; gap: 8px;
+          padding: 6px 12px; margin: 4px 8px;
+          background: var(--vscode-input-background); border-radius: 3px;
+          border-left: 3px solid var(--vscode-focusBorder);
+        }
+        .wb-file .ic { color: var(--vscode-textLink-foreground); width: 16px; height: 16px; flex-shrink: 0; }
+        .wb-file-info { flex: 1; min-width: 0; }
+        .wb-file-name {
+          font-size: 13px; font-weight: 600; color: var(--vscode-foreground);
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .wb-file-meta {
+          font-size: 11px; color: var(--vscode-descriptionForeground); line-height: 1.3;
         }
 
-        h2 {
-            margin: 0 0 8px 0;
-            font-size: 1rem;
-            font-weight: 600;
+        /* Tree item with icon + label + dim meta */
+        .tree-item {
+          display: flex; align-items: center; height: 22px;
+          padding: 0 4px 0 28px; cursor: pointer;
+        }
+        .tree-item:hover { background: var(--vscode-list-hoverBackground); }
+        .tree-item .ti-icon {
+          width: 16px; height: 16px; flex-shrink: 0; margin-right: 6px;
+          color: var(--vscode-descriptionForeground);
+          display: inline-flex; align-items: center; justify-content: center;
+        }
+        .tree-item .ti-icon svg { width: 14px; height: 14px; }
+        .tree-item .ti-label {
+          flex: 1; font-size: 13px; white-space: nowrap;
+          overflow: hidden; text-overflow: ellipsis;
+        }
+        .tree-item .ti-badge {
+          font-size: 11px; color: var(--vscode-descriptionForeground);
+          margin-left: 6px; flex-shrink: 0;
+          font-family: "SF Mono","Cascadia Code","Fira Code","Consolas",monospace;
+          background: var(--vscode-input-background); padding: 0 5px;
+          border-radius: 3px; line-height: 16px;
+        }
+        .tree-item .ti-type {
+          font-size: 10px; color: var(--vscode-descriptionForeground);
+          margin-left: 6px; flex-shrink: 0; text-transform: uppercase;
+          letter-spacing: 0.03em;
+        }
+        .tree-item .ti-actions {
+          display: flex; gap: 0; margin-right: 2px; opacity: 0; flex-shrink: 0;
+        }
+        .tree-item:hover .ti-actions { opacity: 1; }
+        .tree-item:hover .ti-type { display: none; }
+
+        /* Formula preview below a tree item */
+        .tree-formula {
+          padding: 1px 4px 1px 50px; font-size: 11px; height: 18px;
+          font-family: "SF Mono","Cascadia Code","Fira Code","Consolas",monospace;
+          color: var(--vscode-descriptionForeground); white-space: nowrap;
+          overflow: hidden; text-overflow: ellipsis;
+        }
+        .tree-formula .kw { color: #569cd6; }
+        .tree-formula .fn { color: #dcdcaa; }
+        .tree-formula .fld { color: #9cdcfe; }
+        .tree-formula .str { color: #ce9178; }
+
+        /* Palette empty sub-state */
+        .sub-empty {
+          padding: 4px 28px; font-size: 11px;
+          color: var(--vscode-disabledForeground); font-style: italic;
         }
 
-        .palette-grid,
-        .panel-block {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            margin-bottom: 20px;
-        }
+        .invalid { outline: 2px solid var(--vscode-inputValidation-errorBorder); }
 
-        .library-section {
-            margin: 0 -8px 4px;
-        }
-
-        .library-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            height: 22px;
-            padding: 0 8px 0 8px;
-            background-color: var(--vscode-sideBarSectionHeader-background);
-            border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border);
-        }
-
-        .library-title {
-            font-size: 0.688rem;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            font-weight: 700;
-            color: var(--vscode-sideBarSectionHeader-foreground, var(--vscode-foreground));
-            opacity: 0.9;
-            user-select: none;
-        }
-
-        .library-header-actions {
-            display: flex;
-            align-items: center;
-            gap: 0;
-        }
-
-        .library-help {
-            font-size: 0.8rem;
-            font-weight: 700;
-            color: var(--vscode-icon-foreground);
-            text-decoration: none;
-            width: 22px;
-            height: 22px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            opacity: 0.7;
-        }
-
-        .library-help:hover {
-            opacity: 1;
-            background-color: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
-        }
-
-        .workbook-info {
-            font-size: 0.8rem;
-            opacity: 0.6;
-            padding: 3px 8px 2px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .panel-title {
-            font-size: 0.85rem;
-            font-weight: 600;
-            margin-bottom: 8px;
-            opacity: 0.9;
-        }
-
-        .field {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            margin-bottom: 8px;
-        }
-
-        .field label {
-            font-size: 0.85rem;
-            font-weight: 600;
-        }
-
-        .palette-list,
-        .theme-list {
-            display: flex;
-            flex-direction: column;
-            gap: 0;
-        }
-
-        .palette-item {
-            display: grid;
-            grid-template-columns: 52px 1fr;
-            align-items: stretch;
-            padding: 4px 4px 4px 0;
-            background-color: transparent;
-            border-left: 2px solid transparent;
-            cursor: pointer;
-            transition: background-color 0.05s ease;
-            min-height: 40px;
-        }
-
-        .theme-card {
-            display: grid;
-            grid-template-columns: 52px 1fr;
-            align-items: stretch;
-            padding: 4px 4px 4px 0;
-            background-color: transparent;
-            border-left: 2px solid transparent;
-            cursor: pointer;
-            transition: background-color 0.05s ease;
-            min-height: 40px;
-        }
-
-        .theme-card:hover {
-            background-color: var(--vscode-list-hoverBackground);
-        }
-
-        .palette-item.active {
-            background-color: var(--vscode-list-inactiveSelectionBackground);
-            box-shadow: inset 0 0 0 2000px rgba(0, 0, 0, 0.18);
-            border-left-color: var(--vscode-focusBorder);
-        }
-
-        .palette-item.active .palette-meta {
-            opacity: 0.7;
-        }
-
-        .palette-item:hover:not(.active) {
-            background-color: var(--vscode-list-hoverBackground);
-        }
-
-        .palette-item:focus-visible {
-            outline: 1px solid var(--vscode-focusBorder);
-            outline-offset: -1px;
-        }
-
-        .palette-bar {
-            /* fills the left grid column — height is driven by the right column */
-            border-radius: 2px;
-            align-self: stretch;
-        }
-
-        .palette-info {
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            gap: 0;
-            padding: 0 4px 0 6px;
-            overflow: hidden;
-        }
-
-        .palette-name {
-            font-weight: 600;
-            font-size: 0.85rem;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .palette-meta,
-        .theme-meta {
-            font-size: 0.75rem;
-            opacity: 0.65;
-            display: flex;
-            gap: 4px;
-        }
-
-        .palette-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 2px;
-        }
-
-        .palette-actions {
-            display: flex;
-            gap: 0;
-            flex-shrink: 0;
-        }
-
-        .color-builder {
-            display: block;
-            line-height: 0;
-            gap: 4px;
-            margin-bottom: 4px;
-        }
-
-        .color-builder .color-row {
-            margin: 0 4px 6px 0;
-        }
-
-        .generator {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        /* individual swatch card in the color editor */
-        .color-row {
-            display: inline-flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 2px;
-            width: 42px;
-            vertical-align: top;
-        }
-
-        .color-row .color-swatch-btn {
-            width: 36px;
-            height: 36px;
-            border: 1px solid var(--vscode-input-border);
-            padding: 0;
-            background-color: #000;
-            cursor: pointer;
-            transition: border-color 0.1s ease;
-            border-radius: 2px;
-            display: block;
-            flex-shrink: 0;
-        }
-
-        .color-row .color-swatch-btn:hover {
-            border-color: var(--vscode-focusBorder);
-        }
-
-        /* constrain the remove button inside a swatch card */
-        .color-row vscode-button {
-            width: 24px;
-            height: 20px;
-        }
-
-        .swatch-hex-label {
-            font-size: 0.55rem;
-            font-family: var(--vscode-editor-font-family);
-            opacity: 0.65;
-            text-align: center;
-            width: 42px;
-            overflow: hidden;
-            white-space: nowrap;
-        }
-
-        /* add-color row keeps the original horizontal grid layout */
-        .color-add {
-            display: grid;
-            grid-template-columns: auto 1fr auto;
-            gap: 6px;
-            align-items: center;
-        }
-
-        .color-add .color-swatch-btn,
-        .generator-row .color-swatch-btn {
-            width: 32px;
-            height: 28px;
-            border: 1px solid var(--vscode-input-border);
-            padding: 0;
-            background-color: #000;
-            cursor: pointer;
-            transition: border-color 0.1s ease;
-            border-radius: 2px;
-            flex-shrink: 0;
-        }
-
-        .color-add .color-swatch-btn:hover,
-        .generator-row .color-swatch-btn:hover {
-            border-color: var(--vscode-focusBorder);
-        }
-
-        .generator-row {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
-
-        .scale-preview {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(40px, 1fr));
-            gap: 6px;
-        }
-
-        .scale-swatch {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 4px;
-        }
-
-        .scale-color {
-            width: 100%;
-            height: 28px;
-            border-radius: 4px;
-            border: 1px solid var(--vscode-input-border);
-        }
-
-        .scale-label {
-            font-size: 0.7rem;
-            opacity: 0.7;
-        }
-
-        .preview-actions {
-            display: flex;
-            justify-content: flex-end;
-            gap: 8px;
-        }
-
-        .button-grid {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-
-        .status {
-            margin-top: 8px;
-            font-size: 0.85rem;
-            padding: 8px;
-            border-radius: 4px;
-        }
-
-        .status.success {
-            color: var(--vscode-notificationsInfoIcon-foreground);
-            background-color: var(--vscode-inputValidation-infoBackground);
-        }
-
-        .status.error {
-            color: var(--vscode-notificationsErrorIcon-foreground);
-            background-color: var(--vscode-inputValidation-errorBackground);
-        }
-
-        .status.info {
-            opacity: 0.8;
-        }
-
-        .note {
-            font-size: 0.85rem;
-            opacity: 0.7;
-            margin: 4px 0;
-        }
+        .color-picker-input-row input { flex: 1; height: 26px; }
 
         code {
-            font-family: var(--vscode-editor-font-family);
-            background-color: var(--vscode-textCodeBlock-background);
-            padding: 2px 4px;
-            border-radius: 3px;
-        }
-
-        pre {
-            font-family: var(--vscode-editor-font-family);
-            background-color: var(--vscode-textCodeBlock-background);
-            padding: 8px;
-            border-radius: 4px;
-            overflow-x: auto;
-        }
-
-        details {
-            margin: 8px 0;
-        }
-
-        summary {
-            cursor: pointer;
-            padding: 8px;
-            background-color: transparent;
-            font-weight: 600;
-            margin-bottom: 8px;
-            list-style: none;
-            transition: background-color 0.1s ease;
-            border-radius: 4px;
-        }
-
-        summary:hover {
-            background-color: var(--vscode-list-hoverBackground);
-        }
-
-        summary::-webkit-details-marker {
-            display: none;
-        }
-
-        details[open] > summary {
-            margin-bottom: 12px;
-        }
-
-        details#builder-tools {
-            margin: 8px -8px 0;
-        }
-
-        .builder-summary {
-            font-size: 0.688rem;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            font-weight: 700;
-            color: var(--vscode-sideBarSectionHeader-foreground, var(--vscode-foreground));
-            opacity: 0.9;
-            padding: 0 8px;
-            margin-bottom: 0;
-            cursor: pointer;
-            list-style: none;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            height: 22px;
-            background-color: var(--vscode-sideBarSectionHeader-background);
-            border-top: 1px solid var(--vscode-sideBarSectionHeader-border);
-            border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border);
-            user-select: none;
-        }
-
-        .builder-summary:hover {
-            background-color: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
-            opacity: 1;
-        }
-
-        .builder-summary::before {
-            content: '▶';
-            font-size: 0.5rem;
-            transition: transform 0.12s ease;
-            display: inline-block;
-            opacity: 0.7;
-        }
-
-        details[open] > .builder-summary::before {
-            transform: rotate(90deg);
-        }
-
-        details#builder-tools > section.card {
-            padding: 8px 8px 0;
-        }
-
-        ul {
-            margin: 0;
-            padding-left: 20px;
-            line-height: 1.6;
-        }
-
-        li + li {
-            margin-top: 4px;
-        }
-
-        .invalid {
-            outline: 2px solid var(--vscode-inputValidation-errorBorder);
-        }
-
-        /* Custom class for danger button styling */
-        .danger-button {
-            background-color: var(--vscode-button-secondaryBackground) !important;
-            color: var(--vscode-errorForeground) !important;
-        }
-
-        .danger-button:hover {
-            background-color: var(--vscode-button-secondaryHoverBackground) !important;
-        }
-
-        @media (max-width: 460px) {
-            .color-add {
-                grid-template-columns: auto 1fr;
-                grid-template-rows: auto auto;
-            }
+          font-family: var(--vscode-editor-font-family);
+          background-color: var(--vscode-textCodeBlock-background);
+          padding: 2px 4px;
+          border-radius: 3px;
         }
 
         /* Custom Color Picker Modal */
@@ -1053,10 +1254,6 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             font-size: 0.85rem;
         }
 
-        .color-picker-input-row vscode-text-field {
-            flex: 1;
-        }
-
         .color-picker-buttons {
             display: flex;
             gap: 8px;
@@ -1083,1745 +1280,296 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
                 <div class="color-picker-inputs">
                     <div class="color-picker-input-row">
                         <label>R</label>
-                        <vscode-text-field id="picker-r" type="number" min="0" max="255" value="0"></vscode-text-field>
+                        <input type="number" id="picker-r" min="0" max="255" value="0">
                     </div>
                     <div class="color-picker-input-row">
                         <label>G</label>
-                        <vscode-text-field id="picker-g" type="number" min="0" max="255" value="0"></vscode-text-field>
+                        <input type="number" id="picker-g" min="0" max="255" value="0">
                     </div>
                     <div class="color-picker-input-row">
                         <label>B</label>
-                        <vscode-text-field id="picker-b" type="number" min="0" max="255" value="0"></vscode-text-field>
+                        <input type="number" id="picker-b" min="0" max="255" value="0">
                     </div>
                 </div>
             </div>
             <div class="color-picker-input-row" style="margin-bottom: 12px;">
                 <label>Hex</label>
-                <vscode-text-field id="picker-hex" value="#000000"></vscode-text-field>
+                <input type="text" id="picker-hex" value="#000000">
             </div>
             <div class="color-picker-buttons">
-                <vscode-button id="picker-cancel" appearance="secondary">Cancel</vscode-button>
-                <vscode-button id="picker-ok" appearance="primary">OK</vscode-button>
+                <button class="bt bs" id="picker-cancel">Cancel</button>
+                <button class="bt bp" id="picker-ok">OK</button>
             </div>
         </div>
     </div>
 
-    <div class="shell">
-        <section class="library-section">
-            <div class="library-header">
-                <span class="library-title">Palette Library</span>
-                <div class="library-header-actions">
-                    <vscode-button id="new-palette-add" appearance="icon" title="Add palette"><span class="codicon codicon-add"></span></vscode-button>
-                    <a class="library-help" href="#guide" title="Reference guide"><span class="codicon codicon-book"></span></a>
-                </div>
-            </div>
-            <div class="palette-list" id="palette-list"></div>
-        </section>
-        <section class="library-section">
-            <div class="library-header">
-                <span class="library-title">Workbook</span>
-                <div class="library-header-actions">
-                    <vscode-button id="parse-workbook-btn" appearance="icon" title="Refresh workbook palettes"><span class="codicon codicon-refresh"></span></vscode-button>
-                </div>
-            </div>
-            <div class="workbook-info" id="workbook-info">Open a .twb file to inspect its palettes.</div>
-            <div class="palette-list" id="workbook-palette-list"></div>
-        </section>
-        <main>
-            <details id="builder-tools">
-                <summary class="builder-summary">Builder Tools</summary>
-            <section class="card" id="palettes" style="--delay: 0.05s;">
-                <div class="palette-grid">
-                    <div class="panel-block">
-                        <div class="panel-title">Palette Editor</div>
-                        <div class="field">
-                            <label for="palette-name">Palette name</label>
-                            <vscode-text-field id="palette-name" placeholder="My Palette"></vscode-text-field>
-                        </div>
-                        <div class="field">
-                            <label for="palette-type">Palette type</label>
-                            <vscode-dropdown id="palette-type">
-                                <vscode-option value="regular">Categorical (regular)</vscode-option>
-                                <vscode-option value="ordered-sequential">Sequential (ordered-sequential)</vscode-option>
-                                <vscode-option value="ordered-diverging">Diverging (ordered-diverging)</vscode-option>
-                            </vscode-dropdown>
-                        </div>
+    <!-- ========== SVG Sprite Sheet ========== -->
+    <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+      <symbol id="i-chev-d" viewBox="0 0 10 10"><polyline points="2,3 5,6 8,3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 16 16"><line x1="8" y1="3" x2="8" y2="13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="3" y1="8" x2="13" y2="8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+      <symbol id="i-import" viewBox="0 0 16 16"><path d="M3 9v4h10V9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><polyline points="5,5 8,2 11,5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><line x1="8" y1="2" x2="8" y2="11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+      <symbol id="i-pen" viewBox="0 0 16 16"><path d="M11.5 2.5l2 2L5 13H3v-2z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+      <symbol id="i-arrow" viewBox="0 0 16 16"><line x1="3" y1="8" x2="13" y2="8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><polyline points="9,4 13,8 9,12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-dots" viewBox="0 0 16 16"><circle cx="4" cy="8" r="1.2" fill="currentColor"/><circle cx="8" cy="8" r="1.2" fill="currentColor"/><circle cx="12" cy="8" r="1.2" fill="currentColor"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 16 16"><path d="M13 8A5 5 0 1 1 8 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><polyline points="10,3 13,3 13,6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-save" viewBox="0 0 16 16"><path d="M3 2h8l2 2v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><rect x="5" y="9" width="6" height="4" rx="0.5" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="6" y="2" width="3" height="3" rx="0.3" fill="none" stroke="currentColor" stroke-width="1.2"/></symbol>
+      <symbol id="i-archive" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="3" rx="0.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M3 5v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V5" fill="none" stroke="currentColor" stroke-width="1.3"/><line x1="6" y1="9" x2="10" y2="9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 16 16"><line x1="3" y1="4" x2="13" y2="4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M6 4V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M4.5 4l0.7 9a1 1 0 0 0 1 0.9h3.6a1 1 0 0 0 1-0.9l0.7-9" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+      <symbol id="i-load" viewBox="0 0 16 16"><path d="M4 2h5l3 3v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><polyline points="9,2 9,5 12,5" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></symbol>
+      <symbol id="i-code" viewBox="0 0 16 16"><polyline points="5,4 1,8 5,12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><polyline points="11,4 15,8 11,12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-check" viewBox="0 0 16 16"><polyline points="3,8 6.5,11.5 13,4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-branch" viewBox="0 0 16 16"><circle cx="5" cy="4" r="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="5" cy="12" r="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="11" cy="6" r="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="5" y1="5.5" x2="5" y2="10.5" stroke="currentColor" stroke-width="1.2"/><path d="M5 6c0 2.5 3 1 6 2" fill="none" stroke="currentColor" stroke-width="1.2"/></symbol>
+      <symbol id="i-list" viewBox="0 0 16 16"><line x1="6" y1="4" x2="14" y2="4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="6" y1="8" x2="14" y2="8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="6" y1="12" x2="14" y2="12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="3" cy="4" r="1" fill="currentColor"/><circle cx="3" cy="8" r="1" fill="currentColor"/><circle cx="3" cy="12" r="1" fill="currentColor"/></symbol>
+      <symbol id="i-layers" viewBox="0 0 16 16"><polygon points="8,2 14,6 8,10 2,6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><polyline points="2,9 8,13 14,9" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></symbol>
+      <symbol id="i-help" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M6.5 6.5a1.5 1.5 0 0 1 2.8 0.5c0 1-1.3 1-1.3 2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="8" cy="11.5" r="0.6" fill="currentColor"/></symbol>
+      <symbol id="i-export" viewBox="0 0 16 16"><path d="M3 9v4h10V9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><polyline points="5,6 8,3 11,6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><line x1="8" y1="3" x2="8" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+      <symbol id="i-check-c" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.3"/><polyline points="5,8 7,10.5 11,5.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-files" viewBox="0 0 16 16"><rect x="5" y="1" width="8" height="10" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M3 5v7a1 1 0 0 0 1 1h6" fill="none" stroke="currentColor" stroke-width="1.2"/></symbol>
+      <symbol id="i-db" viewBox="0 0 16 16"><ellipse cx="8" cy="4" rx="5" ry="2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M3 4v4c0 1.1 2.2 2 5 2s5-.9 5-2V4" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M3 8v4c0 1.1 2.2 2 5 2s5-.9 5-2V8" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+      <symbol id="i-fx" viewBox="0 0 16 16"><text x="1" y="13" font-family="serif" font-style="italic" font-size="13" font-weight="700" fill="currentColor" stroke="none">fx</text></symbol>
+      <symbol id="i-grid" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/><line x1="2" y1="6" x2="14" y2="6" stroke="currentColor" stroke-width="1.1"/><line x1="2" y1="10" x2="14" y2="10" stroke="currentColor" stroke-width="1.1"/><line x1="6" y1="2" x2="6" y2="14" stroke="currentColor" stroke-width="1.1"/><line x1="10" y1="2" x2="10" y2="14" stroke="currentColor" stroke-width="1.1"/></symbol>
+      <symbol id="i-twb" viewBox="0 0 16 16"><path d="M4 1h5l4 4v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><polyline points="9,1 9,5 13,5" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><line x1="5.5" y1="9" x2="10.5" y2="9" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><line x1="5.5" y1="11.5" x2="8.5" y2="11.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></symbol>
+      <symbol id="i-field" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/><line x1="2" y1="6.5" x2="14" y2="6.5" stroke="currentColor" stroke-width="1.1"/><line x1="6" y1="3" x2="6" y2="13" stroke="currentColor" stroke-width="1.1"/></symbol>
+      <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.3"/><line x1="8" y1="7" x2="8" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="4.8" r="0.7" fill="currentColor"/></symbol>
+    </svg>
 
-                        <div class="color-builder">
-                            <div class="color-add">
-                                <button id="new-color-swatch" class="color-swatch-btn" style="background-color:#F4B860" aria-label="Pick new color" title="Pick color"></button>
-                                <vscode-text-field id="new-color-hex" value="#F4B860" aria-label="New color hex"></vscode-text-field>
-                                <vscode-button id="add-color" appearance="secondary">Add Color</vscode-button>
-                            </div>
-                            <div id="colors-list"></div>
-                        </div>
-
-                        <div class="button-grid">
-                            <vscode-button id="save-palette" appearance="primary">Save Palette</vscode-button>
-                            <vscode-button id="new-palette" appearance="secondary">New Palette</vscode-button>
-                            <vscode-button id="archive-palette" appearance="secondary">Archive Palette</vscode-button>
-                            <vscode-button id="delete-palette" appearance="secondary" class="danger-button">Delete Palette</vscode-button>
-                            <vscode-button id="apply-to-workbook" appearance="secondary">Apply to Active Workbook</vscode-button>
-                        </div>
-                    </div>
-
-                    <vscode-divider></vscode-divider>
-
-                    <div class="panel-block">
-                        <div class="panel-title">Advanced Gradient Generator</div>
-                        <div class="generator">
-                            <div class="field">
-                                <label for="scale-base-picker">Base Color</label>
-                                <div class="generator-row">
-                                    <button id="scale-base-swatch" class="color-swatch-btn" style="background-color:#5CB8B2" aria-label="Pick scale base color" title="Pick color"></button>
-                                    <vscode-text-field id="scale-base-hex" value="#5CB8B2" aria-label="Scale base hex"></vscode-text-field>
-                                </div>
-                            </div>
-                            <div class="field">
-                                <label for="scale-steps">Steps</label>
-                                <vscode-text-field id="scale-steps" type="number" min="3" max="15" value="9" aria-label="Scale steps"></vscode-text-field>
-                            </div>
-                            <div class="field">
-                                <label for="scale-easing">Easing Curve</label>
-                                <vscode-dropdown id="scale-easing">
-                                    <vscode-option value="linear">Linear</vscode-option>
-                                    <vscode-option value="easeIn">Ease In (slower start)</vscode-option>
-                                    <vscode-option value="easeOut" selected>Ease Out (slower end)</vscode-option>
-                                    <vscode-option value="easeInOut">Ease In Out (smooth)</vscode-option>
-                                </vscode-dropdown>
-                            </div>
-                            <vscode-button id="scale-generate" appearance="secondary" style="width: 100%;">Generate Scale</vscode-button>
-                            <div class="scale-preview" id="scale-preview"></div>
-                            <div class="preview-actions">
-                                <vscode-button id="scale-apply" appearance="primary">Apply to Editor</vscode-button>
-                            </div>
-                        </div>
-                        <div class="panel-title" style="margin-top: 1.5rem;">Multi-Stop Gradient</div>
-                        <div class="generator">
-                            <div class="field">
-                                <label for="blend-start-picker">Start Color</label>
-                                <div class="generator-row">
-                                    <button id="blend-start-swatch" class="color-swatch-btn" style="background-color:#F4B860" aria-label="Pick blend start color" title="Pick color"></button>
-                                    <vscode-text-field id="blend-start-hex" value="#F4B860" aria-label="Blend start hex"></vscode-text-field>
-                                </div>
-                            </div>
-                            <div class="field">
-                                <label for="blend-end-picker">End Color</label>
-                                <div class="generator-row">
-                                    <button id="blend-end-swatch" class="color-swatch-btn" style="background-color:#3D5A80" aria-label="Pick blend end color" title="Pick color"></button>
-                                    <vscode-text-field id="blend-end-hex" value="#3D5A80" aria-label="Blend end hex"></vscode-text-field>
-                                </div>
-                            </div>
-                            <div class="field">
-                                <label for="blend-steps">Steps</label>
-                                <vscode-text-field id="blend-steps" type="number" min="3" max="15" value="7" aria-label="Blend steps"></vscode-text-field>
-                            </div>
-                            <div class="field">
-                                <label for="blend-easing">Easing Curve</label>
-                                <vscode-dropdown id="blend-easing">
-                                    <vscode-option value="linear" selected>Linear</vscode-option>
-                                    <vscode-option value="easeIn">Ease In (slower start)</vscode-option>
-                                    <vscode-option value="easeOut">Ease Out (slower end)</vscode-option>
-                                    <vscode-option value="easeInOut">Ease In Out (smooth)</vscode-option>
-                                </vscode-dropdown>
-                            </div>
-                            <div class="field">
-                                <label for="blend-colorspace">Color Space</label>
-                                <vscode-dropdown id="blend-colorspace">
-                                    <vscode-option value="lab" selected>LAB (perceptual)</vscode-option>
-                                    <vscode-option value="rgb">RGB (direct)</vscode-option>
-                                    <vscode-option value="hsl">HSL (hue-based)</vscode-option>
-                                </vscode-dropdown>
-                            </div>
-                            <vscode-button id="blend-generate" appearance="secondary" style="width: 100%;">Generate Gradient</vscode-button>
-                            <div class="scale-preview" id="blend-preview"></div>
-                            <div class="preview-actions">
-                                <vscode-button id="blend-apply" appearance="primary">Apply to Editor</vscode-button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <vscode-divider></vscode-divider>
-
-                    <div class="panel-block">
-                        <div class="panel-title">Theme Vault</div>
-                        <div class="theme-list" id="theme-list"></div>
-                    </div>
-
-                    <vscode-divider></vscode-divider>
-
-                    <div class="panel-block">
-                        <div class="panel-title">File Actions</div>
-                        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
-                            <vscode-button id="save-file" appearance="primary" style="flex: 1;">Save</vscode-button>
-                            <vscode-button id="reload-file" appearance="secondary" style="flex: 1;">Reload</vscode-button>
-                        </div>
-                        <details style="margin-bottom: 12px;">
-                            <summary style="font-size: 0.85rem;">More Actions</summary>
-                            <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;">
-                                <vscode-button id="open-preferences" appearance="secondary">Open Template</vscode-button>
-                                <vscode-button id="copy-preferences" appearance="secondary">Copy to Repository</vscode-button>
-                            </div>
-                        </details>
-
-                        <div class="status" id="palette-status"></div>
-                        <p class="note" id="palette-source" style="font-size: 0.8rem; margin: 4px 0;">Source: not loaded yet</p>
-                    </div>
-                </div>
-            </section>
-            </details>
-
-            <vscode-divider></vscode-divider>
-
-            <section class="card" id="guide">
-                <details>
-                    <summary><strong>Commands & Reference</strong></summary>
-                    <div style="margin-top: 12px;">
-                        <h3 style="font-size: 0.9rem; margin: 8px 0;">Most Used Commands</h3>
-                        <ul style="font-size: 0.85rem;">
-                            <li><code>Format Tableau Expression</code> and <code>Validate Tableau Expression</code></li>
-                            <li><code>Insert IF Statement</code>, <code>Insert CASE Statement</code>, <code>Insert LOD Expression</code></li>
-                            <li><code>Show Function Help</code> for hover and reference guidance</li>
-                            <li><code>Extract Calculations</code> to build a clean workbook inventory</li>
-                        </ul>
-
-                        <h3 style="font-size: 0.9rem; margin: 16px 0 8px 0;">.twbl Parsing Tips</h3>
-                        <ul style="font-size: 0.85rem;">
-                            <li>Separate calculations with a blank line</li>
-                            <li>Use header format: <code>// Name - description</code></li>
-                            <li>Put <code>IF</code>, <code>THEN</code>, <code>ELSE</code>, <code>END</code> on their own lines</li>
-                            <li>Align <code>END</code> with opening keyword</li>
-                            <li>Avoid non-ASCII characters (smart quotes, emoji)</li>
-                        </ul>
-                    </div>
-                </details>
-            </section>
-        </main>
+    <!-- ====== WORKBOOK ====== -->
+    <div class="sh" id="workbook-sh">
+      <span class="cv"><svg class="ic" style="width:10px;height:10px"><use href="#i-chev-d"/></svg></span>
+      Workbook <span id="wb-script-stamp" data-build-stamp="${BUILD_STAMP}" style="font-size:9px;opacity:0.4;font-weight:400">(js not loaded)</span>
+      <div class="ha">
+        <button class="ib" id="extract-calcs-header-btn" title="Extract Calculations"><svg class="ic"><use href="#i-export"/></svg></button>
+        <button class="ib" id="parse-workbook-btn" title="Refresh"><svg class="ic"><use href="#i-refresh"/></svg></button>
+      </div>
     </div>
-    <script nonce="${nonce}">
-        const vscode = acquireVsCodeApi();
+    <div class="sb" id="workbook-sb">
+      <div id="workbook-file-card" class="wb-file" style="display:none"></div>
+      <div id="workbook-empty-state" class="em">Open a <strong>.twb</strong> or <strong>.twbx</strong> file to inspect its contents.</div>
+      <div id="extract-calcs-wrap" style="display:none;padding:4px 8px">
+        <button id="extract-calcs-btn" class="bt bp bf"><svg class="ic"><use href="#i-export"/></svg> Extract Calculations</button>
+      </div>
+      <div class="ssh c" style="margin-top:2px">
+        <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
+        Datasources
+        <span id="wb-datasources-badge" style="margin-left:auto;font-size:10px;color:var(--vscode-descriptionForeground);font-weight:400">0</span>
+      </div>
+      <div class="ssb" id="wb-datasources-content" style="display:none"></div>
+      <div class="ssh c">
+        <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
+        Calculated Fields
+        <span id="wb-calcs-badge" style="margin-left:auto;font-size:10px;color:var(--vscode-descriptionForeground);font-weight:400">0</span>
+      </div>
+      <div class="ssb" id="wb-calcs-content" style="display:none"></div>
+      <div class="ssh c">
+        <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
+        Fields
+        <span id="wb-fields-badge" style="margin-left:auto;font-size:10px;color:var(--vscode-descriptionForeground);font-weight:400">0</span>
+      </div>
+      <div class="ssb" id="wb-fields-content" style="display:none"></div>
+      <div class="ssh c">
+        <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
+        Worksheets
+        <span id="wb-sheets-badge" style="margin-left:auto;font-size:10px;color:var(--vscode-descriptionForeground);font-weight:400">0</span>
+      </div>
+      <div class="ssb" id="wb-sheets-content" style="display:none"></div>
+      <div class="ssh c">
+        <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
+        Custom Palettes
+        <span id="wb-palettes-badge" style="margin-left:auto;font-size:10px;color:var(--vscode-descriptionForeground);font-weight:400">0</span>
+      </div>
+      <div class="ssb" id="wb-palettes-content" style="display:none"></div>
+    </div>
+
+    <!-- ====== PALETTE LIBRARY ====== -->
+    <div class="sh">
+      <span class="cv"><svg class="ic" style="width:10px;height:10px"><use href="#i-chev-d"/></svg></span>
+      Palette Library
+      <span class="bg" id="palette-library-badge">0</span>
+      <div class="ha">
+        <button class="ib" id="new-palette-add" title="New Palette"><svg class="ic"><use href="#i-plus"/></svg></button>
+        <button class="ib" id="import-palette-btn" title="Import"><svg class="ic"><use href="#i-import"/></svg></button>
+      </div>
+    </div>
+    <div class="sb">
+
+      <!-- My Palettes -->
+      <div class="ssh c">
+        <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
+        My Palettes
+      </div>
+      <div class="ssb"><div id="palette-list"></div></div>
+
+      <div class="sep"></div>
+
+      <!-- Palette Editor -->
+      <div class="ssh">
+        <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
+        Palette Editor
+      </div>
+      <div class="ssb"><div class="fs">
+        <div class="fg"><label class="fl">Palette name</label><input type="text" id="palette-name" placeholder="My Palette"></div>
+        <div class="fg"><label class="fl">Palette type</label>
+          <select id="palette-type">
+            <option value="regular">Categorical (regular)</option>
+            <option value="ordered-sequential">Sequential (ordered-sequential)</option>
+            <option value="ordered-diverging">Diverging (ordered-diverging)</option>
+          </select>
+        </div>
+        <div class="fg"><label class="fl">Colors</label><div id="colors-list" class="cl"></div></div>
+        <div class="br">
+          <button class="bt bp" id="save-palette" style="flex:2"><svg class="ic"><use href="#i-save"/></svg> Save</button>
+          <button class="bt bs" id="new-palette" title="New"><svg class="ic"><use href="#i-plus"/></svg></button>
+          <button class="bt bs" id="archive-palette" title="Archive"><svg class="ic"><use href="#i-archive"/></svg></button>
+          <button class="bt bs" id="delete-palette" title="Delete" style="color:var(--vscode-errorForeground)"><svg class="ic"><use href="#i-trash"/></svg></button>
+        </div>
+        <button class="bt bs bf" id="apply-to-workbook"><svg class="ic"><use href="#i-arrow"/></svg> Apply to Active Workbook</button>
+      </div></div>
+
+      <div class="sep"></div>
+
+      <!-- Advanced Gradient Generator -->
+      <div class="ssh">
+        <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
+        Advanced Gradient Generator
+      </div>
+      <div class="ssb"><div class="fs">
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <div style="flex:1"><label class="fl">Base Color</label><div class="cr"><div class="cv2" id="scale-base-swatch" style="background:#5CB8B2"></div><input type="text" id="scale-base-hex" value="#5CB8B2"></div></div>
+          <div style="width:72px;flex-shrink:0"><label class="fl">Steps</label><input type="number" id="scale-steps" value="9" min="2" max="20"></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;align-items:flex-end">
+          <div style="flex:1"><label class="fl">Easing Curve</label>
+            <select id="scale-easing">
+              <option value="linear">Linear</option>
+              <option value="easeOut" selected>Ease Out</option>
+              <option value="easeIn">Ease In</option>
+              <option value="easeInOut">Ease In-Out</option>
+            </select>
+          </div>
+          <div style="width:72px;flex-shrink:0"><button class="bt bp" id="scale-generate" style="height:26px;width:100%;padding:0;font-size:12px">Generate</button></div>
+        </div>
+        <div class="sr-apply">
+          <div class="sr" id="scale-preview"></div>
+          <button class="apply-btn" id="scale-apply" title="Apply to Editor"><svg class="ic"><use href="#i-arrow"/></svg></button>
+        </div>
+      </div></div>
+
+      <div class="sep"></div>
+
+      <!-- Multi-Stop Gradient -->
+      <div class="ssh">
+        <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
+        Multi-Stop Gradient
+      </div>
+      <div class="ssb"><div class="fs">
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <div style="flex:1"><label class="fl">Start Color</label><div class="cr"><div class="cv2" id="blend-start-swatch" style="background:#F4B860"></div><input type="text" id="blend-start-hex" value="#F4B860"></div></div>
+          <div style="flex:1"><label class="fl">End Color</label><div class="cr"><div class="cv2" id="blend-end-swatch" style="background:#3D5A80"></div><input type="text" id="blend-end-hex" value="#3D5A80"></div></div>
+          <div style="width:72px;flex-shrink:0"><label class="fl">Steps</label><input type="number" id="blend-steps" value="7" min="2" max="20"></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;align-items:flex-end">
+          <div style="flex:1"><label class="fl">Easing Curve</label>
+            <select id="blend-easing">
+              <option value="linear" selected>Linear</option>
+              <option value="easeOut">Ease Out</option>
+              <option value="easeIn">Ease In</option>
+              <option value="easeInOut">Ease In-Out</option>
+            </select>
+          </div>
+          <div style="flex:1"><label class="fl">Color Space</label>
+            <select id="blend-colorspace">
+              <option value="lab" selected>LAB</option>
+              <option value="rgb">RGB</option>
+              <option value="hsl">HSL</option>
+            </select>
+          </div>
+          <div style="width:72px;flex-shrink:0;align-self:flex-end"><button class="bt bp" id="blend-generate" style="height:26px;width:100%;padding:0;font-size:12px">Generate</button></div>
+        </div>
+        <div class="sr-apply">
+          <div class="sr" id="blend-preview"></div>
+          <button class="apply-btn" id="blend-apply" title="Apply to Editor"><svg class="ic"><use href="#i-arrow"/></svg></button>
+        </div>
+      </div></div>
+
+      <div class="sep"></div>
+
+      <!-- Theme Vault -->
+      <div class="ssh">
+        <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
+        Theme Vault
+      </div>
+      <div class="ssb" id="theme-list"></div>
+
+      <div class="sep"></div>
+
+      <!-- File Actions -->
+      <div class="ssh">
+        <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
+        File Actions
+      </div>
+      <div class="ssb"><div class="fs">
+        <div class="br">
+          <button class="bt bp" id="save-file"><svg class="ic"><use href="#i-save"/></svg> Save</button>
+          <button class="bt bs" id="reload-file"><svg class="ic"><use href="#i-refresh"/></svg> Reload</button>
+        </div>
+        <div id="palette-status" class="ib2" style="display:none">
+          <svg class="ic"><use href="#i-info"/></svg>
+          <span id="palette-status-text"></span>
+        </div>
+        <div id="palette-source" style="padding:4px 0 0;font-size:11px;color:var(--vscode-descriptionForeground)">Source: not loaded yet</div>
+      </div></div>
+    </div>
+
+    <!-- ====== CALCULATION BANK ====== -->
+    <div class="sh">
+      <span class="cv"><svg class="ic" style="width:10px;height:10px"><use href="#i-chev-d"/></svg></span>
+      Calculation Bank
+      <div class="ha">
+        <button class="ib" id="calc-bank-refresh" title="Reload _calc_bank.twbl"><svg class="ic"><use href="#i-refresh"/></svg></button>
+      </div>
+    </div>
+    <div class="sb" id="calc-bank-sb">
+      <div id="calc-bank-list"><div style="padding:8px;font-size:11px;color:var(--vscode-descriptionForeground)">Click ↺ to load _calc_bank.twbl from workspace root.</div></div>
+    </div>
+
+    <!-- ====== COMMANDS & REFERENCE ====== -->
+    <div class="sh">
+      <span class="cv"><svg class="ic" style="width:10px;height:10px"><use href="#i-chev-d"/></svg></span>
+      Commands &amp; Reference
+    </div>
+    <div class="sb">
+      <div class="ssh" style="padding-top:6px">
+        <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
+        Most Used Commands
+      </div>
+      <div class="ssb">
+        <div class="cmdl">
+          <div class="cmdi"><span class="cic"><svg class="ic"><use href="#i-code"/></svg></span><span><code>Format Tableau Expression</code></span></div>
+          <div class="cmdi"><span class="cic"><svg class="ic"><use href="#i-check"/></svg></span><span><code>Validate Tableau Expression</code></span></div>
+          <div class="cmdi"><span class="cic"><svg class="ic"><use href="#i-branch"/></svg></span><span><code>Insert IF Statement</code></span></div>
+          <div class="cmdi"><span class="cic"><svg class="ic"><use href="#i-list"/></svg></span><span><code>Insert CASE Statement</code></span></div>
+          <div class="cmdi"><span class="cic"><svg class="ic"><use href="#i-layers"/></svg></span><span><code>Insert LOD Expression</code></span></div>
+          <div class="cmdi"><span class="cic"><svg class="ic"><use href="#i-help"/></svg></span><span><code>Show Function Help</code></span></div>
+          <div class="cmdi"><span class="cic"><svg class="ic"><use href="#i-export"/></svg></span><span><code>Extract Calculations</code></span></div>
+        </div>
+      </div>
+      <div class="ssh">
+        <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
+        .twbl Parsing Tips
+      </div>
+      <div class="ssb">
+        <div class="cmdl" style="font-size:12px;color:var(--vscode-descriptionForeground);line-height:1.6">
+          <div style="padding:2px 4px">Separate calculations with a blank line</div>
+          <div style="padding:2px 4px">Header format: <code>// Name - description</code></div>
+          <div style="padding:2px 4px">Put <code>IF</code>, <code>THEN</code>, <code>ELSE</code>, <code>END</code> on own lines</div>
+          <div style="padding:2px 4px">Align <code>END</code> with opening keyword</div>
+          <div style="padding:2px 4px">Avoid non-ASCII characters (smart quotes, emoji)</div>
+        </div>
+      </div>
+    </div>
+
+        <script src="${scriptUri}"></script>
 
-        // ── Custom Color Picker ──────────────────────────────────────────────
-        (function setupColorPicker() {
-            const modal = document.getElementById('color-picker-modal');
-            const square = document.getElementById('picker-square');
-            const squareGradient = document.getElementById('picker-square-gradient');
-            const squareCursor = document.getElementById('picker-square-cursor');
-            const hueBar = document.getElementById('picker-hue');
-            const hueCursor = document.getElementById('picker-hue-cursor');
-            const preview = document.getElementById('picker-preview');
-            const rField = document.getElementById('picker-r');
-            const gField = document.getElementById('picker-g');
-            const bField = document.getElementById('picker-b');
-            const hexField = document.getElementById('picker-hex');
-            const cancelBtn = document.getElementById('picker-cancel');
-            const okBtn = document.getElementById('picker-ok');
-
-            if (!modal || !square || !hueBar) { return; }
-
-            let hue = 0, sat = 100, val = 50; // H 0-360, S/V 0-100
-            let resolveCallback = null;
-            let squareDragging = false, hueDragging = false;
-
-            function hsvToRgb(h, s, v) {
-                s /= 100; v /= 100;
-                const c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c;
-                let r = 0, g = 0, b = 0;
-                if (h < 60)       { r = c; g = x; }
-                else if (h < 120) { r = x; g = c; }
-                else if (h < 180) { g = c; b = x; }
-                else if (h < 240) { g = x; b = c; }
-                else if (h < 300) { r = x; b = c; }
-                else              { r = c; b = x; }
-                return { r: Math.round((r + m) * 255), g: Math.round((g + m) * 255), b: Math.round((b + m) * 255) };
-            }
-
-            function rgbToHsv(r, g, b) {
-                r /= 255; g /= 255; b /= 255;
-                const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
-                let h = 0;
-                const s = max === 0 ? 0 : d / max, v = max;
-                if (d > 0) {
-                    if (max === r)      { h = ((g - b) / d + (g < b ? 6 : 0)) / 6 * 360; }
-                    else if (max === g) { h = ((b - r) / d + 2) / 6 * 360; }
-                    else                { h = ((r - g) / d + 4) / 6 * 360; }
-                }
-                return { h, s: s * 100, v: v * 100 };
-            }
-
-            function toHex(r, g, b) {
-                return '#' + [r, g, b].map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('');
-            }
-
-            function parseHex(hex) {
-                const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
-                return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : null;
-            }
-
-            function syncUI() {
-                // Update gradient background to match current hue
-                const hRgb = hsvToRgb(hue, 100, 100);
-                squareGradient.style.background =
-                    'linear-gradient(to top,#000,transparent),linear-gradient(to right,#fff,rgb(' +
-                    hRgb.r + ',' + hRgb.g + ',' + hRgb.b + '))';
-
-                // Update square cursor position
-                squareCursor.style.left = (sat / 100 * square.offsetWidth) + 'px';
-                squareCursor.style.top = ((1 - val / 100) * square.offsetHeight) + 'px';
-
-                // Update hue cursor position
-                hueCursor.style.top = (hue / 360 * hueBar.offsetHeight) + 'px';
-
-                // Update inputs and preview
-                const rgb = hsvToRgb(hue, sat, val);
-                const hex = toHex(rgb.r, rgb.g, rgb.b);
-                if (rField) { rField.value = String(rgb.r); }
-                if (gField) { gField.value = String(rgb.g); }
-                if (bField) { bField.value = String(rgb.b); }
-                if (hexField) { hexField.value = hex; }
-                if (preview) { preview.style.backgroundColor = hex; }
-            }
-
-            function setFromSquare(e) {
-                const rect = square.getBoundingClientRect();
-                sat = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * 100;
-                val = (1 - Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))) * 100;
-                syncUI();
-            }
-
-            function setFromHue(e) {
-                const rect = hueBar.getBoundingClientRect();
-                hue = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)) * 360;
-                syncUI();
-            }
-
-            square.addEventListener('mousedown', e => { squareDragging = true; setFromSquare(e); e.preventDefault(); });
-            hueBar.addEventListener('mousedown', e => { hueDragging = true; setFromHue(e); e.preventDefault(); });
-            document.addEventListener('mousemove', e => {
-                if (squareDragging) { setFromSquare(e); }
-                if (hueDragging)    { setFromHue(e); }
-            });
-            document.addEventListener('mouseup', () => { squareDragging = false; hueDragging = false; });
-
-            // Touch support
-            function toMouse(e) { return e.touches ? e.touches[0] : e; }
-            square.addEventListener('touchstart', e => { squareDragging = true; setFromSquare(toMouse(e)); e.preventDefault(); }, { passive: false });
-            hueBar.addEventListener('touchstart', e => { hueDragging = true; setFromHue(toMouse(e)); e.preventDefault(); }, { passive: false });
-            document.addEventListener('touchmove', e => {
-                if (squareDragging) { setFromSquare(toMouse(e)); }
-                if (hueDragging)    { setFromHue(toMouse(e)); }
-            }, { passive: false });
-            document.addEventListener('touchend', () => { squareDragging = false; hueDragging = false; });
-
-            function syncFromRgb() {
-                const r = Math.max(0, Math.min(255, parseInt(rField ? rField.value : '0') || 0));
-                const g = Math.max(0, Math.min(255, parseInt(gField ? gField.value : '0') || 0));
-                const b = Math.max(0, Math.min(255, parseInt(bField ? bField.value : '0') || 0));
-                const hsv = rgbToHsv(r, g, b);
-                hue = hsv.h; sat = hsv.s; val = hsv.v;
-                syncUI();
-            }
-
-            [rField, gField, bField].forEach(f => {
-                if (f) {
-                    f.addEventListener('input', syncFromRgb);
-                    f.addEventListener('change', syncFromRgb);
-                }
-            });
-
-            if (hexField) {
-                hexField.addEventListener('input', () => {
-                    const parsed = parseHex(hexField.value);
-                    if (parsed) {
-                        const hsv = rgbToHsv(parsed.r, parsed.g, parsed.b);
-                        hue = hsv.h; sat = hsv.s; val = hsv.v;
-                        syncUI();
-                    }
-                });
-            }
-
-            // Close on backdrop click
-            modal.addEventListener('click', e => { if (e.target === modal) { closeWith(null); } });
-
-            if (cancelBtn) { cancelBtn.addEventListener('click', () => closeWith(null)); }
-            if (okBtn) {
-                okBtn.addEventListener('click', () => {
-                    const rgb = hsvToRgb(hue, sat, val);
-                    closeWith(toHex(rgb.r, rgb.g, rgb.b));
-                });
-            }
-
-            function closeWith(result) {
-                modal.classList.remove('active');
-                if (resolveCallback) { resolveCallback(result); resolveCallback = null; }
-            }
-
-            window.openColorPicker = function(initialHex) {
-                return new Promise(resolve => {
-                    resolveCallback = resolve;
-                    const parsed = parseHex(initialHex || '#000000');
-                    if (parsed) {
-                        const hsv = rgbToHsv(parsed.r, parsed.g, parsed.b);
-                        hue = hsv.h; sat = hsv.s; val = hsv.v;
-                    }
-                    modal.classList.add('active');
-                    // Sync after layout so offsets are correct
-                    requestAnimationFrame(syncUI);
-                });
-            };
-        })();
-        // ────────────────────────────────────────────────────────────────────
-
-        const paletteList = document.getElementById('palette-list');
-        const paletteNameInput = document.getElementById('palette-name');
-        const paletteTypeSelect = document.getElementById('palette-type');
-        const colorsList = document.getElementById('colors-list');
-        const newColorSwatch = document.getElementById('new-color-swatch');
-        const newColorHex = document.getElementById('new-color-hex');
-        const addColorButton = document.getElementById('add-color');
-        const savePaletteButton = document.getElementById('save-palette');
-        const newPaletteButton = document.getElementById('new-palette');
-        const newPaletteAddButton = document.getElementById('new-palette-add');
-        const archivePaletteButton = document.getElementById('archive-palette');
-        const deletePaletteButton = document.getElementById('delete-palette');
-        const applyToWorkbookButton = document.getElementById('apply-to-workbook');
-        const saveFileButton = document.getElementById('save-file');
-        const reloadFileButton = document.getElementById('reload-file');
-        const openButton = document.getElementById('open-preferences');
-        const copyButton = document.getElementById('copy-preferences');
-        const statusLabel = document.getElementById('palette-status');
-        const sourceLabel = document.getElementById('palette-source');
-        const scaleBaseSwatch = document.getElementById('scale-base-swatch');
-        const scaleBaseHex = document.getElementById('scale-base-hex');
-        const scaleSteps = document.getElementById('scale-steps');
-        const scaleEasing = document.getElementById('scale-easing');
-        const scaleGenerateButton = document.getElementById('scale-generate');
-        const scalePreview = document.getElementById('scale-preview');
-        const scaleApplyButton = document.getElementById('scale-apply');
-        const blendStartSwatch = document.getElementById('blend-start-swatch');
-        const blendStartHex = document.getElementById('blend-start-hex');
-        const blendEndSwatch = document.getElementById('blend-end-swatch');
-        const blendEndHex = document.getElementById('blend-end-hex');
-        const blendSteps = document.getElementById('blend-steps');
-        const blendEasing = document.getElementById('blend-easing');
-        const blendColorspace = document.getElementById('blend-colorspace');
-        const blendGenerateButton = document.getElementById('blend-generate');
-        const blendPreview = document.getElementById('blend-preview');
-        const blendApplyButton = document.getElementById('blend-apply');
-        const themeList = document.getElementById('theme-list');
-        const workbookPaletteList = document.getElementById('workbook-palette-list');
-        const workbookInfo = document.getElementById('workbook-info');
-        const parseWorkbookBtn = document.getElementById('parse-workbook-btn');
-
-        const themePresets = [
-            {
-                name: 'Copper Noir',
-                type: 'regular',
-                tags: ['moody', 'studio', 'warm'],
-                colors: ['#F4B860', '#E07A5F', '#D1495B', '#9B4F5B', '#6D3B47', '#3D405B', '#1F2A44', '#0F1C2E']
-            },
-            {
-                name: 'Ocean Studio',
-                type: 'regular',
-                tags: ['cool', 'modern', 'clean'],
-                colors: ['#D6F2F0', '#A3DAD4', '#5CB8B2', '#2A9D8F', '#1B6F8F', '#264653', '#0B1F2A']
-            },
-            {
-                name: 'Dusty Atelier',
-                type: 'regular',
-                tags: ['neutral', 'vintage', 'paper'],
-                colors: ['#F4ECE1', '#E7D2C0', '#D4B49E', '#BA907B', '#9B6B5A', '#6E4D44', '#3F2E2E']
-            },
-            {
-                name: 'Botanical Lab',
-                type: 'regular',
-                tags: ['botanical', 'fresh', 'soft'],
-                colors: ['#E9F5DB', '#CFE1B9', '#B5C99A', '#97A97C', '#87986A', '#718355', '#546A3A']
-            },
-            {
-                name: 'Signal Drift',
-                type: 'regular',
-                tags: ['contrast', 'signal', 'night'],
-                colors: ['#F6BD60', '#F28482', '#84A59D', '#4D6F6F', '#2F4858', '#1B263B', '#0D1B2A']
-            },
-            {
-                name: 'Slate Archive',
-                type: 'regular',
-                tags: ['slate', 'archive', 'mono'],
-                colors: ['#E8EDF2', '#C6D0DA', '#A1AFC1', '#7C8DA3', '#607089', '#445468', '#2F3843']
-            },
-            {
-                name: 'Midnight Citrus',
-                type: 'regular',
-                tags: ['citrus', 'night', 'bold'],
-                colors: ['#F4D35E', '#EE964B', '#F95738', '#EE6C4D', '#3D5A80', '#1B263B', '#0D1B2A']
-            },
-            {
-                name: 'Quiet Bloom',
-                type: 'regular',
-                tags: ['bloom', 'soft', 'rose'],
-                colors: ['#F8EDEB', '#F4D6CC', '#F1B5A7', '#D87C7C', '#A44354', '#7E3147', '#4E1D3A']
-            }
-        ];
-
-        const state = {
-            palettes: [],
-            selectedName: '',
-            scaleColors: [],
-            blendColors: [],
-            editor: {
-                name: '',
-                type: 'regular',
-                colors: []
-            },
-            workbookPalettes: [],
-            workbookFileName: ''
-        };
-
-        const requiredElements = [
-            paletteList,
-            paletteNameInput,
-            paletteTypeSelect,
-            colorsList,
-            newColorSwatch,
-            newColorHex,
-            scaleBaseSwatch,
-            scaleBaseHex,
-            scaleSteps,
-            scaleEasing,
-            scaleGenerateButton,
-            scalePreview,
-            scaleApplyButton,
-            blendStartSwatch,
-            blendStartHex,
-            blendEndSwatch,
-            blendEndHex,
-            blendSteps,
-            blendEasing,
-            blendColorspace,
-            blendGenerateButton,
-            blendPreview,
-            blendApplyButton,
-            themeList
-        ];
-
-        if (requiredElements.some(element => !element)) {
-            if (statusLabel) {
-                statusLabel.textContent = 'Palette editor failed to load.';
-                statusLabel.className = 'status error';
-            }
-        } else {
-            const normalizedScaleBase = normalizeHex(scaleBaseHex.value);
-            if (normalizedScaleBase) {
-                scaleBaseHex.value = normalizedScaleBase;
-                scaleBaseSwatch.style.backgroundColor = normalizedScaleBase;
-                scaleBaseHex.classList.remove('invalid');
-            }
-
-            const blendStartInitial = normalizeHex(blendStartHex.value) || '#F4B860';
-            blendStartSwatch.style.backgroundColor = blendStartInitial;
-            const blendEndInitial = normalizeHex(blendEndHex.value) || '#3D5A80';
-            blendEndSwatch.style.backgroundColor = blendEndInitial;
-
-            state.scaleColors = generateScaleColors(scaleBaseHex.value, normalizeSteps(scaleSteps.value, 9));
-            state.blendColors = generateBlendColors(blendStartInitial, blendEndInitial, normalizeSteps(blendSteps.value, 7));
-
-            paletteList.addEventListener('click', event => {
-                const target = event.target;
-                if (!(target instanceof HTMLElement)) {
-                    return;
-                }
-
-                // Check if a card action button was clicked
-                const actionButton = target.closest('[data-action]');
-                if (actionButton instanceof HTMLElement) {
-                    event.stopPropagation();
-                    const idx = Number(actionButton.dataset.index);
-                    const palette = state.palettes[idx];
-                    if (!palette) {
-                        return;
-                    }
-                    const action = actionButton.dataset.action;
-                    if (action === 'apply') {
-                        const colors = normalizeColorList(palette.colors).filter(Boolean);
-                        vscode.postMessage({
-                            type: 'applyToWorkbook',
-                            palette: { name: palette.name, type: palette.type, colors }
-                        });
-                        setStatus('Applying \u201c' + escapeHtml(palette.name) + '\u201d to workbook\u2026', 'info');
-                    } else if (action === 'edit') {
-                        state.selectedName = palette.name;
-                        state.editor = { name: palette.name, type: palette.type, colors: palette.colors.slice() };
-                        const builderDetails = document.getElementById('builder-tools');
-                        if (builderDetails instanceof HTMLDetailsElement) {
-                            builderDetails.open = true;
-                        }
-                        renderAll();
-                        if (builderDetails) {
-                            builderDetails.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }
-                    } else if (action === 'archive') {
-                        vscode.postMessage({ type: 'archivePalette', paletteName: palette.name });
-                    }
-                    return;
-                }
-
-                // Fall through: clicking the card body selects the palette
-                const item = target.closest('.palette-item');
-                if (!item) {
-                    return;
-                }
-                const index = Number(item.dataset.index);
-                const palette = state.palettes[index];
-                if (!palette) {
-                    return;
-                }
-                state.selectedName = palette.name;
-                state.editor = {
-                    name: palette.name,
-                    type: palette.type,
-                    colors: palette.colors.slice()
-                };
-                renderAll();
-            });
-
-            paletteList.addEventListener('keydown', event => {
-                if (event.key !== 'Enter' && event.key !== ' ') {
-                    return;
-                }
-                const target = event.target;
-                if (!(target instanceof HTMLElement)) {
-                    return;
-                }
-                const item = target.closest('.palette-item');
-                if (!item) {
-                    return;
-                }
-                event.preventDefault();
-                const index = Number(item.dataset.index);
-                const palette = state.palettes[index];
-                if (!palette) {
-                    return;
-                }
-                state.selectedName = palette.name;
-                state.editor = { name: palette.name, type: palette.type, colors: palette.colors.slice() };
-                renderAll();
-            });
-
-            paletteNameInput.addEventListener('input', () => {
-                state.editor.name = paletteNameInput.value;
-            });
-
-            paletteTypeSelect.addEventListener('change', () => {
-                state.editor.type = paletteTypeSelect.value;
-            });
-
-            newColorSwatch.addEventListener('click', async () => {
-                const current = normalizeHex(newColorHex.value) || '#F4B860';
-                const picked = await window.openColorPicker(current);
-                if (picked) {
-                    newColorSwatch.style.backgroundColor = picked;
-                    newColorHex.value = picked;
-                    newColorHex.classList.remove('invalid');
-                }
-            });
-
-            newColorHex.addEventListener('input', () => {
-                const normalized = normalizeHex(newColorHex.value);
-                if (normalized) {
-                    newColorHex.classList.remove('invalid');
-                    newColorHex.value = normalized;
-                    newColorSwatch.style.backgroundColor = normalized;
-                } else {
-                    newColorHex.classList.add('invalid');
-                }
-            });
-
-            if (addColorButton) {
-                addColorButton.addEventListener('click', () => {
-                    const normalized = normalizeHex(newColorHex.value);
-                    if (!normalized) {
-                        setStatus('Enter a valid hex color before adding.', 'error');
-                        return;
-                    }
-                    state.editor.colors.push(normalized);
-                    renderColors();
-                });
-            }
-
-            colorsList.addEventListener('click', event => {
-                const target = event.target;
-                if (!(target instanceof HTMLElement)) {
-                    return;
-                }
-
-                // Swatch button click — open color picker
-                const swatch = target.closest('.color-picker');
-                if (swatch instanceof HTMLElement) {
-                    const row = swatch.closest('.color-row');
-                    if (!row) { return; }
-                    const index = Number(row.dataset.index);
-                    if (Number.isNaN(index)) { return; }
-                    const current = state.editor.colors[index] || '#000000';
-                    window.openColorPicker(current).then(picked => {
-                        if (!picked) { return; }
-                        state.editor.colors[index] = picked;
-                        swatch.style.backgroundColor = picked;
-                        const label = row.querySelector('.swatch-hex-label');
-                        if (label) { label.textContent = picked; }
-                    });
-                    return;
-                }
-
-                // Remove button
-                const button = target.closest('button[data-action]');
-                if (!button) {
-                    return;
-                }
-                const row = button.closest('.color-row');
-                if (!row) {
-                    return;
-                }
-                const index = Number(row.dataset.index);
-                if (Number.isNaN(index)) {
-                    return;
-                }
-                if (button.dataset.action === 'remove') {
-                    state.editor.colors.splice(index, 1);
-                    renderColors();
-                }
-            });
-
-            if (savePaletteButton) {
-                savePaletteButton.addEventListener('click', () => {
-                    const name = paletteNameInput.value.trim();
-                    if (!name) {
-                        setStatus('Palette name is required.', 'error');
-                        return;
-                    }
-                    const normalizedColors = state.editor.colors.map(color => normalizeHex(color));
-                    if (normalizedColors.some(color => !color)) {
-                        setStatus('Fix invalid colors before saving.', 'error');
-                        return;
-                    }
-                    const colors = normalizedColors.filter(Boolean);
-                    if (colors.length === 0) {
-                        setStatus('Add at least one color before saving.', 'error');
-                        return;
-                    }
-                    const palette = {
-                        name,
-                        type: normalizePaletteType(paletteTypeSelect.value),
-                        colors
-                    };
-                    upsertPalette(palette);
-                    state.selectedName = palette.name;
-                    state.editor = {
-                        name: palette.name,
-                        type: palette.type,
-                        colors: palette.colors.slice()
-                    };
-                    renderAll();
-                    setStatus('Palette saved to the sidebar list.', 'success');
-                });
-            }
-
-            if (newPaletteButton) {
-                newPaletteButton.addEventListener('click', () => {
-                    state.selectedName = '';
-                    state.editor = {
-                        name: '',
-                        type: 'regular',
-                        colors: []
-                    };
-                    paletteNameInput.value = '';
-                    paletteTypeSelect.value = 'regular';
-                    renderAll();
-                    setStatus('New palette ready.', 'info');
-                });
-            }
-
-            if (newPaletteAddButton) {
-                newPaletteAddButton.addEventListener('click', () => {
-                    state.selectedName = '';
-                    state.editor = { name: '', type: 'regular', colors: [] };
-                    if (paletteNameInput) {
-                        paletteNameInput.value = '';
-                    }
-                    if (paletteTypeSelect) {
-                        paletteTypeSelect.value = 'regular';
-                    }
-                    const builderDetails = document.getElementById('builder-tools');
-                    if (builderDetails instanceof HTMLDetailsElement) {
-                        builderDetails.open = true;
-                    }
-                    renderAll();
-                    if (builderDetails) {
-                        builderDetails.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    }
-                    setStatus('New palette ready.', 'info');
-                });
-            }
-
-            if (deletePaletteButton) {
-                deletePaletteButton.addEventListener('click', () => {
-                    if (!state.selectedName) {
-                        setStatus('Select a palette to delete.', 'error');
-                        return;
-                    }
-                    vscode.postMessage({
-                        type: 'deletePalette',
-                        paletteName: state.selectedName
-                    });
-                });
-            }
-
-            if (archivePaletteButton) {
-                archivePaletteButton.addEventListener('click', () => {
-                    if (!state.selectedName) {
-                        setStatus('Select a palette to archive.', 'error');
-                        return;
-                    }
-                    vscode.postMessage({
-                        type: 'archivePalette',
-                        paletteName: state.selectedName
-                    });
-                });
-            }
-
-            if (applyToWorkbookButton) {
-                applyToWorkbookButton.addEventListener('click', () => {
-                    const name = paletteNameInput.value.trim();
-                    if (!name) {
-                        setStatus('Palette name is required before applying.', 'error');
-                        return;
-                    }
-                    const normalizedColors = state.editor.colors.map(color => normalizeHex(color));
-                    if (normalizedColors.some(color => !color)) {
-                        setStatus('Fix invalid colors before applying.', 'error');
-                        return;
-                    }
-                    const colors = normalizedColors.filter(Boolean);
-                    if (colors.length === 0) {
-                        setStatus('Add at least one color before applying.', 'error');
-                        return;
-                    }
-
-                    vscode.postMessage({
-                        type: 'applyToWorkbook',
-                        palette: {
-                            name,
-                            type: normalizePaletteType(paletteTypeSelect.value),
-                            colors
-                        }
-                    });
-                });
-            }
-
-            if (saveFileButton) {
-                saveFileButton.addEventListener('click', () => {
-                    vscode.postMessage({
-                        type: 'savePalettes',
-                        palettes: state.palettes
-                    });
-                });
-            }
-
-            if (reloadFileButton) {
-                reloadFileButton.addEventListener('click', () => {
-                    vscode.postMessage({ type: 'requestPalettes' });
-                });
-            }
-
-            if (openButton) {
-                openButton.addEventListener('click', () => {
-                    vscode.postMessage({ type: 'openPreferencesTemplate' });
-                });
-            }
-
-            if (copyButton) {
-                copyButton.addEventListener('click', () => {
-                    vscode.postMessage({ type: 'copyPreferencesToRepository' });
-                });
-            }
-
-            scaleBaseSwatch.addEventListener('click', async () => {
-                const current = normalizeHex(scaleBaseHex.value) || '#5CB8B2';
-                const picked = await window.openColorPicker(current);
-                if (picked) {
-                    scaleBaseSwatch.style.backgroundColor = picked;
-                    scaleBaseHex.value = picked;
-                    scaleBaseHex.classList.remove('invalid');
-                }
-            });
-
-            scaleBaseHex.addEventListener('input', () => {
-                const normalized = normalizeHex(scaleBaseHex.value);
-                if (normalized) {
-                    scaleBaseHex.classList.remove('invalid');
-                    scaleBaseHex.value = normalized;
-                    scaleBaseSwatch.style.backgroundColor = normalized;
-                } else {
-                    scaleBaseHex.classList.add('invalid');
-                }
-            });
-
-            blendStartHex.addEventListener('input', () => {
-                const normalized = normalizeHex(blendStartHex.value);
-                if (normalized) {
-                    blendStartHex.classList.remove('invalid');
-                    blendStartHex.value = normalized;
-                    blendStartSwatch.style.backgroundColor = normalized;
-                } else {
-                    blendStartHex.classList.add('invalid');
-                }
-            });
-
-            blendStartSwatch.addEventListener('click', async () => {
-                const current = normalizeHex(blendStartHex.value) || '#F4B860';
-                const picked = await window.openColorPicker(current);
-                if (picked) {
-                    blendStartSwatch.style.backgroundColor = picked;
-                    blendStartHex.value = picked;
-                    blendStartHex.classList.remove('invalid');
-                }
-            });
-
-            blendEndHex.addEventListener('input', () => {
-                const normalized = normalizeHex(blendEndHex.value);
-                if (normalized) {
-                    blendEndHex.classList.remove('invalid');
-                    blendEndHex.value = normalized;
-                    blendEndSwatch.style.backgroundColor = normalized;
-                } else {
-                    blendEndHex.classList.add('invalid');
-                }
-            });
-
-            blendEndSwatch.addEventListener('click', async () => {
-                const current = normalizeHex(blendEndHex.value) || '#3D5A80';
-                const picked = await window.openColorPicker(current);
-                if (picked) {
-                    blendEndSwatch.style.backgroundColor = picked;
-                    blendEndHex.value = picked;
-                    blendEndHex.classList.remove('invalid');
-                }
-            });
-
-            scaleGenerateButton.addEventListener('click', () => {
-                const base = normalizeHex(scaleBaseHex.value);
-                if (!base) {
-                    scaleBaseHex.classList.add('invalid');
-                    setStatus('Enter a valid hex color for the scale base.', 'error');
-                    return;
-                }
-                const steps = normalizeSteps(scaleSteps.value, 9);
-                const easing = scaleEasing.value || 'easeOut';
-                scaleSteps.value = String(steps);
-                scaleBaseHex.value = base;
-                scaleBaseSwatch.style.backgroundColor = base;
-
-                const colors = generateScaleColors(base, steps, easing);
-                if (colors.length === 0) {
-                    setStatus('Unable to generate scale colors.', 'error');
-                    return;
-                }
-                state.scaleColors = colors;
-                renderScalePreview();
-                setStatus('Scale ready. Use Apply to Editor to load it.', 'info');
-            });
-
-            scaleApplyButton.addEventListener('click', () => {
-                if (state.scaleColors.length === 0) {
-                    setStatus('Generate a scale before applying.', 'error');
-                    return;
-                }
-                applyGeneratedPalette(state.scaleColors, 'ordered-sequential');
-                setStatus('Scale applied to the editor.', 'success');
-            });
-
-            blendGenerateButton.addEventListener('click', () => {
-                const start = normalizeHex(blendStartHex.value);
-                const end = normalizeHex(blendEndHex.value);
-                if (!start || !end) {
-                    setStatus('Select valid blend colors.', 'error');
-                    return;
-                }
-                const steps = normalizeSteps(blendSteps.value, 7);
-                const easing = blendEasing.value || 'linear';
-                const colorspace = blendColorspace.value || 'lab';
-                blendSteps.value = String(steps);
-                blendStartHex.value = start;
-                blendStartSwatch.style.backgroundColor = start;
-                blendEndHex.value = end;
-                blendEndSwatch.style.backgroundColor = end;
-
-                const colors = generateBlendColors(start, end, steps, easing, colorspace);
-                if (colors.length === 0) {
-                    setStatus('Unable to blend colors.', 'error');
-                    return;
-                }
-                state.blendColors = colors;
-                renderBlendPreview();
-                setStatus('Gradient ready. Use Apply to Editor to load it.', 'info');
-            });
-
-            blendApplyButton.addEventListener('click', () => {
-                if (state.blendColors.length === 0) {
-                    setStatus('Generate a blend before applying.', 'error');
-                    return;
-                }
-                applyGeneratedPalette(state.blendColors, 'ordered-diverging');
-                setStatus('Blend applied to the editor.', 'success');
-            });
-
-            themeList.addEventListener('click', event => {
-                const target = event.target;
-                if (!(target instanceof HTMLElement)) {
-                    return;
-                }
-                const button = target.closest('[data-action="add-theme"]');
-                if (!button) {
-                    return;
-                }
-                const index = Number(button.dataset.index);
-                if (Number.isNaN(index)) {
-                    return;
-                }
-                const theme = themePresets[index];
-                if (!theme) {
-                    setStatus('No theme available.', 'error');
-                    return;
-                }
-                const colors = normalizeColorList(theme.colors);
-                if (colors.length === 0) {
-                    setStatus('Theme has no colors.', 'error');
-                    return;
-                }
-                const palette = {
-                    name: ensureUniqueName(theme.name),
-                    type: normalizePaletteType(theme.type),
-                    colors
-                };
-
-                upsertPalette(palette);
-                state.selectedName = palette.name;
-                state.editor = {
-                    name: palette.name,
-                    type: palette.type,
-                    colors: palette.colors.slice()
-                };
-                renderAll();
-                setStatus('Theme "' + theme.name + '" added to your palette library.', 'success');
-            });
-
-            if (parseWorkbookBtn) {
-                parseWorkbookBtn.addEventListener('click', () => {
-                    vscode.postMessage({ type: 'parseWorkbook' });
-                });
-            }
-
-            if (workbookPaletteList) {
-                workbookPaletteList.addEventListener('click', event => {
-                    const target = event.target;
-                    if (!(target instanceof HTMLElement)) {
-                        return;
-                    }
-                    const button = target.closest('[data-action="import-workbook"]');
-                    if (!button || !(button instanceof HTMLElement)) {
-                        return;
-                    }
-                    const idx = Number(button.dataset.index);
-                    const palette = state.workbookPalettes[idx];
-                    if (!palette) {
-                        return;
-                    }
-                    const colors = normalizeColorList(palette.colors).filter(Boolean);
-                    vscode.postMessage({
-                        type: 'importWorkbookPalette',
-                        palette: { name: palette.name, type: palette.type, colors }
-                    });
-                    setStatus('Importing \u201c' + escapeHtml(palette.name) + '\u201d\u2026', 'info');
-                });
-            }
-
-            window.addEventListener('message', event => {
-                const message = event.data;
-                if (!message || typeof message !== 'object') {
-                    return;
-                }
-                if (message.type === 'contextChanged' && message.context) {
-                    updateSourceLabel(message.context.sourceLabel, message.context.sourceUri);
-                }
-                if (message.type === 'palettesLoaded') {
-                    state.palettes = coercePaletteList(message.palettes);
-                    const selected = state.selectedName
-                        ? state.palettes.find(item => item.name === state.selectedName)
-                        : state.palettes[0];
-                    if (selected) {
-                        state.selectedName = selected.name;
-                        state.editor = {
-                            name: selected.name,
-                            type: selected.type,
-                            colors: selected.colors.slice()
-                        };
-                    } else {
-                        state.selectedName = '';
-                        state.editor = {
-                            name: '',
-                            type: 'regular',
-                            colors: []
-                        };
-                    }
-                    updateSourceLabel(message.sourceLabel, message.sourcePath);
-                    renderAll();
-                }
-                if (message.type === 'paletteStatus') {
-                    setStatus(message.message || 'Update complete.', message.tone || 'info');
-                }
-                if (message.type === 'workbookParsed') {
-                    state.workbookPalettes = coercePaletteList(message.palettes);
-                    state.workbookFileName = typeof message.fileName === 'string' ? message.fileName : '';
-                    renderWorkbookPalettes();
-                }
-                if (message.type === 'workbookCleared') {
-                    state.workbookPalettes = [];
-                    state.workbookFileName = '';
-                    renderWorkbookPalettes();
-                }
-                if (message.type === 'workbookError') {
-                    state.workbookPalettes = [];
-                    state.workbookFileName = '';
-                    if (workbookInfo) {
-                        workbookInfo.textContent = typeof message.message === 'string'
-                            ? message.message
-                            : 'Workbook error.';
-                    }
-                    if (workbookPaletteList) {
-                        workbookPaletteList.innerHTML = '';
-                    }
-                }
-            });
-
-            renderAll();
-            vscode.postMessage({ type: 'requestPalettes' });
-        }
-
-        function renderAll() {
-            renderPaletteList();
-            renderColors();
-            renderThemes();
-            renderScalePreview();
-            renderBlendPreview();
-            if (paletteNameInput) {
-                paletteNameInput.value = state.editor.name;
-            }
-            if (paletteTypeSelect) {
-                paletteTypeSelect.value = normalizePaletteType(state.editor.type || 'regular');
-            }
-        }
-
-        function renderPaletteList() {
-            if (!paletteList) {
-                return;
-            }
-            if (state.palettes.length === 0) {
-                paletteList.innerHTML = '<div class="note">No palettes loaded.</div>';
-                return;
-            }
-            paletteList.innerHTML = state.palettes.map((palette, index) => {
-                const colors = normalizeColorList(palette.colors);
-                const activeClass = palette.name === state.selectedName ? ' active' : '';
-                const paletteType = escapeHtml(palette.type || 'regular');
-                const paletteName = escapeHtml(palette.name);
-                const gradient = buildGradient(colors);
-                return [
-                    '<div class="palette-item' + activeClass + '" data-index="' + index + '" role="button" tabindex="0">',
-                    '    <div class="palette-bar" style="background:' + gradient + ';"></div>',
-                    '    <div class="palette-info">',
-                    '        <div class="palette-row">',
-                    '            <span class="palette-name">' + paletteName + '</span>',
-                    '            <div class="palette-actions">',
-                    '                <vscode-button class="action-apply" data-action="apply" data-index="' + index + '" appearance="icon" title="Apply to workbook">\u26A1</vscode-button>',
-                    '                <vscode-button class="action-edit" data-action="edit" data-index="' + index + '" appearance="icon" title="Edit palette">\u270E</vscode-button>',
-                    '                <vscode-button class="action-archive" data-action="archive" data-index="' + index + '" appearance="icon" title="Archive palette">\u22EF</vscode-button>',
-                    '            </div>',
-                    '        </div>',
-                    '        <div class="palette-meta">',
-                    '            <span>' + paletteType + '</span>',
-                    '            <span>\u00B7</span>',
-                    '            <span>' + colors.length + ' colors</span>',
-                    '        </div>',
-                    '    </div>',
-                    '</div>'
-                ].join('');
-            }).join('');
-        }
-
-        function renderColors() {
-            if (!colorsList) {
-                return;
-            }
-            if (state.editor.colors.length === 0) {
-                colorsList.innerHTML = '<div class="note">Add colors to begin.</div>';
-                return;
-            }
-            colorsList.innerHTML = state.editor.colors.map((color, index) => {
-                const normalized = normalizeHex(color);
-                const swatchColor = normalized || '#000000';
-                const hexValue = normalized || color;
-                return [
-                    '<div class="color-row" data-index="' + index + '">',
-                    '    <button class="color-swatch-btn color-picker" style="background-color:' + swatchColor + ';" aria-label="Edit color ' + (index + 1) + '" title="' + escapeHtml(hexValue) + '"></button>',
-                    '    <span class="swatch-hex-label">' + escapeHtml(hexValue) + '</span>',
-                    '    <vscode-button data-action="remove" appearance="icon" class="danger-button" title="Remove"><span class="codicon codicon-close"></span></vscode-button>',
-                    '</div>'
-                ].join('');
-            }).join('');
-        }
-
-        function renderThemes() {
-            if (!themeList) {
-                return;
-            }
-            if (themePresets.length === 0) {
-                themeList.innerHTML = '<div class="note">No theme presets available.</div>';
-                return;
-            }
-            themeList.innerHTML = themePresets.map((theme, index) => {
-                const colors = normalizeColorList(theme.colors);
-                const gradient = buildGradient(colors);
-                const name = escapeHtml(theme.name);
-                const tags = Array.isArray(theme.tags) ? theme.tags.map(tag => escapeHtml(tag)).filter(Boolean) : [];
-                return [
-                    '<div class="theme-card" data-index="' + index + '">',
-                    '    <div class="palette-bar" style="background:' + gradient + ';"></div>',
-                    '    <div class="palette-info">',
-                    '        <div class="palette-row">',
-                    '            <span class="palette-name">' + name + '</span>',
-                    '            <div class="palette-actions">',
-                    '                <vscode-button appearance="icon" data-action="add-theme" data-index="' + index + '" title="Add ' + name + ' to library"><span class="codicon codicon-add"></span></vscode-button>',
-                    '            </div>',
-                    '        </div>',
-                    '        <div class="palette-meta">',
-                    '            <span>' + colors.length + ' colors</span>',
-                    tags.length ? '            <span>\u00B7</span><span>' + tags.join(', ') + '</span>' : '',
-                    '        </div>',
-                    '    </div>',
-                    '</div>'
-                ].join('');
-            }).join('');
-        }
-
-        function renderScalePreview() {
-            if (!scalePreview) {
-                return;
-            }
-            if (state.scaleColors.length === 0) {
-                scalePreview.innerHTML = '<div class="note">Generate a scale to preview.</div>';
-                return;
-            }
-            scalePreview.innerHTML = state.scaleColors.map(color => {
-                const safeColor = sanitizeColor(color);
-                return [
-                    '<div class="scale-swatch">',
-                    '    <div class="scale-color" style="background:' + safeColor + ';"></div>',
-                    '    <div class="scale-label">' + safeColor + '</div>',
-                    '</div>'
-                ].join('');
-            }).join('');
-        }
-
-        function renderBlendPreview() {
-            if (!blendPreview) {
-                return;
-            }
-            if (state.blendColors.length === 0) {
-                blendPreview.innerHTML = '<div class="note">Generate a blend to preview.</div>';
-                return;
-            }
-            blendPreview.innerHTML = state.blendColors.map(color => {
-                const safeColor = sanitizeColor(color);
-                return [
-                    '<div class="scale-swatch">',
-                    '    <div class="scale-color" style="background:' + safeColor + ';"></div>',
-                    '    <div class="scale-label">' + safeColor + '</div>',
-                    '</div>'
-                ].join('');
-            }).join('');
-        }
-
-        function applyGeneratedPalette(colors, type) {
-            state.editor.colors = colors.slice();
-            state.editor.type = normalizePaletteType(type);
-            renderAll();
-        }
-
-        function renderWorkbookPalettes() {
-            if (!workbookInfo || !workbookPaletteList) {
-                return;
-            }
-
-            if (state.workbookFileName) {
-                workbookInfo.textContent = state.workbookFileName;
-                workbookInfo.title = state.workbookFileName;
-            } else {
-                workbookInfo.textContent = 'Open a .twb file to inspect its palettes.';
-                workbookInfo.title = '';
-            }
-
-            if (state.workbookPalettes.length === 0) {
-                workbookPaletteList.innerHTML = state.workbookFileName
-                    ? '<div class="note" style="padding:4px 8px;">No custom palettes in this workbook.</div>'
-                    : '';
-                return;
-            }
-
-            workbookPaletteList.innerHTML = state.workbookPalettes.map((palette, index) => {
-                const colors = normalizeColorList(palette.colors);
-                const paletteType = escapeHtml(palette.type || 'regular');
-                const paletteName = escapeHtml(palette.name);
-                const gradient = buildGradient(colors);
-                return [
-                    '<div class="palette-item" data-index="' + index + '">',
-                    '    <div class="palette-bar" style="background:' + gradient + ';"></div>',
-                    '    <div class="palette-info">',
-                    '        <div class="palette-row">',
-                    '            <span class="palette-name">' + paletteName + '</span>',
-                    '            <div class="palette-actions">',
-                    '                <vscode-button appearance="icon" data-action="import-workbook" data-index="' + index + '" title="Import to library"><span class="codicon codicon-arrow-up"></span></vscode-button>',
-                    '            </div>',
-                    '        </div>',
-                    '        <div class="palette-meta">',
-                    '            <span>' + paletteType + '</span>',
-                    '            <span>\u00B7</span>',
-                    '            <span>' + colors.length + ' colors</span>',
-                    '        </div>',
-                    '    </div>',
-                    '</div>'
-                ].join('');
-            }).join('');
-        }
-
-        function updateSourceLabel(label, path) {
-            if (!sourceLabel) {
-                return;
-            }
-            const text = label ? 'Source: ' + label : 'Source: not available';
-            sourceLabel.textContent = text;
-            sourceLabel.title = path || '';
-        }
-
-        function setStatus(message, tone) {
-            if (!statusLabel) {
-                return;
-            }
-            statusLabel.textContent = message;
-            statusLabel.className = 'status ' + (tone || 'info');
-        }
-
-        function normalizeHex(value) {
-            if (typeof value !== 'string') {
-                return '';
-            }
-            const trimmed = value.trim();
-            if (!trimmed) {
-                return '';
-            }
-            const hex = trimmed.startsWith('#') ? trimmed : '#' + trimmed;
-            if (!/^#[0-9a-fA-F]{6}$/.test(hex)) {
-                return '';
-            }
-            return hex.toUpperCase();
-        }
-
-        function sanitizeColor(value) {
-            return normalizeHex(value) || '#000000';
-        }
-
-        function normalizeSteps(value, fallback) {
-            const parsed = Number.parseInt(value, 10);
-            if (!Number.isFinite(parsed)) {
-                return fallback;
-            }
-            return clampNumber(parsed, 3, 15);
-        }
-
-        function normalizeColorList(colors) {
-            if (!Array.isArray(colors)) {
-                return [];
-            }
-            return colors.map(color => normalizeHex(color)).filter(Boolean);
-        }
-
-        function coercePaletteList(value) {
-            if (!Array.isArray(value)) {
-                return [];
-            }
-            const seen = new Set();
-            const palettes = [];
-
-            value.forEach(entry => {
-                if (!entry || typeof entry.name !== 'string') {
-                    return;
-                }
-                const name = entry.name.trim();
-                if (!name) {
-                    return;
-                }
-                const key = name.toLowerCase();
-                if (seen.has(key)) {
-                    return;
-                }
-                seen.add(key);
-
-                const type = normalizePaletteType(entry.type);
-                const colors = normalizeColorList(entry.colors);
-
-                palettes.push({
-                    name,
-                    type,
-                    colors
-                });
-            });
-
-            return palettes;
-        }
-
-        function normalizePaletteType(value) {
-            if (value === 'ordered-sequential' || value === 'ordered-diverging' || value === 'regular') {
-                return value;
-            }
-            return 'regular';
-        }
-
-        function upsertPalette(palette) {
-            const key = palette.name.toLowerCase();
-            const existingIndex = state.palettes.findIndex(item => item.name.toLowerCase() === key);
-            if (existingIndex >= 0) {
-                state.palettes[existingIndex] = palette;
-                return;
-            }
-            state.palettes.push(palette);
-        }
-
-        function ensureUniqueName(baseName) {
-            const seed = typeof baseName === 'string' && baseName.trim() ? baseName.trim() : 'Untitled Palette';
-            let candidate = seed;
-            let index = 2;
-            while (state.palettes.some(palette => palette.name.toLowerCase() === candidate.toLowerCase())) {
-                candidate = seed + ' ' + index;
-                index += 1;
-            }
-            return candidate;
-        }
-
-        function buildGradient(colors) {
-            if (!Array.isArray(colors) || colors.length === 0) {
-                return 'linear-gradient(90deg, #2F3843 0%, #4E5C6C 100%)';
-            }
-            const safeColors = colors.map(sanitizeColor);
-            if (safeColors.length === 1) {
-                return 'linear-gradient(90deg, ' + safeColors[0] + ' 0%, ' + safeColors[0] + ' 100%)';
-            }
-            const stops = safeColors.map((color, index) => {
-                const percent = Math.round((index / (safeColors.length - 1)) * 100);
-                return color + ' ' + percent + '%';
-            }).join(', ');
-            return 'linear-gradient(90deg, ' + stops + ')';
-        }
-
-        function generateScaleColors(baseHex, steps, easingType) {
-            const normalized = normalizeHex(baseHex);
-            if (!normalized) {
-                return [];
-            }
-            const rgb = hexToRgb(normalized);
-            if (!rgb) {
-                return [];
-            }
-
-            // Convert to LAB for perceptually uniform scaling
-            const baseLab = rgbToLab(rgb);
-            const count = Math.max(2, steps);
-            const colors = [];
-
-            // Create lighter and darker versions
-            const lightLab = { l: Math.min(baseLab.l + 40, 95), a: baseLab.a, b: baseLab.b };
-            const darkLab = { l: Math.max(baseLab.l - 40, 10), a: baseLab.a, b: baseLab.b };
-
-            for (let i = 0; i < count; i += 1) {
-                let t = count === 1 ? 0 : i / (count - 1);
-                t = applyEasing(t, easingType);
-
-                const l = lightLab.l + (darkLab.l - lightLab.l) * t;
-                const a = lightLab.a + (darkLab.a - lightLab.a) * t;
-                const b = lightLab.b + (darkLab.b - lightLab.b) * t;
-
-                const stepRgb = labToRgb({ l, a, b });
-                colors.push(rgbToHex(stepRgb));
-            }
-
-            return colors;
-        }
-
-        function generateBlendColors(startHex, endHex, steps, easingType, colorspace) {
-            const startRgb = hexToRgb(startHex);
-            const endRgb = hexToRgb(endHex);
-            if (!startRgb || !endRgb) {
-                return [];
-            }
-
-            const count = Math.max(2, steps);
-            const colors = [];
-
-            if (colorspace === 'lab') {
-                // LAB interpolation (perceptually uniform)
-                const startLab = rgbToLab(startRgb);
-                const endLab = rgbToLab(endRgb);
-
-                for (let i = 0; i < count; i += 1) {
-                    let t = count === 1 ? 0 : i / (count - 1);
-                    t = applyEasing(t, easingType);
-
-                    const l = startLab.l + (endLab.l - startLab.l) * t;
-                    const a = startLab.a + (endLab.a - startLab.a) * t;
-                    const b = startLab.b + (endLab.b - startLab.b) * t;
-
-                    const rgb = labToRgb({ l, a, b });
-                    colors.push(rgbToHex(rgb));
-                }
-            } else if (colorspace === 'hsl') {
-                // HSL interpolation (hue-based)
-                const startHsl = rgbToHsl(startRgb);
-                const endHsl = rgbToHsl(endRgb);
-
-                for (let i = 0; i < count; i += 1) {
-                    let t = count === 1 ? 0 : i / (count - 1);
-                    t = applyEasing(t, easingType);
-
-                    const h = startHsl.h + (endHsl.h - startHsl.h) * t;
-                    const s = startHsl.s + (endHsl.s - startHsl.s) * t;
-                    const l = startHsl.l + (endHsl.l - startHsl.l) * t;
-
-                    const rgb = hslToRgb({ h, s, l });
-                    colors.push(rgbToHex(rgb));
-                }
-            } else {
-                // RGB interpolation (direct)
-                for (let i = 0; i < count; i += 1) {
-                    let t = count === 1 ? 0 : i / (count - 1);
-                    t = applyEasing(t, easingType);
-
-                    const r = Math.round(startRgb.r + (endRgb.r - startRgb.r) * t);
-                    const g = Math.round(startRgb.g + (endRgb.g - startRgb.g) * t);
-                    const b = Math.round(startRgb.b + (endRgb.b - startRgb.b) * t);
-                    colors.push(rgbToHex({ r, g, b }));
-                }
-            }
-
-            return colors;
-        }
-
-        function applyEasing(t, type) {
-            switch (type) {
-                case 'easeIn':
-                    return t * t * t;
-                case 'easeOut':
-                    return 1 - Math.pow(1 - t, 3);
-                case 'easeInOut':
-                    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-                default:
-                    return t;
-            }
-        }
-
-        function hexToRgb(value) {
-            const normalized = normalizeHex(value);
-            if (!normalized) {
-                return null;
-            }
-            const hex = normalized.slice(1);
-            const r = Number.parseInt(hex.slice(0, 2), 16);
-            const g = Number.parseInt(hex.slice(2, 4), 16);
-            const b = Number.parseInt(hex.slice(4, 6), 16);
-            if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) {
-                return null;
-            }
-            return { r, g, b };
-        }
-
-        function rgbToHex(rgb) {
-            const r = clampNumber(Math.round(rgb.r), 0, 255);
-            const g = clampNumber(Math.round(rgb.g), 0, 255);
-            const b = clampNumber(Math.round(rgb.b), 0, 255);
-            const hex = '#' + r.toString(16).padStart(2, '0')
-                + g.toString(16).padStart(2, '0')
-                + b.toString(16).padStart(2, '0');
-            return hex.toUpperCase();
-        }
-
-        function rgbToHsl(rgb) {
-            const r = clampNumber(rgb.r, 0, 255) / 255;
-            const g = clampNumber(rgb.g, 0, 255) / 255;
-            const b = clampNumber(rgb.b, 0, 255) / 255;
-            const max = Math.max(r, g, b);
-            const min = Math.min(r, g, b);
-            let h = 0;
-            let s = 0;
-            const l = (max + min) / 2;
-
-            if (max !== min) {
-                const d = max - min;
-                s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-                switch (max) {
-                    case r:
-                        h = (g - b) / d + (g < b ? 6 : 0);
-                        break;
-                    case g:
-                        h = (b - r) / d + 2;
-                        break;
-                    default:
-                        h = (r - g) / d + 4;
-                        break;
-                }
-                h /= 6;
-            }
-
-            return {
-                h: h * 360,
-                s: s * 100,
-                l: l * 100
-            };
-        }
-
-        function hslToRgb(hsl) {
-            const h = ((hsl.h % 360) + 360) % 360 / 360;
-            const s = clampNumber(hsl.s, 0, 100) / 100;
-            const l = clampNumber(hsl.l, 0, 100) / 100;
-
-            if (s === 0) {
-                const gray = Math.round(l * 255);
-                return { r: gray, g: gray, b: gray };
-            }
-
-            const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-            const p = 2 * l - q;
-
-            const r = hueToRgb(p, q, h + 1 / 3);
-            const g = hueToRgb(p, q, h);
-            const b = hueToRgb(p, q, h - 1 / 3);
-
-            return {
-                r: Math.round(r * 255),
-                g: Math.round(g * 255),
-                b: Math.round(b * 255)
-            };
-        }
-
-        function hueToRgb(p, q, t) {
-            let value = t;
-            if (value < 0) {
-                value += 1;
-            }
-            if (value > 1) {
-                value -= 1;
-            }
-            if (value < 1 / 6) {
-                return p + (q - p) * 6 * value;
-            }
-            if (value < 1 / 2) {
-                return q;
-            }
-            if (value < 2 / 3) {
-                return p + (q - p) * (2 / 3 - value) * 6;
-            }
-            return p;
-        }
-
-        function rgbToLab(rgb) {
-            // RGB to XYZ
-            let r = rgb.r / 255;
-            let g = rgb.g / 255;
-            let b = rgb.b / 255;
-
-            r = r > 0.04045 ? Math.pow((r + 0.055) / 1.055, 2.4) : r / 12.92;
-            g = g > 0.04045 ? Math.pow((g + 0.055) / 1.055, 2.4) : g / 12.92;
-            b = b > 0.04045 ? Math.pow((b + 0.055) / 1.055, 2.4) : b / 12.92;
-
-            let x = (r * 0.4124 + g * 0.3576 + b * 0.1805) * 100;
-            let y = (r * 0.2126 + g * 0.7152 + b * 0.0722) * 100;
-            let z = (r * 0.0193 + g * 0.1192 + b * 0.9505) * 100;
-
-            // XYZ to LAB
-            x = x / 95.047;
-            y = y / 100.000;
-            z = z / 108.883;
-
-            x = x > 0.008856 ? Math.pow(x, 1/3) : (7.787 * x) + 16/116;
-            y = y > 0.008856 ? Math.pow(y, 1/3) : (7.787 * y) + 16/116;
-            z = z > 0.008856 ? Math.pow(z, 1/3) : (7.787 * z) + 16/116;
-
-            return {
-                l: (116 * y) - 16,
-                a: 500 * (x - y),
-                b: 200 * (y - z)
-            };
-        }
-
-        function labToRgb(lab) {
-            // LAB to XYZ
-            let y = (lab.l + 16) / 116;
-            let x = lab.a / 500 + y;
-            let z = y - lab.b / 200;
-
-            x = Math.pow(x, 3) > 0.008856 ? Math.pow(x, 3) : (x - 16/116) / 7.787;
-            y = Math.pow(y, 3) > 0.008856 ? Math.pow(y, 3) : (y - 16/116) / 7.787;
-            z = Math.pow(z, 3) > 0.008856 ? Math.pow(z, 3) : (z - 16/116) / 7.787;
-
-            x = x * 95.047;
-            y = y * 100.000;
-            z = z * 108.883;
-
-            // XYZ to RGB
-            x = x / 100;
-            y = y / 100;
-            z = z / 100;
-
-            let r = x *  3.2406 + y * -1.5372 + z * -0.4986;
-            let g = x * -0.9689 + y *  1.8758 + z *  0.0415;
-            let b = x *  0.0557 + y * -0.2040 + z *  1.0570;
-
-            r = r > 0.0031308 ? 1.055 * Math.pow(r, 1/2.4) - 0.055 : 12.92 * r;
-            g = g > 0.0031308 ? 1.055 * Math.pow(g, 1/2.4) - 0.055 : 12.92 * g;
-            b = b > 0.0031308 ? 1.055 * Math.pow(b, 1/2.4) - 0.055 : 12.92 * b;
-
-            return {
-                r: clampNumber(Math.round(r * 255), 0, 255),
-                g: clampNumber(Math.round(g * 255), 0, 255),
-                b: clampNumber(Math.round(b * 255), 0, 255)
-            };
-        }
-
-        function clampNumber(value, min, max) {
-            if (!Number.isFinite(value)) {
-                return min;
-            }
-            return Math.min(max, Math.max(min, value));
-        }
-
-        function escapeHtml(value) {
-            if (typeof value !== 'string') {
-                return '';
-            }
-            return value
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/\"/g, '&quot;')
-                .replace(/'/g, '&#39;');
-        }
-    </script>
 </body>
 </html>`;
 }

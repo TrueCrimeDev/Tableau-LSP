@@ -219,21 +219,49 @@ export class AdvancedErrorRecovery {
     private processPartialExpressions(document: TextDocument, parsedDocument: ParsedDocument): void {
         const text = document.getText();
         const lines = text.split('\n');
-        
+
+        // Pre-compute the total paren balance for each contiguous calculation block.
+        // A "block" is a run of non-empty, non-comment lines. Within a balanced block,
+        // individual lines that open more parens than they close are continuation lines
+        // of a multi-line nested call — not partial expressions.
+        const lineBlockBalance: number[] = new Array(lines.length).fill(0);
+        let blockStart = -1;
+
+        const flushBlock = (end: number) => {
+            if (blockStart < 0) { return; }
+            let balance = 0;
+            for (let j = blockStart; j < end; j++) {
+                balance += (lines[j].match(/\(/g) || []).length - (lines[j].match(/\)/g) || []).length;
+            }
+            for (let j = blockStart; j < end; j++) {
+                lineBlockBalance[j] = balance;
+            }
+            blockStart = -1;
+        };
+
+        for (let i = 0; i <= lines.length; i++) {
+            const isEmpty = i === lines.length || lines[i].trim() === '' || lines[i].trim().startsWith('//');
+            if (isEmpty) {
+                flushBlock(i);
+            } else if (blockStart < 0) {
+                blockStart = i;
+            }
+        }
+
         // Look for lines that might contain partial expressions
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
-            
+
             // Skip empty lines or comments
             if (line === '' || line.startsWith('//')) {
                 continue;
             }
-            
+
             // Check for potential partial expressions
             if (this.isLikelyPartialExpression(line)) {
                 // Check if this line is already part of a valid expression
                 if (!this.isLinePartOfValidExpression(i, parsedDocument)) {
-                    this.handlePartialExpression(line, i, document);
+                    this.handlePartialExpression(line, i, document, lineBlockBalance[i] === 0);
                 }
             }
         }
@@ -307,11 +335,12 @@ export class AdvancedErrorRecovery {
     /**
      * R2.5: Handle partial expressions during editing
      */
-    private handlePartialExpression(line: string, lineIndex: number, document: TextDocument): void {
+    private handlePartialExpression(line: string, lineIndex: number, document: TextDocument, blockIsBalanced: boolean = false): void {
         const range = Range.create(lineIndex, 0, lineIndex, line.length);
         
         // Determine the type of partial expression
-        if (line.includes('IF') && !line.includes('THEN')) {
+        // Use word-boundary check so IIF(...) is not confused with the IF keyword
+        if (/\bIF\b/.test(line) && !/\bIIF\b/.test(line) && !line.includes('THEN')) {
             this.addDiagnostic(
                 range,
                 `Partial IF statement detected. Complete with THEN, condition, and END.`,
@@ -332,7 +361,9 @@ export class AdvancedErrorRecovery {
                 DiagnosticSeverity.Information,
                 { category: AdvancedErrorRecoveryCategory.PARTIAL_EXPRESSION }
             );
-        } else if ((line.match(/\(/g) || []).length !== (line.match(/\)/g) || []).length) {
+        } else if (!blockIsBalanced && (line.match(/\(/g) || []).length > (line.match(/\)/g) || []).length) {
+            // Only flag when the entire block is unbalanced AND this line opens more than
+            // it closes. Lines within a balanced multi-line nested call are not partial.
             this.addDiagnostic(
                 range,
                 `Partial function call or expression detected. Ensure parentheses are balanced.`,

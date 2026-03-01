@@ -87,12 +87,19 @@ function isTrivial(f: string): boolean {
 
 /**
  * Normalizes formula whitespace exactly like Python:
+ * - Decodes XML character references for CR/LF (Tableau encodes newlines as &#13;&#10; in attribute values)
  * - Strips whitespace from each line
  * - Removes blank lines completely
  * - Joins non-empty lines with single newline
  */
 export function normalizeFormula(formula: string): string {
-    const lines = formula.split(/\r?\n/);
+    // Decode XML numeric character references that Tableau uses for newlines inside attribute values
+    const decoded = formula
+        .replace(/&#13;/g, '\r')
+        .replace(/&#10;/g, '\n')
+        .replace(/&#xD;/gi, '\r')
+        .replace(/&#xA;/gi, '\n');
+    const lines = decoded.split(/\r?\n/);
     const nonEmptyLines = lines.map(l => l.trim()).filter(l => l !== '');
     return nonEmptyLines.join('\n');
 }

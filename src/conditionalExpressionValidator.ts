@@ -53,21 +53,11 @@ export class ConditionalExpressionValidator {
     /**
      * Validate balanced structures (parentheses, quotes, blocks)
      */
-    private validateBalancedStructures(symbols: Symbol[]): void {
-        // Re-enabled with improved logic: Check for unclosed blocks
-        for (const symbol of symbols) {
-            if ((symbol.name === 'IF' || symbol.name === 'CASE') && !symbol.end) {
-                // Only flag as error if we have children but no END - this indicates a parsing issue
-                if (symbol.children && symbol.children.length > 0) {
-                    this.addDiagnostic(
-                        symbol.range,
-                        `Unclosed ${symbol.name} block - missing END statement`,
-                        DiagnosticSeverity.Error,
-                        { category: TableauDiagnosticCategory.UNCLOSED_BLOCK, blockType: symbol.name }
-                    );
-                }
-            }
-        }
+    private validateBalancedStructures(_symbols: Symbol[]): void {
+        // Unclosed-block detection is handled more accurately by validateIfStatement
+        // and validateCaseStatement (which include the inline-END text fallback).
+        // This method is kept as an extension point but intentionally does nothing
+        // to avoid emitting duplicate, less-accurate diagnostics.
     }
     
     /**
@@ -229,18 +219,30 @@ export class ConditionalExpressionValidator {
         // Re-enabled: Check for unclosed CASE block with improved logic
         if (!symbol.end && symbol.children && symbol.children.length > 0) {
             // Only flag if we have meaningful content without an END
-            const hasMeaningfulContent = symbol.children.some(child => 
+            const hasMeaningfulContent = symbol.children.some(child =>
                 child.name === 'WHEN' || child.name === 'ELSE'
             );
-            
+
             if (hasMeaningfulContent) {
-                this.addDiagnostic(
-                    symbol.range,
-                    `Unclosed CASE block - missing END statement`,
-                    DiagnosticSeverity.Error,
-                    { category: TableauDiagnosticCategory.UNCLOSED_BLOCK, blockType: 'CASE' }
-                );
-                return;
+                // Fallback: the parser only detects END at line-start, so "ELSE value END"
+                // on one line won't set symbol.end. Scan the document text from the CASE
+                // line through the next blank line before concluding END is missing.
+                const startLine = symbol.range.start.line;
+                const allLines = document.getText().split('\n');
+                let hasInlineEnd = false;
+                for (let li = startLine; li < allLines.length; li++) {
+                    if (li > startLine && allLines[li].trim() === '') { break; }
+                    if (/\bEND\b/i.test(allLines[li])) { hasInlineEnd = true; break; }
+                }
+                if (!hasInlineEnd) {
+                    this.addDiagnostic(
+                        symbol.range,
+                        `Unclosed CASE block - missing END statement`,
+                        DiagnosticSeverity.Error,
+                        { category: TableauDiagnosticCategory.UNCLOSED_BLOCK, blockType: 'CASE' }
+                    );
+                    return;
+                }
             }
         }
         

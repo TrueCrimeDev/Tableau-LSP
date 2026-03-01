@@ -1,5 +1,5 @@
 const readFileMock = jest.fn();
-const openBufferMock = jest.fn();
+const loadAsyncMock = jest.fn();
 
 jest.mock('vscode', () => ({
     workspace: {
@@ -15,9 +15,10 @@ jest.mock('vscode', () => ({
     }
 }), { virtual: true });
 
-jest.mock('unzipper', () => ({
-    Open: {
-        buffer: openBufferMock
+jest.mock('jszip', () => ({
+    __esModule: true,
+    default: {
+        loadAsync: loadAsyncMock
     }
 }));
 
@@ -41,7 +42,7 @@ const textEncoder = new TextEncoder();
 describe('extractFromFile', () => {
     beforeEach(() => {
         readFileMock.mockReset();
-        openBufferMock.mockReset();
+        loadAsyncMock.mockReset();
     });
 
     it('extracts from .twb files using workspace fs', async () => {
@@ -61,19 +62,19 @@ describe('extractFromFile', () => {
     });
 
     it('delegates .twbx files to extractFromTwbx', async () => {
-        const entryBufferMock = jest.fn().mockResolvedValue(Buffer.from(sampleXml));
+        const entryAsyncMock = jest.fn().mockResolvedValue(sampleXml);
         readFileMock.mockResolvedValueOnce(Buffer.from('zip-data'));
-        openBufferMock.mockResolvedValueOnce({
-            files: [
-                { path: 'inner/workbook.twb', buffer: entryBufferMock }
-            ]
+        loadAsyncMock.mockResolvedValueOnce({
+            files: {
+                'inner/workbook.twb': { dir: false, async: entryAsyncMock }
+            }
         });
 
         const uri = { fsPath: 'C:/workbooks/archive.twbx' } as unknown as Uri;
         const results = await extractFromFile(uri);
 
-        expect(openBufferMock).toHaveBeenCalledTimes(1);
-        expect(entryBufferMock).toHaveBeenCalledTimes(1);
+        expect(loadAsyncMock).toHaveBeenCalledTimes(1);
+        expect(entryAsyncMock).toHaveBeenCalledWith('string');
         expect(results).toHaveLength(1);
         expect(results[0].workbook).toBe('Archive Workbook');
     });
@@ -82,12 +83,12 @@ describe('extractFromFile', () => {
 describe('extractFromTwbx', () => {
     beforeEach(() => {
         readFileMock.mockReset();
-        openBufferMock.mockReset();
+        loadAsyncMock.mockReset();
     });
 
     it('throws when archive has no .twb entries', async () => {
         readFileMock.mockResolvedValueOnce(Buffer.from('zip-data'));
-        openBufferMock.mockResolvedValueOnce({ files: [] });
+        loadAsyncMock.mockResolvedValueOnce({ files: {} });
 
         const uri = { fsPath: 'C:/workbooks/empty.twbx' } as unknown as Uri;
         await expect(extractFromTwbx(uri)).rejects.toThrow('Extraction failed: No .twb file found in the .twbx archive');
@@ -97,14 +98,14 @@ describe('extractFromTwbx', () => {
         const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
         readFileMock.mockResolvedValueOnce(Buffer.from('zip-data'));
 
-        const goodBuffer = jest.fn().mockResolvedValue(Buffer.from(sampleXml));
-        const badBuffer = jest.fn().mockRejectedValue(new Error('corrupt entry'));
+        const goodAsync = jest.fn().mockResolvedValue(sampleXml);
+        const badAsync = jest.fn().mockRejectedValue(new Error('corrupt entry'));
 
-        openBufferMock.mockResolvedValueOnce({
-            files: [
-                { path: 'good.twb', buffer: goodBuffer },
-                { path: 'bad.twb', buffer: badBuffer }
-            ]
+        loadAsyncMock.mockResolvedValueOnce({
+            files: {
+                'good.twb': { dir: false, async: goodAsync },
+                'bad.twb': { dir: false, async: badAsync }
+            }
         });
 
         const uri = { fsPath: 'C:/workbooks/mixed.twbx' } as unknown as Uri;

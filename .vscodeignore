@@ -1,100 +1,26 @@
-# Source files
-src/**
-tsconfig.json
-eslint.config.mjs
+# Exclude everything by default to prevent accidental leaks.
+**/*
 
-# Development files
-.vscode/**
-.git/**
-.gitignore
-node_modules/**
-*.vsix
+# Marketplace metadata
+!package.json
+!README.md
+!CHANGELOG.md
+!LICENSE
 
-# History files
-.history/**
-.claude/**
+# Runtime assets used by the extension
+!language-configuration.json
+!syntaxes/**
+!snippets/**
+!images/tableau-icon.png
+!config/Preferences.tps
 
-# Test files
-test-sample.twbl
-test-installation.md
-MARKETPLACE_PUBLICATION_GUIDE.md
+# Bundled extension entry points
+!out/extension.js
+!out/server.js
 
-# Documentation for development
-vscode-extension-debug-setup-prompt.md
-CLAUDE.md
+# Webview toolkit used by Parsing Guide view
+!media/toolkit.js
+!media/parsingGuideSidebar.js
 
-# Git hooks and documentation
-.husky/
-docs/
-
-# Build artifacts
-*.map
+# Keep source maps out of the package
 out/**/*.map
-
-# NPM files
-package-lock.json
-.npmrc
-
-# IDE files
-.DS_Store
-Thumbs.db
-*.swp
-*.swo
-*~
-
-# Logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
-
-# Coverage directory used by tools like istanbul
-coverage/
-
-# Dependency directories
-node_modules/
-jspm_packages/
-
-# Optional npm cache directory
-.npm
-
-# Optional eslint cache
-.eslintcache
-
-# Output of 'npm pack'
-*.tgz
-
-# Yarn Integrity file
-.yarn-integrity
-
-# dotenv environment variables file
-.env
-.env.test
-
-# parcel-bundler cache (https://parceljs.org/)
-.cache
-.parcel-cache
-
-# next.js build output
-.next
-
-# nuxt.js build output
-.nuxt
-
-# vuepress build output
-.vuepress/dist
-
-# Serverless directories
-.serverless
-
-# FuseBox cache
-.fusebox/
-
-# DynamoDB Local files
-.dynamodb/
