@@ -529,6 +529,7 @@ const state = {
     colors: [],
   },
   workbookData: null,
+  calcBankCalcs: [],
 }
 
 const requiredElements = [
@@ -1255,6 +1256,37 @@ window.addEventListener('message', (event) => {
         }, 2500)
       }
     }
+    if (message.type === 'calcBankLoaded') {
+      const list = document.getElementById('calc-bank-list')
+      if (!list) { return }
+      state.calcBankCalcs = message.calcs || []
+      if (message.error) {
+        list.innerHTML =
+          '<div style="padding:8px;font-size:11px;color:var(--vscode-descriptionForeground)">' +
+          escapeHtml(message.error) +
+          '</div>'
+        return
+      }
+      if (state.calcBankCalcs.length === 0) {
+        list.innerHTML =
+          '<div style="padding:8px;font-size:11px;color:var(--vscode-descriptionForeground)">No calculations found in _calc_bank.twbl.</div>'
+        return
+      }
+      list.innerHTML = state.calcBankCalcs
+        .map(function (c, i) {
+          return (
+            '<div class="ri" data-action="insertCalcBank" data-index="' +
+            i +
+            '">' +
+            '<svg class="ic" style="flex-shrink:0;margin-right:4px"><use href="#i-fx"/></svg>' +
+            '<span class="lb">' +
+            escapeHtml(c.title) +
+            '</span>' +
+            '</div>'
+          )
+        })
+        .join('')
+    }
   } catch (handlerErr) {
     console.error('[WBI v6] message handler threw:', handlerErr)
     vscode.postMessage({
@@ -1266,6 +1298,71 @@ window.addEventListener('message', (event) => {
 
 vscode.postMessage({ type: 'requestContext' })
 vscode.postMessage({ type: 'parseWorkbook' })
+
+;(function setupCalcBank() {
+  const refreshBtn = document.getElementById('calc-bank-refresh')
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', function () {
+      vscode.postMessage({ type: 'requestCalcBank' })
+    })
+  }
+
+  // Floating formula preview shown on row hover
+  const tooltip = document.createElement('div')
+  tooltip.style.cssText =
+    'position:fixed;z-index:9999;display:none;max-width:320px;max-height:220px;' +
+    'overflow:auto;background:var(--vscode-editorHoverWidget-background,#252526);' +
+    'border:1px solid var(--vscode-editorHoverWidget-border,#454545);' +
+    'border-radius:4px;padding:8px 10px;' +
+    'font-family:var(--vscode-editor-font-family,monospace);font-size:11px;line-height:1.5;' +
+    'color:var(--vscode-editorHoverWidget-foreground,#cccccc);pointer-events:none;' +
+    'white-space:pre-wrap;word-break:break-word;box-shadow:0 2px 8px rgba(0,0,0,0.4)'
+  document.body.appendChild(tooltip)
+
+  const calcBankSb = document.getElementById('calc-bank-sb')
+  if (calcBankSb) {
+    calcBankSb.addEventListener('click', function (event) {
+      const row = event.target.closest('[data-action="insertCalcBank"]')
+      if (!row || !(row instanceof HTMLElement)) { return }
+      const idx = parseInt(row.getAttribute('data-index') || '', 10)
+      if (isNaN(idx)) { return }
+      const calc = state.calcBankCalcs[idx]
+      if (!calc) { return }
+      vscode.postMessage({
+        type: 'insertFormula',
+        formula: '// ' + calc.title + '\n' + calc.formula,
+      })
+    })
+
+    calcBankSb.addEventListener('mouseover', function (event) {
+      const row = event.target.closest('[data-action="insertCalcBank"]')
+      if (!row || !(row instanceof HTMLElement)) {
+        tooltip.style.display = 'none'
+        return
+      }
+      const idx = parseInt(row.getAttribute('data-index') || '', 10)
+      if (isNaN(idx)) { return }
+      const calc = state.calcBankCalcs[idx]
+      if (!calc || !calc.formula) { return }
+
+      tooltip.innerHTML = highlightFormula(calc.formula)
+      tooltip.style.display = 'block'
+
+      const rect = row.getBoundingClientRect()
+      const tipH = Math.min(220, tooltip.scrollHeight + 20)
+      const spaceBelow = window.innerHeight - rect.bottom
+      tooltip.style.top = (spaceBelow >= tipH + 8
+        ? rect.bottom + 4
+        : Math.max(4, rect.top - tipH - 4)) + 'px'
+      tooltip.style.left = Math.max(4, rect.left) + 'px'
+      tooltip.style.width = Math.min(320, window.innerWidth - rect.left - 8) + 'px'
+    })
+
+    calcBankSb.addEventListener('mouseleave', function () {
+      tooltip.style.display = 'none'
+    })
+  }
+})()
 
 function renderAll() {
   renderPaletteList()

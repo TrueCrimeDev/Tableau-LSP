@@ -1,4 +1,4 @@
-import { ExtensionContext, commands, window, languages, workspace, Uri, ProgressLocation, debug, tasks, Task, TaskExecution } from 'vscode';
+import { ExtensionContext, commands, window, languages, workspace, Uri, ProgressLocation, debug, tasks, Task, TaskExecution, extensions } from 'vscode';
 import { LanguageClient } from 'vscode-languageclient/node';
 import { SlashCommandProvider } from './slashCommandProvider.js';
 import { ActivationManager } from './activation/activationManager.js';
@@ -18,6 +18,8 @@ export async function activate(context: ExtensionContext): Promise<void> {
     console.log('Tableau LSP: Extension activation started');
 
     try {
+        await warnIfConflictingExtensionInstalled();
+
         // Initialize activation manager
         activationManager = ActivationManager.getInstance();
 
@@ -78,6 +80,23 @@ export async function activate(context: ExtensionContext): Promise<void> {
         } catch (basicError) {
             console.error('Tableau LSP: Failed to register basic functionality:', basicError);
         }
+    }
+}
+
+async function warnIfConflictingExtensionInstalled(): Promise<void> {
+    const conflictingExtensionId = 'TrueCrimeDev.tableau-lsp';
+    const conflictingExtension = extensions.getExtension(conflictingExtensionId);
+    if (!conflictingExtension) {
+        return;
+    }
+
+    const action = await window.showWarningMessage(
+        'Another Tableau extension is installed (TrueCrimeDev.tableau-lsp). It can conflict with this extension. Uninstall or disable the duplicate extension.',
+        'Open Extensions'
+    );
+
+    if (action === 'Open Extensions') {
+        await commands.executeCommand('workbench.extensions.search', '@installed tableau');
     }
 }
 

@@ -570,11 +570,7 @@ function buildConditionalSignature(
  */
 function extractBranchLine(branch: Symbol, document: TextDocument): string {
   const line = branch.range.start.line ?? 0;
-  return document
-    .getText(
-      Range.create(line, 0, line, Number.MAX_SAFE_INTEGER)
-    )
-    .trimEnd();
+  return getLineText(document, line);
 }
 
 /**
@@ -583,10 +579,17 @@ function extractBranchLine(branch: Symbol, document: TextDocument): string {
 function extractEndLine(block: Symbol, document: TextDocument): string {
   const endLn = block.end?.range.start.line ??
     (block.children?.slice(-1)[0]?.range.end.line ?? 0);
+  return getLineText(document, endLn);
+}
 
-  return document.getText(
-    Range.create(endLn, 0, endLn, Number.MAX_SAFE_INTEGER)
-  ).trimEnd();
+function getLineText(document: TextDocument, line: number): string {
+  const safeLine = Math.max(0, Math.min(line, Math.max(document.lineCount - 1, 0)));
+  const lineStartOffset = document.offsetAt(Position.create(safeLine, 0));
+  const nextLineOffset = safeLine + 1 < document.lineCount
+    ? document.offsetAt(Position.create(safeLine + 1, 0))
+    : document.getText().length;
+
+  return document.getText().slice(lineStartOffset, nextLineOffset).replace(/\r?\n$/, '');
 }
 
 /**

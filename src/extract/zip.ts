@@ -1,7 +1,7 @@
 import { workspace, Uri } from 'vscode';
 import { TextDecoder } from 'util';
 import { basename } from 'path';
-import * as unzipper from 'unzipper';
+import JSZip from 'jszip';
 import { ExtractedCalculation, ExtractionResult, ExtractedDatasource, ExtractedField } from './types.js';
 import { extractCalcsFromXml, extractDatasourcesFromXml, extractFieldsFromXml, XmlPreprocessor } from './xml.js';
 
@@ -37,8 +37,10 @@ export async function extractFromTwbx(
 ): Promise<ExtractedCalculation[]> {
     try {
         const data = await workspace.fs.readFile(uri);
-        const directory = await unzipper.Open.buffer(Buffer.from(data));
-        const twbEntries = directory.files.filter(entry => entry.path.toLowerCase().endsWith('.twb'));
+        const zip = await JSZip.loadAsync(Buffer.from(data));
+        const twbEntries = Object.entries(zip.files).filter(
+            ([entryPath, entry]) => !entry.dir && entryPath.toLowerCase().endsWith('.twb')
+        );
 
         if (twbEntries.length === 0) {
             throw new Error('No .twb file found in the .twbx archive');
@@ -47,16 +49,15 @@ export async function extractFromTwbx(
         const calculations: ExtractedCalculation[] = [];
         const errors: string[] = [];
 
-        for (const entry of twbEntries) {
+        for (const [entryPath, entry] of twbEntries) {
             try {
-                const buffer = await entry.buffer();
-                const xml = buffer.toString('utf8');
-                const workbookName = basename(entry.path);
+                const xml = await entry.async('string');
+                const workbookName = basename(entryPath);
                 const extracted = extractCalcsFromXml(xml, workbookName, preprocessor);
                 calculations.push(...extracted);
             } catch (entryError) {
                 const message = entryError instanceof Error ? entryError.message : String(entryError);
-                errors.push(`${entry.path}: ${message}`);
+                errors.push(`${entryPath}: ${message}`);
             }
         }
 
@@ -149,8 +150,10 @@ async function extractAllFromTwbx(
 ): Promise<ExtractionResult> {
     try {
         const data = await workspace.fs.readFile(uri);
-        const directory = await unzipper.Open.buffer(Buffer.from(data));
-        const twbEntries = directory.files.filter(entry => entry.path.toLowerCase().endsWith('.twb'));
+        const zip = await JSZip.loadAsync(Buffer.from(data));
+        const twbEntries = Object.entries(zip.files).filter(
+            ([entryPath, entry]) => !entry.dir && entryPath.toLowerCase().endsWith('.twb')
+        );
 
         if (twbEntries.length === 0) {
             throw new Error('No .twb file found in the .twbx archive');
@@ -161,18 +164,17 @@ async function extractAllFromTwbx(
         const fields: ExtractedField[] = [];
         const errors: string[] = [];
 
-        for (const entry of twbEntries) {
+        for (const [entryPath, entry] of twbEntries) {
             try {
-                const buffer = await entry.buffer();
-                const xml = buffer.toString('utf8');
-                const workbookName = basename(entry.path);
+                const xml = await entry.async('string');
+                const workbookName = basename(entryPath);
 
                 calculations.push(...extractCalcsFromXml(xml, workbookName, preprocessor));
                 datasources.push(...extractDatasourcesFromXml(xml, workbookName, preprocessor));
                 fields.push(...extractFieldsFromXml(xml, workbookName, preprocessor));
             } catch (entryError) {
                 const message = entryError instanceof Error ? entryError.message : String(entryError);
-                errors.push(`${entry.path}: ${message}`);
+                errors.push(`${entryPath}: ${message}`);
             }
         }
 

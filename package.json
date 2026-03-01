@@ -2,7 +2,7 @@
   "name": "tableau-language-support",
   "displayName": "Tableau Language Support",
   "description": "Complete language support for Tableau calculation language with syntax highlighting, IntelliSense, validation, formatting, 100+ snippets, keyboard shortcuts, and advanced analytics patterns",
-  "version": "1.5.4",
+  "version": "1.5.6",
   "publisher": "TrueCrimeAudit",
   "icon": "images/tableau-icon.png",
   "license": "MIT",
@@ -32,7 +32,7 @@
     "theme": "dark"
   },
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": "^1.80.0"
   },
   "categories": [
     "Programming Languages",
@@ -52,6 +52,16 @@
       }
     },
     "languages": [
+      {
+        "id": "twb",
+        "extensions": [
+          ".twb"
+        ],
+        "aliases": [
+          "Tableau Workbook"
+        ],
+        "configuration": "./twb-language-configuration.json"
+      },
       {
         "id": "twbl",
         "extensions": [
@@ -78,6 +88,11 @@
       }
     ],
     "grammars": [
+      {
+        "language": "twb",
+        "scopeName": "text.xml.twb",
+        "path": "./syntaxes/twb.tmLanguage.json"
+      },
       {
         "language": "twbl",
         "scopeName": "source.twbl",
@@ -485,7 +500,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run build-base -- --minify",
-    "build-base": "esbuild --bundle --external:vscode --external:fast-xml-parser --external:unzipper src/extension.ts --outdir=out --platform=node --target=node20 --format=cjs && esbuild --bundle --external:vscode --external:fast-xml-parser --external:unzipper src/server.ts --outdir=out --platform=node --target=node20 --format=cjs",
+    "build-base": "esbuild --bundle --external:vscode src/extension.ts --outdir=out --platform=node --target=node20 --format=cjs && esbuild --bundle --external:vscode src/server.ts --outdir=out --platform=node --target=node20 --format=cjs",
     "build": "npm run build-base -- --sourcemap",
     "watch": "npm run build-base -- --sourcemap --watch",
     "test": "npm run compile && node ./node_modules/@vscode/test-electron/out/runTest.js",
@@ -497,17 +512,17 @@
     "lint": "eslint",
     "compile": "tsc --outDir out",
     "clean": "rimraf out",
-    "test:all": "npm run compile && node ./out/tests/testRunner.js",
+    "test:all": "npm run compile && npx jest --runInBand",
     "test:unit": "jest",
-    "test:incremental": "npm run compile && node ./out/tests/runIncrementalTests.js",
-    "test:error": "npm run compile && node ./out/tests/testErrorRecovery.js",
-    "test:performance": "npm run compile && node ./out/tests/performance/runPerformanceTests.js",
-    "test:integration": "npm run compile && node ./out/tests/integration/integrationTests.js",
+    "test:incremental": "npm run compile && npx jest --testPathPattern=incremental",
+    "test:error": "npm run compile && npx jest --testPathPattern=errorRecovery",
+    "test:performance": "npm run compile && npx jest --config=./src/tests/performance/jest.performance.config.js",
+    "test:integration": "npm run compile && npx jest --config=./src/tests/integration/jest.integration.config.js",
     "test:performance:suite": "npm run compile && npx jest --config=./src/tests/performance/jest.performance.config.js",
     "test:performance:stress": "npm run compile && npx jest --config=./src/tests/performance/jest.performance.config.js --testPathPattern=stressTests",
     "test:performance:lsp": "npm run compile && npx jest --config=./src/tests/performance/jest.performance.config.js --testPathPattern=lspPerformance",
     "test:performance:baseline": "npm run test:performance -- --baseline ./test-results/performance/baseline.json",
-    "test:edge": "npm run compile && node ./out/tests/edge/edgeCaseTestRunner.js",
+    "test:edge": "npm run compile && npx jest --config=./src/tests/edge/jest.edge.config.js",
     "test:edge:suite": "npm run compile && npx jest --config=./src/tests/edge/jest.edge.config.js",
     "test:edge:malformed": "npm run compile && npx jest --config=./src/tests/edge/jest.edge.config.js --testPathPattern=malformedInputs",
     "test:edge:boundary": "npm run compile && npx jest --config=./src/tests/edge/jest.edge.config.js --testPathPattern=boundaryConditions",
@@ -540,10 +555,10 @@
   "dependencies": {
     "camelcase": "^7.0.1",
     "fast-xml-parser": "^4.4.0",
+    "jszip": "^3.10.1",
     "libsodium-wrappers": "^0.7.15",
     "lodash-es": "^4.17.21",
     "semver": "^7.5.2",
-    "unzipper": "^0.12.3",
     "vscode-languageclient": "10.0.0-next.15",
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.12",
