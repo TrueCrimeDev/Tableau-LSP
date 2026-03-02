@@ -1364,6 +1364,54 @@ vscode.postMessage({ type: 'parseWorkbook' })
   }
 })()
 
+;(function setupWorkbookCalcHover() {
+  const TOOLTIP_CSS =
+    'position:fixed;z-index:9999;display:none;max-width:320px;max-height:220px;' +
+    'overflow:auto;background:var(--vscode-editorHoverWidget-background,#252526);' +
+    'border:1px solid var(--vscode-editorHoverWidget-border,#454545);' +
+    'border-radius:4px;padding:8px 10px;' +
+    'font-family:var(--vscode-editor-font-family,monospace);font-size:11px;line-height:1.5;' +
+    'color:var(--vscode-editorHoverWidget-foreground,#cccccc);pointer-events:none;' +
+    'white-space:pre-wrap;word-break:break-word;box-shadow:0 2px 8px rgba(0,0,0,0.4)'
+
+  const tooltip = document.createElement('div')
+  tooltip.style.cssText = TOOLTIP_CSS
+  document.body.appendChild(tooltip)
+
+  const workbookSb = document.getElementById('workbook-sb')
+  if (!workbookSb) { return }
+
+  workbookSb.addEventListener('mouseover', function (event) {
+    const row = event.target.closest('[data-action="copy-calc"]')
+    if (!row || !(row instanceof HTMLElement)) {
+      tooltip.style.display = 'none'
+      return
+    }
+    const data = state.workbookData
+    if (!data || !data.calculations) { return }
+    const idx = parseInt(row.getAttribute('data-index') || '', 10)
+    if (isNaN(idx)) { return }
+    const calc = data.calculations[idx]
+    if (!calc || !calc.formula) { return }
+
+    tooltip.innerHTML = highlightFormula(calc.formula)
+    tooltip.style.display = 'block'
+
+    const rect = row.getBoundingClientRect()
+    const tipH = Math.min(220, tooltip.scrollHeight + 20)
+    const spaceBelow = window.innerHeight - rect.bottom
+    tooltip.style.top = (spaceBelow >= tipH + 8
+      ? rect.bottom + 4
+      : Math.max(4, rect.top - tipH - 4)) + 'px'
+    tooltip.style.left = Math.max(4, rect.left) + 'px'
+    tooltip.style.width = Math.min(320, window.innerWidth - rect.left - 8) + 'px'
+  })
+
+  workbookSb.addEventListener('mouseleave', function () {
+    tooltip.style.display = 'none'
+  })
+})()
+
 function renderAll() {
   renderPaletteList()
   renderColors()
@@ -1752,7 +1800,7 @@ function renderCalcFields(calcs) {
       return (
         '<div class="tree-item" data-action="copy-calc" data-index="' +
         idx +
-        '" title="Copy formula with field name">' +
+        '">' +
         '<span class="ti-icon"><svg class="ic"><use href="#i-fx"/></svg></span>' +
         '<span class="ti-label">' +
         caption +
