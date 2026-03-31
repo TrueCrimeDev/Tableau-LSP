@@ -870,6 +870,23 @@ if (requiredElements.some((element) => !element)) {
     })
   }
 
+  const stripFormattingBtn = document.getElementById('strip-formatting-btn')
+  if (stripFormattingBtn) {
+    stripFormattingBtn.addEventListener('click', () => {
+      const options = {
+        borders: /** @type {HTMLInputElement} */ (document.getElementById('strip-borders')).checked,
+        bold: /** @type {HTMLInputElement} */ (document.getElementById('strip-bold')).checked,
+        fontSize: /** @type {HTMLInputElement} */ (document.getElementById('strip-font-size')).checked,
+        fontColor: /** @type {HTMLInputElement} */ (document.getElementById('strip-font-color')).checked,
+      }
+      if (!options.borders && !options.bold && !options.fontSize && !options.fontColor) {
+        setFormatStripStatus('Select at least one option.', 'error')
+        return
+      }
+      vscode.postMessage({ type: 'stripFormatting', options })
+    })
+  }
+
   scaleBaseSwatch.addEventListener('click', async () => {
     const current = normalizeHex(scaleBaseHex.value) || '#5CB8B2'
     const picked = await window.openColorPicker(current)
@@ -1155,11 +1172,6 @@ window.addEventListener('message', (event) => {
   if (!message || typeof message !== 'object') {
     return
   }
-  console.error('[WBI v6] received type=' + message.type)
-  vscode.postMessage({
-    type: 'webviewDiag',
-    message: '[v6] handler fired, type=' + message.type,
-  })
   try {
     if (message.type === 'contextChanged' && message.context) {
       updateSourceLabel(message.context.sourceLabel, message.context.sourceUri)
@@ -1190,29 +1202,15 @@ window.addEventListener('message', (event) => {
     if (message.type === 'paletteStatus') {
       setStatus(message.message || 'Update complete.', message.tone || 'info')
     }
+    if (message.type === 'formatStripStatus') {
+      setFormatStripStatus(message.message || '', message.tone || 'info')
+    }
     if (message.type === 'workbookParsed') {
       state.workbookData = message
-      vscode.postMessage({
-        type: 'webviewDiag',
-        message: '[v6] workbookParsed branch hit, fileName=' + message.fileName,
-      })
-      const _emptyDbg = document.getElementById('workbook-empty-state')
-      if (_emptyDbg) {
-        _emptyDbg.textContent = '[v6] workbookParsed received — rendering\u2026'
-        _emptyDbg.style.display = ''
-      }
       try {
         renderWorkbookData(message)
-        vscode.postMessage({
-          type: 'webviewDiag',
-          message: '[v6] renderWorkbookData completed without throw',
-        })
       } catch (renderErr) {
-        console.error('[WBI v6] renderWorkbookData threw:', renderErr)
-        vscode.postMessage({
-          type: 'webviewDiag',
-          message: '[v6] renderWorkbookData THREW: ' + String(renderErr),
-        })
+        console.error('[WBI] renderWorkbookData threw:', renderErr)
         const _eEl = document.getElementById('workbook-empty-state')
         if (_eEl) {
           _eEl.textContent = 'Render error: ' + String(renderErr)
@@ -1288,11 +1286,7 @@ window.addEventListener('message', (event) => {
         .join('')
     }
   } catch (handlerErr) {
-    console.error('[WBI v6] message handler threw:', handlerErr)
-    vscode.postMessage({
-      type: 'webviewDiag',
-      message: '[v6] OUTER handler threw: ' + String(handlerErr),
-    })
+    console.error('[WBI] message handler threw:', handlerErr)
   }
 })
 
@@ -1382,22 +1376,39 @@ vscode.postMessage({ type: 'parseWorkbook' })
   if (!workbookSb) { return }
 
   workbookSb.addEventListener('mouseover', function (event) {
-    const row = event.target.closest('[data-action="copy-calc"]')
-    if (!row || !(row instanceof HTMLElement)) {
+    const target = event.target
+    if (!(target instanceof Element)) {
+      tooltip.style.display = 'none'
+      return
+    }
+    const previewTarget = target.closest('.ti-preview[data-preview-calc-index]')
+    if (!previewTarget || !(previewTarget instanceof HTMLElement)) {
       tooltip.style.display = 'none'
       return
     }
     const data = state.workbookData
-    if (!data || !data.calculations) { return }
-    const idx = parseInt(row.getAttribute('data-index') || '', 10)
-    if (isNaN(idx)) { return }
+    if (!data || !data.calculations) {
+      tooltip.style.display = 'none'
+      return
+    }
+    const idx = parseInt(
+      previewTarget.getAttribute('data-preview-calc-index') || '',
+      10,
+    )
+    if (isNaN(idx)) {
+      tooltip.style.display = 'none'
+      return
+    }
     const calc = data.calculations[idx]
-    if (!calc || !calc.formula) { return }
+    if (!calc || !calc.formula) {
+      tooltip.style.display = 'none'
+      return
+    }
 
     tooltip.innerHTML = highlightFormula(calc.formula)
     tooltip.style.display = 'block'
 
-    const rect = row.getBoundingClientRect()
+    const rect = previewTarget.getBoundingClientRect()
     const tipH = Math.min(220, tooltip.scrollHeight + 20)
     const spaceBelow = window.innerHeight - rect.bottom
     tooltip.style.top = (spaceBelow >= tipH + 8
@@ -1599,6 +1610,26 @@ function highlightFormula(formula) {
     return ''
   }
   let result = escapeHtml(formula)
+  const placeholders = []
+  function stashHighlight(type, value) {
+    const token = '@@TLSP_' + type + '_' + placeholders.length + '@@'
+    placeholders.push({
+      token,
+      html:
+        '<span class="' + (type === 'FIELD' ? 'fld' : 'str') + '">' + value + '</span>',
+    })
+    return token
+  }
+
+  // Protect fields and string literals before keyword/function matching so
+  // words like CASE inside [Case Type] do not get split into mixed colors.
+  result = result.replace(/(\[[^\]]+\])/g, function (match) {
+    return stashHighlight('FIELD', match)
+  })
+  result = result.replace(/(&quot;[^<]*?&quot;|'[^'<\r\n]*')/g, function (match) {
+    return stashHighlight('STRING', match)
+  })
+
   // Control flow keywords (blue)
   result = result.replace(
     /\b(IF|THEN|ELSE|ELSEIF|END|CASE|WHEN|AND|OR|NOT|TRUE|FALSE|NULL)\b/gi,
@@ -1609,15 +1640,14 @@ function highlightFormula(formula) {
     /\b(SUM|AVG|COUNT|COUNTD|MIN|MAX|ATTR|CONTAINS|STARTSWITH|ENDSWITH|LEN|LEFT|RIGHT|TRIM|REPLACE|SPLIT|MID|FIND|UPPER|LOWER|FLOOR|CEILING|ROUND|ABS|ZN|ISNULL|ISDATE|DATE|DATEPART|DATEDIFF|DATEADD|TODAY|NOW|STR|INT|FLOAT|IFNULL|IIF|LOOKUP|WINDOW_SUM|WINDOW_AVG|WINDOW_COUNT|WINDOW_MIN|WINDOW_MAX|FIRST|LAST|SIZE|INDEX|RANK|PERCENTILE|STDEV|VAR|COLLECT|FIXED|INCLUDE|EXCLUDE)\b/gi,
     '<span class="fn">$1</span>',
   )
-  // Field references (light blue)
-  result = result.replace(/(\[[^\]]+\])/g, '<span class="fld">$1</span>')
-  // String literals (&quot; after escapeHtml)
-  result = result.replace(
-    /(&quot;[^<]*?&quot;)/g,
-    '<span class="str">$1</span>',
-  )
+
+  placeholders.forEach(function (entry) {
+    result = result.split(entry.token).join(entry.html)
+  })
   return result
 }
+
+let _renderedFilePath = null
 
 function renderWorkbookData(data) {
   const fileCard = document.getElementById('workbook-file-card')
@@ -1661,6 +1691,7 @@ function renderWorkbookData(data) {
         tSS(h)
       })
     }
+    _renderedFilePath = null
     return
   }
 
@@ -1687,12 +1718,14 @@ function renderWorkbookData(data) {
   updateWbBadge('wb-sheets-badge', (data.worksheets || []).length)
   updateWbBadge('wb-palettes-badge', (data.palettes || []).length)
 
-  // Expand any still-collapsed workbook sub-sections so the data is visible
-  if (workbookSbEl2) {
+  // Expand sub-sections only when a new workbook file is loaded, not on re-parses,
+  // so the user's manually collapsed sections are preserved.
+  if (workbookSbEl2 && data.filePath !== _renderedFilePath) {
     workbookSbEl2.querySelectorAll('.ssh.c').forEach(function (h) {
       tSS(h)
     })
   }
+  _renderedFilePath = data.filePath
 }
 
 function updateWbBadge(id, count) {
@@ -1798,9 +1831,14 @@ function renderCalcFields(calcs) {
         ? '<span class="ti-badge">' + escapeHtml(calc.datatype) + '</span>'
         : ''
       return (
-        '<div class="tree-item" data-action="copy-calc" data-index="' +
+        '<div class="tree-item tree-item-calc" data-action="copy-calc" data-index="' +
         idx +
         '">' +
+        '<button class="ib ib-preview ti-preview" data-action="preview-formula" data-index="' +
+        idx +
+        '" data-preview-calc-index="' +
+        idx +
+        '" title="Preview Formula"><svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-info"/></svg></button>' +
         '<span class="ti-icon"><svg class="ic"><use href="#i-fx"/></svg></span>' +
         '<span class="ti-label">' +
         caption +
@@ -1945,6 +1983,37 @@ function setStatus(message, tone) {
       iconUse.setAttribute('href', '#i-info')
       statusEl.style.background = 'rgba(0,120,212,0.08)'
       statusEl.style.borderColor = 'rgba(0,120,212,0.25)'
+    }
+  }
+}
+
+function setFormatStripStatus(message, tone) {
+  const el = document.getElementById('format-strip-status')
+  const textEl = document.getElementById('format-strip-status-text')
+  if (!el || !textEl) {
+    return
+  }
+  if (!message) {
+    el.style.display = 'none'
+    textEl.textContent = ''
+    return
+  }
+  textEl.textContent = message
+  el.style.display = ''
+  const iconUse = el.querySelector('use')
+  if (iconUse) {
+    if (tone === 'error') {
+      iconUse.setAttribute('href', '#i-info')
+      el.style.background = 'rgba(241,76,76,0.08)'
+      el.style.borderColor = 'rgba(241,76,76,0.4)'
+    } else if (tone === 'success') {
+      iconUse.setAttribute('href', '#i-check-c')
+      el.style.background = 'rgba(0,120,212,0.08)'
+      el.style.borderColor = 'rgba(0,120,212,0.25)'
+    } else {
+      iconUse.setAttribute('href', '#i-info')
+      el.style.background = 'rgba(0,120,212,0.08)'
+      el.style.borderColor = 'rgba(0,120,212,0.25)'
     }
   }
 }
