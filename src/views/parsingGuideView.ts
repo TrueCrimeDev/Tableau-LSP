@@ -15,6 +15,7 @@ import {
     writePreferencesText
 } from '../preferences/preferencesFile.js';
 import { TWBParser } from '../parsers/twbParser.js';
+import { stripFormattingXml, FormatStripOptions } from '../parsers/formatStripper.js';
 import { RichWorkbookData, WorkbookError } from '../types/workbook.js';
 import { cleanXmlContent } from '../extract/xmlCleaner.js';
 import { resolveNames } from '../extract/nameResolver.js';
@@ -56,7 +57,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 return;
             }
 
-            const payload = message as { type?: string; palettes?: unknown; palette?: unknown; paletteName?: unknown; path?: string; formula?: string };
+            const payload = message as { type?: string; palettes?: unknown; palette?: unknown; paletteName?: unknown; path?: string; formula?: string; options?: unknown };
             switch (payload.type) {
                 case 'openPreferencesTemplate':
                     void this.openPreferencesTemplate();
@@ -125,6 +126,9 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                     log.info(LOG_CAT, `[webview-diag] ${diagMsg}`);
                     break;
                 }
+                case 'stripFormatting':
+                    void this.stripWorkbookFormatting(payload.options);
+                    break;
                 default:
                     break;
             }
@@ -382,18 +386,22 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         }
         let palette: PaletteDefinition = initialPalette;
 
+        let workbookUri: vscode.Uri | undefined;
         const activeEditor = vscode.window.activeTextEditor;
-        if (!activeEditor) {
+        if (activeEditor) {
+            const p = activeEditor.document.uri.path.toLowerCase();
+            if (p.endsWith('.twb') || p.endsWith('.twbx')) {
+                workbookUri = activeEditor.document.uri;
+            }
+        }
+        if (!workbookUri && this.lastWorkbookUri) {
+            workbookUri = this.lastWorkbookUri;
+        }
+        if (!workbookUri) {
             await this.postStatus('No active workbook file. Open a .twb file first.', 'error');
             return;
         }
-
-        const workbookUri = activeEditor.document.uri;
         const path = workbookUri.path.toLowerCase();
-        if (!path.endsWith('.twb') && !path.endsWith('.twbx')) {
-            await this.postStatus('Active file is not a Tableau workbook (.twb or .twbx).', 'error');
-            return;
-        }
         if (path.endsWith('.twbx')) {
             await this.postStatus('Packaged workbooks (.twbx) are not yet supported.', 'error');
             return;
@@ -502,6 +510,62 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             message,
             tone
         });
+    }
+
+    private async postFormatStripStatus(message: string, tone: 'success' | 'error' | 'info'): Promise<void> {
+        if (!this.view) {
+            return;
+        }
+        await this.view.webview.postMessage({
+            type: 'formatStripStatus',
+            message,
+            tone
+        });
+    }
+
+    private async stripWorkbookFormatting(rawOptions: unknown): Promise<void> {
+        const options = coerceStripOptions(rawOptions);
+
+        let workbookUri: vscode.Uri | undefined;
+        const activeEditor = vscode.window.activeTextEditor;
+        if (activeEditor) {
+            const p = activeEditor.document.uri.path.toLowerCase();
+            if (p.endsWith('.twb') || p.endsWith('.twbx')) {
+                workbookUri = activeEditor.document.uri;
+            }
+        }
+        if (!workbookUri && this.lastWorkbookUri) {
+            workbookUri = this.lastWorkbookUri;
+        }
+        if (!workbookUri) {
+            await this.postFormatStripStatus('No active workbook file. Open a .twb file first.', 'error');
+            return;
+        }
+        if (workbookUri.path.toLowerCase().endsWith('.twbx')) {
+            await this.postFormatStripStatus('Packaged workbooks (.twbx) are not yet supported.', 'error');
+            return;
+        }
+
+        try {
+            const parser = new TWBParser();
+            const workbookDoc = await parser.parseWorkbook(workbookUri);
+            const updatedXml = stripFormattingXml(workbookDoc.xml, options);
+
+            if (updatedXml === workbookDoc.xml) {
+                await this.postFormatStripStatus('No matching format attributes found.', 'info');
+                return;
+            }
+
+            await parser.writeWorkbook(workbookUri, updatedXml);
+            await this.postFormatStripStatus('Formatting stripped successfully.', 'success');
+        } catch (error: unknown) {
+            if (error instanceof WorkbookError) {
+                await this.postFormatStripStatus(`Workbook error: ${error.message}`, 'error');
+                return;
+            }
+            const message = error instanceof Error ? error.message : String(error);
+            await this.postFormatStripStatus(`Failed to strip formatting: ${message}`, 'error');
+        }
     }
 
     private async postContextData(): Promise<void> {
@@ -746,18 +810,22 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             return;
         }
 
+        let uri: vscode.Uri | undefined;
         const activeEditor = vscode.window.activeTextEditor;
-        if (!activeEditor) {
+        if (activeEditor) {
+            const p = activeEditor.document.uri.path.toLowerCase();
+            if (p.endsWith('.twb') || p.endsWith('.twbx')) {
+                uri = activeEditor.document.uri;
+            }
+        }
+        if (!uri && this.lastWorkbookUri) {
+            uri = this.lastWorkbookUri;
+        }
+        if (!uri) {
             await this.postStatus('No active workbook file. Open a .twb or .twbx file first.', 'error');
             return;
         }
-
-        const uri = activeEditor.document.uri;
         const lowerPath = uri.path.toLowerCase();
-        if (!lowerPath.endsWith('.twb') && !lowerPath.endsWith('.twbx')) {
-            await this.postStatus('Active file is not a Tableau workbook (.twb or .twbx).', 'error');
-            return;
-        }
 
         try {
             const preprocessor = { clean: cleanXmlContent, resolveNames };
@@ -1079,11 +1147,31 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
           display: flex; align-items: center; height: 22px;
           padding: 0 4px 0 28px; cursor: pointer;
         }
+        .tree-item.tree-item-calc {
+          padding: 0 4px;
+        }
         .tree-item:hover { background: var(--vscode-list-hoverBackground); }
         .tree-item .ti-icon {
           width: 16px; height: 16px; flex-shrink: 0; margin-right: 6px;
           color: var(--vscode-descriptionForeground);
           display: inline-flex; align-items: center; justify-content: center;
+        }
+        .tree-item.tree-item-calc .ti-preview {
+          width: 22px; height: 22px; min-width: 22px;
+          margin-right: 4px; padding: 0; flex-shrink: 0;
+          border-radius: 3px;
+          border: none;
+          background: transparent;
+          color: var(--vscode-icon-foreground);
+          display: inline-flex; align-items: center; justify-content: center;
+        }
+        .tree-item.tree-item-calc .ti-preview:hover {
+          color: var(--vscode-foreground);
+          background: rgba(90,93,94,0.31);
+        }
+        .tree-item.tree-item-calc .ti-preview:focus-visible {
+          outline: 1px solid var(--vscode-focusBorder);
+          outline-offset: 1px;
         }
         .tree-item .ti-icon svg { width: 14px; height: 14px; }
         .tree-item .ti-label {
@@ -1106,6 +1194,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
           display: flex; gap: 0; margin-right: 2px; opacity: 0; flex-shrink: 0;
         }
         .tree-item:hover .ti-actions { opacity: 1; }
+        .tree-item[data-action="copy-calc"] .ti-actions { opacity: 1; }
         .tree-item:hover .ti-type { display: none; }
 
         /* Formula preview below a tree item */
@@ -1679,4 +1768,17 @@ function sanitizePaletteType(type: string): PaletteType {
         return type;
     }
     return 'regular';
+}
+
+function coerceStripOptions(raw: unknown): FormatStripOptions {
+    if (!raw || typeof raw !== 'object') {
+        return { borders: false, bold: false, fontSize: false, fontColor: false };
+    }
+    const obj = raw as Record<string, unknown>;
+    return {
+        borders: obj['borders'] === true,
+        bold: obj['bold'] === true,
+        fontSize: obj['fontSize'] === true,
+        fontColor: obj['fontColor'] === true,
+    };
 }
