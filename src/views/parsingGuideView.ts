@@ -825,7 +825,6 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             await this.postStatus('No active workbook file. Open a .twb or .twbx file first.', 'error');
             return;
         }
-        const lowerPath = uri.path.toLowerCase();
 
         try {
             const preprocessor = { clean: cleanXmlContent, resolveNames };
