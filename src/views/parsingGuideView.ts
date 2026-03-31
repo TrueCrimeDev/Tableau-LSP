@@ -1608,6 +1608,26 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
       </div></div>
     </div>
 
+    <!-- ====== FORMAT STRIPPER ====== -->
+    <div class="sh">
+      <span class="cv"><svg class="ic" style="width:10px;height:10px"><use href="#i-chev-d"/></svg></span>
+      Format Stripper
+    </div>
+    <div class="sb"><div class="fs">
+      <div class="fg">
+        <label class="fl" style="margin-bottom:4px">Strip from active workbook</label>
+        <label style="display:block;padding:2px 0"><input type="checkbox" id="strip-borders"> Borders</label>
+        <label style="display:block;padding:2px 0"><input type="checkbox" id="strip-bold"> Bold</label>
+        <label style="display:block;padding:2px 0"><input type="checkbox" id="strip-font-size"> Font Size</label>
+        <label style="display:block;padding:2px 0"><input type="checkbox" id="strip-font-color"> Font Color</label>
+      </div>
+      <button class="bt bp bf" id="strip-formatting-btn" style="margin-top:8px"><svg class="ic"><use href="#i-arrow"/></svg> Strip from Active Workbook</button>
+      <div id="format-strip-status" class="ib2" style="display:none;margin-top:6px">
+        <svg class="ic"><use href="#i-info"/></svg>
+        <span id="format-strip-status-text"></span>
+      </div>
+    </div></div>
+
     <!-- ====== CALCULATION BANK ====== -->
     <div class="sh">
       <span class="cv"><svg class="ic" style="width:10px;height:10px"><use href="#i-chev-d"/></svg></span>
