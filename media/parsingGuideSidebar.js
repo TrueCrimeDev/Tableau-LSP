@@ -874,10 +874,10 @@ if (requiredElements.some((element) => !element)) {
   if (stripFormattingBtn) {
     stripFormattingBtn.addEventListener('click', () => {
       const options = {
-        borders: /** @type {HTMLInputElement} */ (document.getElementById('strip-borders')).checked,
-        bold: /** @type {HTMLInputElement} */ (document.getElementById('strip-bold')).checked,
-        fontSize: /** @type {HTMLInputElement} */ (document.getElementById('strip-font-size')).checked,
-        fontColor: /** @type {HTMLInputElement} */ (document.getElementById('strip-font-color')).checked,
+        borders: /** @type {HTMLInputElement|null} */ (document.getElementById('strip-borders'))?.checked ?? false,
+        bold: /** @type {HTMLInputElement|null} */ (document.getElementById('strip-bold'))?.checked ?? false,
+        fontSize: /** @type {HTMLInputElement|null} */ (document.getElementById('strip-font-size'))?.checked ?? false,
+        fontColor: /** @type {HTMLInputElement|null} */ (document.getElementById('strip-font-color'))?.checked ?? false,
       }
       if (!options.borders && !options.bold && !options.fontSize && !options.fontColor) {
         setFormatStripStatus('Select at least one option.', 'error')
