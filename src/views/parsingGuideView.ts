@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
-import { TextDecoder } from 'util';
+import { TextDecoder, promisify } from 'util';
+import { exec } from 'child_process';
+const execAsync = promisify(exec);
 import { basename, dirname, join } from 'path';
 import JSZip from 'jszip';
 
@@ -15,7 +17,7 @@ import {
     writePreferencesText
 } from '../preferences/preferencesFile.js';
 import { TWBParser } from '../parsers/twbParser.js';
-import { stripFormattingXml, FormatStripOptions } from '../parsers/formatStripper.js';
+import { stripFormattingXml, scanFormattingXml, FormatStripOptions } from '../parsers/formatStripper.js';
 import { RichWorkbookData, WorkbookError } from '../types/workbook.js';
 import { cleanXmlContent } from '../extract/xmlCleaner.js';
 import { resolveNames } from '../extract/nameResolver.js';
@@ -126,6 +128,9 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                     log.info(LOG_CAT, `[webview-diag] ${diagMsg}`);
                     break;
                 }
+                case 'openInTableau':
+                    void this.openInTableau();
+                    break;
                 case 'stripFormatting':
                     void this.stripWorkbookFormatting(payload.options);
                     break;
@@ -160,6 +165,8 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             log.info(LOG_CAT, 'resolveWebviewView: no .twb found in textDocuments or tabs');
         }
 
+        void this.scanWorkbookFormatting();
+
         // Listen for text editor focus changes.
         // Only refresh when a workbook file becomes active — switching to a non-workbook
         // file (e.g. a .twbl file to paste into) should not reset the sidebar.
@@ -170,6 +177,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                     if (p.endsWith('.twb') || p.endsWith('.twbx')) {
                         this.lastWorkbookUri = editor.document.uri;
                         void this.postWorkbookData();
+                        void this.scanWorkbookFormatting();
                     }
                 }
             })
@@ -523,6 +531,37 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         });
     }
 
+    private async openInTableau(): Promise<void> {
+        let workbookUri: vscode.Uri | undefined;
+        const activeEditor = vscode.window.activeTextEditor;
+        if (activeEditor) {
+            const p = activeEditor.document.uri.path.toLowerCase();
+            if (p.endsWith('.twb') || p.endsWith('.twbx')) { workbookUri = activeEditor.document.uri; }
+        }
+        if (!workbookUri && this.lastWorkbookUri) { workbookUri = this.lastWorkbookUri; }
+        if (!workbookUri) {
+            void vscode.window.showErrorMessage('No active workbook file. Open a .twb or .twbx file first.');
+            return;
+        }
+
+        const isWsl = !!(process.env['WSL_DISTRO_NAME'] || process.env['WSL_INTEROP']);
+        if (isWsl) {
+            // WSL: vscode.env.openExternal can't reach Windows apps via /mnt/c/... paths.
+            // Convert to a Windows path and invoke via cmd.exe.
+            try {
+                const linuxPath = workbookUri.fsPath;
+                const { stdout } = await execAsync(`wslpath -w "${linuxPath.replace(/"/g, '\\"')}"`);
+                const winPath = stdout.trim();
+                await execAsync(`cmd.exe /c start "" "${winPath.replace(/"/g, '\\"')}"`);
+            } catch (err: unknown) {
+                const msg = err instanceof Error ? err.message : String(err);
+                void vscode.window.showErrorMessage(`Failed to open in Tableau: ${msg}`);
+            }
+        } else {
+            await vscode.env.openExternal(workbookUri);
+        }
+    }
+
     private async stripWorkbookFormatting(rawOptions: unknown): Promise<void> {
         const options = coerceStripOptions(rawOptions);
 
@@ -558,6 +597,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
 
             await parser.writeWorkbook(workbookUri, updatedXml);
             await this.postFormatStripStatus('Formatting stripped successfully.', 'success');
+            void this.scanWorkbookFormatting();
         } catch (error: unknown) {
             if (error instanceof WorkbookError) {
                 await this.postFormatStripStatus(`Workbook error: ${error.message}`, 'error');
@@ -565,6 +605,29 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             }
             const message = error instanceof Error ? error.message : String(error);
             await this.postFormatStripStatus(`Failed to strip formatting: ${message}`, 'error');
+        }
+    }
+
+    private async scanWorkbookFormatting(): Promise<void> {
+        if (!this.view) { return; }
+        let workbookUri: vscode.Uri | undefined;
+        const activeEditor = vscode.window.activeTextEditor;
+        if (activeEditor) {
+            const p = activeEditor.document.uri.path.toLowerCase();
+            if (p.endsWith('.twb')) { workbookUri = activeEditor.document.uri; }
+        }
+        if (!workbookUri && this.lastWorkbookUri) {
+            const p = this.lastWorkbookUri.path.toLowerCase();
+            if (p.endsWith('.twb')) { workbookUri = this.lastWorkbookUri; }
+        }
+        if (!workbookUri) { return; }
+        try {
+            const parser = new TWBParser();
+            const workbookDoc = await parser.parseWorkbook(workbookUri);
+            const result = scanFormattingXml(workbookDoc.xml);
+            await this.view.webview.postMessage({ type: 'formatStripScan', result });
+        } catch {
+            // scan is background/read-only; swallow errors silently
         }
     }
 
@@ -1011,6 +1074,25 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
           color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border);
           border-radius: 0; padding: 3px 6px; font-size: 13px; font-family: inherit; outline: none;
         }
+        input[type="checkbox"] {
+          appearance: none; -webkit-appearance: none;
+          width: 14px; height: 14px; flex-shrink: 0;
+          background: var(--vscode-input-background);
+          border: 1px solid var(--vscode-input-border);
+          border-radius: 2px; cursor: pointer; position: relative;
+          vertical-align: middle; margin-right: 5px;
+        }
+        input[type="checkbox"]:checked {
+          background: var(--vscode-button-background);
+          border-color: var(--vscode-button-background);
+        }
+        input[type="checkbox"]:checked::after {
+          content: ''; position: absolute;
+          left: 3px; top: 0px; width: 5px; height: 8px;
+          border: 1.5px solid var(--vscode-button-foreground);
+          border-top: none; border-left: none;
+          transform: rotate(45deg);
+        }
         input:focus { border-color: var(--vscode-focusBorder); }
         input[type="number"]::-webkit-inner-spin-button,
         input[type="number"]::-webkit-outer-spin-button {
@@ -1426,6 +1508,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
       <span class="cv"><svg class="ic" style="width:10px;height:10px"><use href="#i-chev-d"/></svg></span>
       Workbook <span id="wb-script-stamp" data-build-stamp="${BUILD_STAMP}" style="font-size:9px;opacity:0.4;font-weight:400">(js not loaded)</span>
       <div class="ha">
+        <button class="ib" id="open-in-tableau-btn" title="Open in Tableau"><svg class="ic"><use href="#i-twb"/></svg></button>
         <button class="ib" id="extract-calcs-header-btn" title="Extract Calculations"><svg class="ic"><use href="#i-export"/></svg></button>
         <button class="ib" id="parse-workbook-btn" title="Refresh"><svg class="ic"><use href="#i-refresh"/></svg></button>
       </div>
