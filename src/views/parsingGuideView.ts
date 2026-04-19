@@ -1699,10 +1699,10 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
     <div class="sb"><div class="fs">
       <div class="fg">
         <label class="fl" style="margin-bottom:4px">Strip from active workbook</label>
-        <label style="display:block;padding:2px 0"><input type="checkbox" id="strip-borders"> Borders</label>
-        <label style="display:block;padding:2px 0"><input type="checkbox" id="strip-bold"> Bold</label>
-        <label style="display:block;padding:2px 0"><input type="checkbox" id="strip-font-size"> Font Size</label>
-        <label style="display:block;padding:2px 0"><input type="checkbox" id="strip-font-color"> Font Color</label>
+        <label style="display:block;padding:2px 0"><input type="checkbox" id="strip-borders"> Borders<span id="strip-borders-info" style="color:var(--vscode-descriptionForeground);font-size:11px;margin-left:4px"></span></label>
+        <label style="display:block;padding:2px 0"><input type="checkbox" id="strip-bold"> Bold<span id="strip-bold-info" style="color:var(--vscode-descriptionForeground);font-size:11px;margin-left:4px"></span></label>
+        <label style="display:block;padding:2px 0"><input type="checkbox" id="strip-font-size"> Font Size<span id="strip-font-size-info" style="color:var(--vscode-descriptionForeground);font-size:11px;margin-left:4px"></span></label>
+        <label style="display:block;padding:2px 0"><input type="checkbox" id="strip-font-color"> Font Color<span id="strip-font-color-info" style="color:var(--vscode-descriptionForeground);font-size:11px;margin-left:4px"></span></label>
       </div>
       <button class="bt bs bf" id="strip-formatting-btn" style="margin-top:8px"><svg class="ic"><use href="#i-arrow"/></svg> Strip from Active Workbook</button>
       <div id="format-strip-status" class="ib2" style="display:none;margin-top:6px">
