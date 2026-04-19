@@ -2,7 +2,7 @@
   "name": "tableau-language-support",
   "displayName": "Tableau Language Support",
   "description": "Complete language support for Tableau calculation language with syntax highlighting, IntelliSense, validation, formatting, 100+ snippets, keyboard shortcuts, and advanced analytics patterns",
-  "version": "1.5.6",
+  "version": "1.5.7",
   "publisher": "TrueCrimeAudit",
   "icon": "images/tableau-icon.png",
   "license": "MIT",
@@ -44,6 +44,13 @@
   "main": "./out/extension",
   "contributes": {
     "configurationDefaults": {
+      "files.associations": {
+        "*.twb": "twb"
+      },
+      "[twb]": {
+        "editor.stickyScroll.defaultModel": "foldingProviderModel",
+        "editor.semanticHighlighting.enabled": false
+      },
       "[twbl]": {
         "editor.formatOnSave": false,
         "editor.stickyScroll.defaultModel": "foldingProviderModel",
