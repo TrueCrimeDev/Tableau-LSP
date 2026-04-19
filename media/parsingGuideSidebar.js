@@ -861,6 +861,13 @@ if (requiredElements.some((element) => !element)) {
     })
   }
 
+  const openInTableauBtn = document.getElementById('open-in-tableau-btn')
+  if (openInTableauBtn) {
+    openInTableauBtn.addEventListener('click', () => {
+      vscode.postMessage({ type: 'openInTableau' })
+    })
+  }
+
   const extractCalcsHeaderBtn = document.getElementById(
     'extract-calcs-header-btn',
   )
@@ -1204,6 +1211,9 @@ window.addEventListener('message', (event) => {
     }
     if (message.type === 'formatStripStatus') {
       setFormatStripStatus(message.message || '', message.tone || 'info')
+    }
+    if (message.type === 'formatStripScan') {
+      updateStripLabels(message.result)
     }
     if (message.type === 'workbookParsed') {
       state.workbookData = message
@@ -2016,6 +2026,27 @@ function setFormatStripStatus(message, tone) {
       el.style.borderColor = 'rgba(0,120,212,0.25)'
     }
   }
+}
+
+function updateStripLabels(result) {
+  setStripLabelInfo('strip-borders-info',    result.borders)
+  setStripLabelInfo('strip-bold-info',       result.bold)
+  setStripLabelInfo('strip-font-size-info',  result.fontSize)
+  setStripLabelInfo('strip-font-color-info', result.fontColor)
+}
+
+function setStripLabelInfo(id, scan) {
+  const el = document.getElementById(id)
+  if (!el) { return }
+  const { count, values } = scan
+  if (count === 0) {
+    el.textContent = '(0)'
+    return
+  }
+  const shown = values.slice(0, 4)
+  const extra = values.length - shown.length
+  const valStr = shown.join(', ') + (extra > 0 ? ` \u2026 +${extra} more` : '')
+  el.textContent = `(${count}) ${valStr}`
 }
 
 function normalizeHex(value) {
