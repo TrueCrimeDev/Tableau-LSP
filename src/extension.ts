@@ -1,8 +1,9 @@
-import { ExtensionContext, commands, window, languages, workspace, Uri, ProgressLocation, debug, tasks, Task, TaskExecution, extensions } from 'vscode';
+import { ExtensionContext, commands, window, languages, workspace, Uri, ProgressLocation, debug, tasks, Task, TaskExecution, extensions, TextDocument } from 'vscode';
 import { LanguageClient } from 'vscode-languageclient/node';
 import { SlashCommandProvider } from './slashCommandProvider.js';
 import { ActivationManager } from './activation/activationManager.js';
 import { extractCalculationsPythonCommand } from './commands/extractCalculationsPython.js';
+import { registerFormattingPanel } from './views/formattingPanel.js';
 
 let client: LanguageClient | undefined;
 let activationManager: ActivationManager;
@@ -105,6 +106,17 @@ async function warnIfConflictingExtensionInstalled(): Promise<void> {
  */
 async function registerAdditionalComponents(context: ExtensionContext): Promise<void> {
     try {
+        await ensureOpenWorkbookDocsUseTwbLanguage();
+        const twbLanguageOnOpen = workspace.onDidOpenTextDocument((document) => {
+            void ensureWorkbookDocUsesTwbLanguage(document);
+        });
+        const twbLanguageOnFocus = window.onDidChangeActiveTextEditor((editor) => {
+            if (!editor) {
+                return;
+            }
+            void ensureWorkbookDocUsesTwbLanguage(editor.document);
+        });
+
         // Register the insert snippet command
         const insertSnippetCommand = commands.registerCommand('tableau-language-support.insertSnippet', async () => {
             const editor = window.activeTextEditor;
@@ -136,7 +148,12 @@ async function registerAdditionalComponents(context: ExtensionContext): Promise<
         );
 
         // Add disposables to context subscriptions
-        context.subscriptions.push(insertSnippetCommand, slashCommandDisposable);
+        context.subscriptions.push(
+            insertSnippetCommand,
+            slashCommandDisposable,
+            twbLanguageOnOpen,
+            twbLanguageOnFocus
+        );
 
         // Extraction feature commands (lazy-load modules when invoked)
         // Extraction + related viewer commands temporarily removed for beta hard reset.
@@ -148,12 +165,38 @@ async function registerAdditionalComponents(context: ExtensionContext): Promise<
         );
         context.subscriptions.push(extractPythonCommand);
 
+        registerFormattingPanel(context);
+
         console.log('Tableau LSP: Additional components registered successfully');
 
     } catch (error) {
         console.error('Tableau LSP: Failed to register additional components:', error);
         // Don't throw - this is not critical
     }
+}
+
+function isTwbWorkbookDocument(document: TextDocument): boolean {
+    const lowerPath = (document.uri.path || document.fileName || '').toLowerCase();
+    return lowerPath.endsWith('.twb');
+}
+
+async function ensureWorkbookDocUsesTwbLanguage(document: TextDocument): Promise<void> {
+    if (!isTwbWorkbookDocument(document) || document.languageId === 'twb') {
+        return;
+    }
+    try {
+        await languages.setTextDocumentLanguage(document, 'twb');
+    } catch (error) {
+        console.error('Tableau LSP: Failed to enforce twb language mode:', error);
+    }
+}
+
+async function ensureOpenWorkbookDocsUseTwbLanguage(): Promise<void> {
+    await Promise.all(
+        workspace.textDocuments.map((document) =>
+            ensureWorkbookDocUsesTwbLanguage(document)
+        )
+    );
 }
 
 // Extraction run function removed for this beta; feature will return in a later build.

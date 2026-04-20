@@ -302,6 +302,11 @@
     },
     "commands": [
       {
+        "command": "tableauLanguageSupport.openFormattingPanel",
+        "title": "Tableau: Open Formatting Panel",
+        "category": "Tableau"
+      },
+      {
         "command": "tableau-language-support.lsp.restart",
         "title": "Restart Language Server",
         "category": "Tableau"
