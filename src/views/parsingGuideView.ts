@@ -17,7 +17,6 @@ import {
     writePreferencesText
 } from '../preferences/preferencesFile.js';
 import { TWBParser } from '../parsers/twbParser.js';
-import { stripFormattingXml, scanFormattingXml, FormatStripOptions } from '../parsers/formatStripper.js';
 import { RichWorkbookData, WorkbookError } from '../types/workbook.js';
 import { cleanXmlContent } from '../extract/xmlCleaner.js';
 import { resolveNames } from '../extract/nameResolver.js';
@@ -131,9 +130,6 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 case 'openInTableau':
                     void this.openInTableau();
                     break;
-                case 'stripFormatting':
-                    void this.stripWorkbookFormatting(payload.options);
-                    break;
                 default:
                     break;
             }
@@ -165,8 +161,6 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             log.info(LOG_CAT, 'resolveWebviewView: no .twb found in textDocuments or tabs');
         }
 
-        void this.scanWorkbookFormatting();
-
         // Listen for text editor focus changes.
         // Only refresh when a workbook file becomes active — switching to a non-workbook
         // file (e.g. a .twbl file to paste into) should not reset the sidebar.
@@ -177,7 +171,6 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                     if (p.endsWith('.twb') || p.endsWith('.twbx')) {
                         this.lastWorkbookUri = editor.document.uri;
                         void this.postWorkbookData();
-                        void this.scanWorkbookFormatting();
                     }
                 }
             })
@@ -520,17 +513,6 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         });
     }
 
-    private async postFormatStripStatus(message: string, tone: 'success' | 'error' | 'info'): Promise<void> {
-        if (!this.view) {
-            return;
-        }
-        await this.view.webview.postMessage({
-            type: 'formatStripStatus',
-            message,
-            tone
-        });
-    }
-
     private async openInTableau(): Promise<void> {
         let workbookUri: vscode.Uri | undefined;
         const activeEditor = vscode.window.activeTextEditor;
@@ -559,75 +541,6 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             }
         } else {
             await vscode.env.openExternal(workbookUri);
-        }
-    }
-
-    private async stripWorkbookFormatting(rawOptions: unknown): Promise<void> {
-        const options = coerceStripOptions(rawOptions);
-
-        let workbookUri: vscode.Uri | undefined;
-        const activeEditor = vscode.window.activeTextEditor;
-        if (activeEditor) {
-            const p = activeEditor.document.uri.path.toLowerCase();
-            if (p.endsWith('.twb') || p.endsWith('.twbx')) {
-                workbookUri = activeEditor.document.uri;
-            }
-        }
-        if (!workbookUri && this.lastWorkbookUri) {
-            workbookUri = this.lastWorkbookUri;
-        }
-        if (!workbookUri) {
-            await this.postFormatStripStatus('No active workbook file. Open a .twb file first.', 'error');
-            return;
-        }
-        if (workbookUri.path.toLowerCase().endsWith('.twbx')) {
-            await this.postFormatStripStatus('Packaged workbooks (.twbx) are not yet supported.', 'error');
-            return;
-        }
-
-        try {
-            const parser = new TWBParser();
-            const workbookDoc = await parser.parseWorkbook(workbookUri);
-            const updatedXml = stripFormattingXml(workbookDoc.xml, options);
-
-            if (updatedXml === workbookDoc.xml) {
-                await this.postFormatStripStatus('No matching format attributes found.', 'info');
-                return;
-            }
-
-            await parser.writeWorkbook(workbookUri, updatedXml);
-            await this.postFormatStripStatus('Formatting stripped successfully.', 'success');
-            void this.scanWorkbookFormatting();
-        } catch (error: unknown) {
-            if (error instanceof WorkbookError) {
-                await this.postFormatStripStatus(`Workbook error: ${error.message}`, 'error');
-                return;
-            }
-            const message = error instanceof Error ? error.message : String(error);
-            await this.postFormatStripStatus(`Failed to strip formatting: ${message}`, 'error');
-        }
-    }
-
-    private async scanWorkbookFormatting(): Promise<void> {
-        if (!this.view) { return; }
-        let workbookUri: vscode.Uri | undefined;
-        const activeEditor = vscode.window.activeTextEditor;
-        if (activeEditor) {
-            const p = activeEditor.document.uri.path.toLowerCase();
-            if (p.endsWith('.twb')) { workbookUri = activeEditor.document.uri; }
-        }
-        if (!workbookUri && this.lastWorkbookUri) {
-            const p = this.lastWorkbookUri.path.toLowerCase();
-            if (p.endsWith('.twb')) { workbookUri = this.lastWorkbookUri; }
-        }
-        if (!workbookUri) { return; }
-        try {
-            const parser = new TWBParser();
-            const workbookDoc = await parser.parseWorkbook(workbookUri);
-            const result = scanFormattingXml(workbookDoc.xml);
-            await this.view.webview.postMessage({ type: 'formatStripScan', result });
-        } catch {
-            // scan is background/read-only; swallow errors silently
         }
     }
 
@@ -1691,25 +1604,6 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
       </div></div>
     </div>
 
-    <!-- ====== FORMAT STRIPPER ====== -->
-    <div class="sh">
-      <span class="cv"><svg class="ic" style="width:10px;height:10px"><use href="#i-chev-d"/></svg></span>
-      Format Stripper
-    </div>
-    <div class="sb"><div class="fs">
-      <div class="fg">
-        <label class="fl" style="margin-bottom:4px">Strip from active workbook</label>
-        <label style="display:block;padding:2px 0"><input type="checkbox" id="strip-borders"> Borders<span id="strip-borders-info" style="color:var(--vscode-descriptionForeground);font-size:11px;margin-left:4px"></span></label>
-        <label style="display:block;padding:2px 0"><input type="checkbox" id="strip-bold"> Bold<span id="strip-bold-info" style="color:var(--vscode-descriptionForeground);font-size:11px;margin-left:4px"></span></label>
-        <label style="display:block;padding:2px 0"><input type="checkbox" id="strip-font-size"> Font Size<span id="strip-font-size-info" style="color:var(--vscode-descriptionForeground);font-size:11px;margin-left:4px"></span></label>
-        <label style="display:block;padding:2px 0"><input type="checkbox" id="strip-font-color"> Font Color<span id="strip-font-color-info" style="color:var(--vscode-descriptionForeground);font-size:11px;margin-left:4px"></span></label>
-      </div>
-      <button class="bt bs bf" id="strip-formatting-btn" style="margin-top:8px"><svg class="ic"><use href="#i-arrow"/></svg> Strip from Active Workbook</button>
-      <div id="format-strip-status" class="ib2" style="display:none;margin-top:6px">
-        <svg class="ic"><use href="#i-info"/></svg>
-        <span id="format-strip-status-text"></span>
-      </div>
-    </div></div>
 
     <!-- ====== CALCULATION BANK ====== -->
     <div class="sh">
@@ -1872,15 +1766,3 @@ function sanitizePaletteType(type: string): PaletteType {
     return 'regular';
 }
 
-function coerceStripOptions(raw: unknown): FormatStripOptions {
-    if (!raw || typeof raw !== 'object') {
-        return { borders: false, bold: false, fontSize: false, fontColor: false };
-    }
-    const obj = raw as Record<string, unknown>;
-    return {
-        borders: obj['borders'] === true,
-        bold: obj['bold'] === true,
-        fontSize: obj['fontSize'] === true,
-        fontColor: obj['fontColor'] === true,
-    };
-}

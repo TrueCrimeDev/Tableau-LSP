@@ -877,23 +877,6 @@ if (requiredElements.some((element) => !element)) {
     })
   }
 
-  const stripFormattingBtn = document.getElementById('strip-formatting-btn')
-  if (stripFormattingBtn) {
-    stripFormattingBtn.addEventListener('click', () => {
-      const options = {
-        borders: /** @type {HTMLInputElement|null} */ (document.getElementById('strip-borders'))?.checked ?? false,
-        bold: /** @type {HTMLInputElement|null} */ (document.getElementById('strip-bold'))?.checked ?? false,
-        fontSize: /** @type {HTMLInputElement|null} */ (document.getElementById('strip-font-size'))?.checked ?? false,
-        fontColor: /** @type {HTMLInputElement|null} */ (document.getElementById('strip-font-color'))?.checked ?? false,
-      }
-      if (!options.borders && !options.bold && !options.fontSize && !options.fontColor) {
-        setFormatStripStatus('Select at least one option.', 'error')
-        return
-      }
-      vscode.postMessage({ type: 'stripFormatting', options })
-    })
-  }
-
   scaleBaseSwatch.addEventListener('click', async () => {
     const current = normalizeHex(scaleBaseHex.value) || '#5CB8B2'
     const picked = await window.openColorPicker(current)
@@ -1208,12 +1191,6 @@ window.addEventListener('message', (event) => {
     }
     if (message.type === 'paletteStatus') {
       setStatus(message.message || 'Update complete.', message.tone || 'info')
-    }
-    if (message.type === 'formatStripStatus') {
-      setFormatStripStatus(message.message || '', message.tone || 'info')
-    }
-    if (message.type === 'formatStripScan') {
-      updateStripLabels(message.result)
     }
     if (message.type === 'workbookParsed') {
       state.workbookData = message
@@ -1995,58 +1972,6 @@ function setStatus(message, tone) {
       statusEl.style.borderColor = 'rgba(0,120,212,0.25)'
     }
   }
-}
-
-function setFormatStripStatus(message, tone) {
-  const el = document.getElementById('format-strip-status')
-  const textEl = document.getElementById('format-strip-status-text')
-  if (!el || !textEl) {
-    return
-  }
-  if (!message) {
-    el.style.display = 'none'
-    textEl.textContent = ''
-    return
-  }
-  textEl.textContent = message
-  el.style.display = ''
-  const iconUse = el.querySelector('use')
-  if (iconUse) {
-    if (tone === 'error') {
-      iconUse.setAttribute('href', '#i-info')
-      el.style.background = 'rgba(241,76,76,0.08)'
-      el.style.borderColor = 'rgba(241,76,76,0.4)'
-    } else if (tone === 'success') {
-      iconUse.setAttribute('href', '#i-check-c')
-      el.style.background = 'rgba(0,120,212,0.08)'
-      el.style.borderColor = 'rgba(0,120,212,0.25)'
-    } else {
-      iconUse.setAttribute('href', '#i-info')
-      el.style.background = 'rgba(0,120,212,0.08)'
-      el.style.borderColor = 'rgba(0,120,212,0.25)'
-    }
-  }
-}
-
-function updateStripLabels(result) {
-  setStripLabelInfo('strip-borders-info',    result.borders)
-  setStripLabelInfo('strip-bold-info',       result.bold)
-  setStripLabelInfo('strip-font-size-info',  result.fontSize)
-  setStripLabelInfo('strip-font-color-info', result.fontColor)
-}
-
-function setStripLabelInfo(id, scan) {
-  const el = document.getElementById(id)
-  if (!el) { return }
-  const { count, values } = scan
-  if (count === 0) {
-    el.textContent = '(0)'
-    return
-  }
-  const shown = values.slice(0, 4)
-  const extra = values.length - shown.length
-  const valStr = shown.join(', ') + (extra > 0 ? ` \u2026 +${extra} more` : '')
-  el.textContent = `(${count}) ${valStr}`
 }
 
 function normalizeHex(value) {
