@@ -22,5 +22,9 @@
 !media/toolkit.js
 !media/parsingGuideSidebar.js
 
+# Formatting Panel webview assets
+!media/formattingPanel.js
+!media/formattingPanel.css
+
 # Keep source maps out of the package
 out/**/*.map
