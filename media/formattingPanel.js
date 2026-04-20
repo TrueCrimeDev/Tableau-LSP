@@ -23,6 +23,8 @@
     const GROUPS = {
         'Fonts': ['all', 'worksheet', 'worksheet-title', 'tooltip', 'dashboard-title', 'story-title', 'header', 'legend', 'legend-title', 'filter', 'filter-title', 'parameter-ctrl', 'parameter-ctrl-title', 'highlighter', 'highlighter-title', 'page-ctrl-title'],
         'Lines': ['gridline', 'zeroline'],
+        'Borders': ['row-divider', 'column-divider', 'table-border'],
+        'Shading': ['pane', 'inner-row-banding', 'outer-row-banding', 'inner-column-banding', 'outer-column-banding'],
         'Mark & View': ['mark', 'view'],
     }
 
@@ -33,7 +35,7 @@
         'tooltip':               ['font-color', 'font-family', 'font-size'],
         'dashboard-title':       ['font-color', 'font-family', 'font-size', 'font-weight'],
         'story-title':           ['font-color', 'font-family', 'font-size'],
-        'header':                ['font-color', 'font-family'],
+        'header':                ['font-color', 'font-family', 'background-color'],
         'legend':                ['font-color', 'font-family', 'font-size', 'background-color'],
         'legend-title':          ['font-color', 'font-family', 'font-size'],
         'filter':                ['font-color', 'font-family', 'font-size', 'background-color'],
@@ -45,6 +47,14 @@
         'page-ctrl-title':       ['font-color', 'font-family', 'font-size'],
         'gridline':              ['line-visibility', 'line-pattern', 'line-width', 'line-color'],
         'zeroline':              ['line-visibility', 'line-pattern', 'line-width', 'line-color'],
+        'row-divider':           ['line-visibility', 'line-pattern', 'line-width', 'line-color'],
+        'column-divider':        ['line-visibility', 'line-pattern', 'line-width', 'line-color'],
+        'table-border':          ['line-visibility', 'line-pattern', 'line-width', 'line-color'],
+        'pane':                  ['background-color'],
+        'inner-row-banding':     ['background-color'],
+        'outer-row-banding':     ['background-color'],
+        'inner-column-banding':  ['background-color'],
+        'outer-column-banding':  ['background-color'],
         'mark':                  ['mark-color'],
         'view':                  ['background-color'],
     }

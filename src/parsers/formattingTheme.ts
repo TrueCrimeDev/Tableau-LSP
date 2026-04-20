@@ -13,7 +13,7 @@ export const KNOWN_ELEMENTS: Record<string, string[]> = {
     'tooltip':               ['font-color', 'font-family', 'font-size'],
     'dashboard-title':       ['font-color', 'font-family', 'font-size', 'font-weight'],
     'story-title':           ['font-color', 'font-family', 'font-size'],
-    'header':                ['font-color', 'font-family'],
+    'header':                ['font-color', 'font-family', 'background-color'],
     'legend':                ['font-color', 'font-family', 'font-size', 'background-color'],
     'legend-title':          ['font-color', 'font-family', 'font-size'],
     'filter':                ['font-color', 'font-family', 'font-size', 'background-color'],
@@ -25,8 +25,16 @@ export const KNOWN_ELEMENTS: Record<string, string[]> = {
     'page-ctrl-title':       ['font-color', 'font-family', 'font-size'],
     'gridline':              ['line-visibility', 'line-pattern', 'line-width', 'line-color'],
     'zeroline':              ['line-visibility', 'line-pattern', 'line-width', 'line-color'],
+    'row-divider':           ['line-visibility', 'line-pattern', 'line-width', 'line-color'],
+    'column-divider':        ['line-visibility', 'line-pattern', 'line-width', 'line-color'],
+    'table-border':          ['line-visibility', 'line-pattern', 'line-width', 'line-color'],
     'mark':                  ['mark-color'],
     'view':                  ['background-color'],
+    'pane':                  ['background-color'],
+    'inner-row-banding':     ['background-color'],
+    'outer-row-banding':     ['background-color'],
+    'inner-column-banding':  ['background-color'],
+    'outer-column-banding':  ['background-color'],
 };
 
 function escapeRegex(s: string): string {
