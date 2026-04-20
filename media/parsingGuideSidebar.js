@@ -868,6 +868,13 @@ if (requiredElements.some((element) => !element)) {
     })
   }
 
+  const openFormattingPanelBtn = document.getElementById('open-formatting-panel-btn')
+  if (openFormattingPanelBtn) {
+    openFormattingPanelBtn.addEventListener('click', () => {
+      vscode.postMessage({ type: 'openFormattingPanel' })
+    })
+  }
+
   const extractCalcsHeaderBtn = document.getElementById(
     'extract-calcs-header-btn',
   )

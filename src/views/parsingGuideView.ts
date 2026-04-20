@@ -96,6 +96,9 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 case 'extractCalculations':
                     void this.extractCalculationsToFile();
                     break;
+                case 'openFormattingPanel':
+                    void vscode.commands.executeCommand('tableauLanguageSupport.openFormattingPanel');
+                    break;
                 case 'importPaletteFromFile':
                     void this.importPaletteFromFile();
                     break;
@@ -1462,6 +1465,14 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         <span id="wb-palettes-badge" style="margin-left:auto;font-size:10px;color:var(--vscode-descriptionForeground);font-weight:400">0</span>
       </div>
       <div class="ssb" id="wb-palettes-content" style="display:none"></div>
+    </div>
+
+    <!-- ====== WORKBOOK FORMATTING ====== -->
+    <div style="padding:4px 8px 8px">
+      <button id="open-formatting-panel-btn" class="bt bp bf" style="width:100%;display:flex;align-items:center;gap:6px;justify-content:center">
+        <svg class="ic"><use href="#i-twb"/></svg>
+        Workbook Formatting
+      </button>
     </div>
 
     <!-- ====== PALETTE LIBRARY ====== -->
