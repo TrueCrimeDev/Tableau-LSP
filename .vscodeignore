@@ -12,6 +12,7 @@
 !syntaxes/**
 !snippets/**
 !images/tableau-icon.png
+!images/tableau2.png
 !config/Preferences.tps
 
 # Bundled extension entry points
