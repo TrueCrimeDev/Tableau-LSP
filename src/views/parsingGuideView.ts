@@ -1493,9 +1493,10 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         .fmt-elem-name { font-size: 12px; font-weight: 500; color: var(--vscode-foreground); padding: 2px 12px 1px; flex: 1; }
         .fmt-elem-row.dirty .fmt-elem-name { padding-left: 9px; }
         .fmt-elem-hdr { display: flex; align-items: center; padding-right: 8px; }
-        .fmt-locate-btn { background: none; border: 1px solid var(--vscode-widget-border); color: var(--vscode-descriptionForeground); border-radius: 3px; padding: 0px 5px; font-size: 10px; font-family: var(--vscode-editor-font-family); cursor: pointer; white-space: nowrap; line-height: 16px; }
+        .fmt-locate-btn { background: none; border: 1px solid var(--vscode-widget-border); color: var(--vscode-descriptionForeground); border-radius: 3px; padding: 0px 5px; font-size: 10px; font-family: var(--vscode-editor-font-family); cursor: pointer; white-space: nowrap; line-height: 16px; opacity: 0; transition: opacity 0.1s; }
+        .fmt-elem-row:hover .fmt-locate-btn:not(:disabled) { opacity: 1; }
         .fmt-locate-btn:not(:disabled):hover { color: var(--vscode-foreground); border-color: var(--vscode-focusBorder); }
-        .fmt-locate-btn:disabled { opacity: 0.25; cursor: default; }
+        .fmt-locate-btn:disabled { opacity: 0; cursor: default; }
         .fmt-prop-row { display: flex; align-items: center; padding: 1px 12px 1px 24px; gap: 6px; min-height: 22px; }
         .fmt-elem-row.dirty .fmt-prop-row { padding-left: 21px; }
         .fmt-prop-lbl { font-size: 11px; color: var(--vscode-descriptionForeground); width: 80px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
