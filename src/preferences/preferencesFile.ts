@@ -137,12 +137,12 @@ export function parsePalettes(text: string): PaletteDefinition[] {
 
     for (const match of text.matchAll(paletteRegex)) {
         const block = match[0];
-        const nameMatch = /name="([^"]+)"/i.exec(block);
+        const nameMatch = /name=["']([^"']+)["']/i.exec(block);
         if (!nameMatch) {
             continue;
         }
 
-        const typeMatch = /type="([^"]+)"/i.exec(block);
+        const typeMatch = /type=["']([^"']+)["']/i.exec(block);
         const name = decodeXmlEntities(nameMatch[1]);
         const type = normalizePaletteType(typeMatch?.[1] ?? 'regular');
         const colors: string[] = [];
