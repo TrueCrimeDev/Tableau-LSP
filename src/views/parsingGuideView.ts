@@ -30,6 +30,14 @@ import { filterAndDedupe, normalize, normalizeFormula } from '../extract/normali
 import { generateNotesFile } from '../extract/outputGenerator.js';
 import { extractFromFile } from '../extract/zip.js';
 import { getLogger } from '../logging/logger.js';
+import {
+    readThemeFromXml,
+    applyThemeEditsToXml,
+    xmlToThemeJson,
+    applyThemeJsonToXml,
+    validateThemeJson,
+    WorkbookTheme,
+} from '../parsers/formattingTheme.js';
 
 const log = getLogger();
 const LOG_CAT = 'WorkbookInspector';
@@ -58,7 +66,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 return;
             }
 
-            const payload = message as { type?: string; palettes?: unknown; palette?: unknown; paletteName?: unknown; path?: string; formula?: string; options?: unknown };
+            const payload = message as { type?: string; palettes?: unknown; palette?: unknown; paletteName?: unknown; path?: string; formula?: string; options?: unknown; edits?: unknown; mode?: string; json?: string; };
             switch (payload.type) {
                 case 'openPreferencesTemplate':
                     void this.openPreferencesTemplate();
@@ -98,6 +106,21 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'openFormattingPanel':
                     void vscode.commands.executeCommand('tableauLanguageSupport.openFormattingPanel');
+                    break;
+                case 'applyFormattingEdits':
+                    void this.handleFormattingApplyEdits((payload.edits ?? {}) as WorkbookTheme);
+                    break;
+                case 'pickFormattingImportFile':
+                    void this.handleFormattingPickImportFile();
+                    break;
+                case 'importFormattingTheme':
+                    void this.handleFormattingImportTheme(payload.path ?? '', (payload.mode ?? 'override') as 'override' | 'preserve');
+                    break;
+                case 'requestFormattingExport':
+                    void this.handleFormattingExport();
+                    break;
+                case 'saveFormattingJson':
+                    void this.handleFormattingJsonSave(payload.json ?? '');
                     break;
                 case 'importPaletteFromFile':
                     void this.importPaletteFromFile();
@@ -746,6 +769,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 ...richData
             });
             log.info(LOG_CAT, `postWorkbookData: postMessage returned ${posted}`);
+            void this.view.webview.postMessage({ type: 'formattingLoaded', elements: readThemeFromXml(xml) });
         } catch (error: unknown) {
             const msg = error instanceof Error ? error.message : String(error);
             log.warn(LOG_CAT, `postWorkbookData: ERROR during parse/send: ${msg}`);
@@ -875,6 +899,88 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             await this.postStatus(`Failed to import palette: ${message}`, 'error');
         }
     }
+
+    private getActiveWorkbookXml(): Promise<string | null> {
+        const uri = this.lastWorkbookUri;
+        if (!uri) { return Promise.resolve(null); }
+        const openDoc = vscode.workspace.textDocuments.find(d => d.uri.toString() === uri.toString());
+        if (openDoc) { return Promise.resolve(openDoc.getText()); }
+        return Promise.resolve(vscode.workspace.fs.readFile(uri).then(data => new TextDecoder('utf-8').decode(data)));
+    }
+
+    private async handleFormattingApplyEdits(edits: WorkbookTheme): Promise<void> {
+        if (!this.view) { return; }
+        const uri = this.lastWorkbookUri;
+        if (!uri) {
+            await this.view.webview.postMessage({ type: 'formattingError', tab: 'inspect', message: 'No active .twb file.' });
+            return;
+        }
+        try {
+            const parser = new TWBParser();
+            const doc = await parser.parseWorkbook(uri);
+            const updated = applyThemeEditsToXml(doc.xml, edits);
+            await parser.writeWorkbook(uri, updated);
+            const elements = readThemeFromXml(updated);
+            await this.view.webview.postMessage({ type: 'formattingSuccess', tab: 'inspect', message: 'Changes applied.', elements });
+        } catch (e) {
+            await this.view.webview.postMessage({ type: 'formattingError', tab: 'inspect', message: `Write failed: ${e instanceof Error ? e.message : String(e)}` });
+        }
+    }
+
+    private async handleFormattingPickImportFile(): Promise<void> {
+        if (!this.view) { return; }
+        const uris = await vscode.window.showOpenDialog({ filters: { 'JSON Theme': ['json'] }, canSelectMany: false });
+        if (uris?.[0]) {
+            await this.view.webview.postMessage({ type: 'formattingImportFilePicked', filePath: uris[0].fsPath });
+        }
+    }
+
+    private async handleFormattingImportTheme(filePath: string, mode: 'override' | 'preserve'): Promise<void> {
+        if (!this.view) { return; }
+        const uri = this.lastWorkbookUri;
+        if (!uri) {
+            await this.view.webview.postMessage({ type: 'formattingError', tab: 'apply', message: 'No active .twb file.' });
+            return;
+        }
+        try {
+            const raw = Buffer.from(await vscode.workspace.fs.readFile(vscode.Uri.file(filePath))).toString('utf8');
+            const theme = JSON.parse(raw) as object;
+            const err = validateThemeJson(theme);
+            if (err) { await this.view.webview.postMessage({ type: 'formattingError', tab: 'apply', message: `Invalid theme: ${err}` }); return; }
+            const parser = new TWBParser();
+            const doc = await parser.parseWorkbook(uri);
+            const updated = applyThemeJsonToXml(doc.xml, theme, mode);
+            await parser.writeWorkbook(uri, updated);
+            await this.view.webview.postMessage({ type: 'formattingSuccess', tab: 'apply', message: 'Theme applied.' });
+        } catch (e) {
+            await this.view.webview.postMessage({ type: 'formattingError', tab: 'apply', message: `Failed: ${e instanceof Error ? e.message : String(e)}` });
+        }
+    }
+
+    private async handleFormattingExport(): Promise<void> {
+        if (!this.view) { return; }
+        const xml = await this.getActiveWorkbookXml();
+        if (!xml) { await this.view.webview.postMessage({ type: 'formattingJsonReady', json: null }); return; }
+        try {
+            const json = JSON.stringify(xmlToThemeJson(xml), null, 2);
+            await this.view.webview.postMessage({ type: 'formattingJsonReady', json });
+        } catch {
+            await this.view.webview.postMessage({ type: 'formattingJsonReady', json: null });
+        }
+    }
+
+    private async handleFormattingJsonSave(json: string): Promise<void> {
+        if (!this.view) { return; }
+        const uri = this.lastWorkbookUri;
+        const defaultName = uri ? basename(uri.fsPath, '.twb') + '-theme.json' : 'theme.json';
+        const dest = await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.file(defaultName),
+            filters: { JSON: ['json'] }
+        });
+        if (!dest) { return; }
+        await vscode.workspace.fs.writeFile(dest, Buffer.from(json, 'utf8'));
+        await this.view.webview.postMessage({ type: 'formattingSuccess', tab: 'export', message: `Saved to ${basename(dest.fsPath)}` });
+    }
 }
 
 export function registerParsingGuideView(context: vscode.ExtensionContext): void {
@@ -886,6 +992,7 @@ export function registerParsingGuideView(context: vscode.ExtensionContext): void
 
 function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext, _nonce: string): string {
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'parsingGuideSidebar.js'));
+    const cacheBust = Date.now();
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1193,6 +1300,18 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         .tree-item:hover .ti-actions { opacity: 1; }
         .tree-item[data-action="copy-calc"] .ti-actions { opacity: 1; }
         .tree-item:hover .ti-type { display: none; }
+        .wb-more-hidden[hidden] { display: none; }
+        .tree-more {
+          display: flex; align-items: center; gap: 6px; height: 22px;
+          padding: 0 8px 0 28px; cursor: pointer; user-select: none;
+          font-size: 12px; color: var(--vscode-textLink-foreground);
+        }
+        .tree-more:hover { background: var(--vscode-list-hoverBackground); }
+        .tree-more .tree-more-chev {
+          display: inline-flex; align-items: center;
+          color: var(--vscode-descriptionForeground); transition: transform 0.15s;
+        }
+        .tree-more.expanded .tree-more-chev { transform: rotate(180deg); }
 
         /* Formula preview below a tree item */
         .tree-formula {
@@ -1345,6 +1464,40 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
             gap: 8px;
             justify-content: flex-end;
         }
+
+        /* ——— Workbook Formatting (inline sidebar) ——— */
+        .fmt-group-hdr { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--vscode-descriptionForeground); padding: 10px 12px 3px; border-top: 1px solid var(--vscode-widget-border); margin-top: 2px; }
+        .fmt-group-hdr:first-child { border-top: none; margin-top: 0; }
+        .fmt-elem-row { padding: 3px 0 5px; border-bottom: 1px solid transparent; }
+        .fmt-elem-row.dirty { border-left: 3px solid var(--vscode-focusBorder); }
+        .fmt-elem-name { font-size: 12px; font-weight: 500; color: var(--vscode-foreground); padding: 2px 12px 1px; }
+        .fmt-elem-row.dirty .fmt-elem-name { padding-left: 9px; }
+        .fmt-prop-row { display: flex; align-items: center; padding: 1px 12px 1px 24px; gap: 6px; min-height: 22px; }
+        .fmt-elem-row.dirty .fmt-prop-row { padding-left: 21px; }
+        .fmt-prop-lbl { font-size: 11px; color: var(--vscode-descriptionForeground); width: 80px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .fmt-prop-ctrl { flex: 1; display: grid; grid-template-columns: 14px minmax(0, 1fr) 16px; align-items: center; gap: 4px; min-width: 0; }
+        .fmt-swatch { grid-column: 1; width: 14px; height: 14px; border-radius: 2px; border: 1px solid var(--vscode-widget-border); cursor: pointer; flex-shrink: 0; background: repeating-conic-gradient(#555 0% 25%, #333 0% 50%) 0 0/8px 8px; }
+        .fmt-swatch.has-val { background: var(--fmt-color, transparent); }
+        .fmt-prop-ctrl input[type="text"] { grid-column: 2; width: 100%; height: 20px; min-width: 0; font-size: 11px; padding: 1px 5px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); outline: none; font-family: var(--vscode-editor-font-family); }
+        .fmt-prop-ctrl input[type="text"]:focus { border-color: var(--vscode-focusBorder); }
+        .fmt-prop-ctrl input[type="number"] { grid-column: 2; width: 100%; height: 20px; font-size: 11px; padding: 1px 16px 1px 5px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); outline: none; -moz-appearance: textfield; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='16'%3E%3Cpath d='M2 6l3-3 3 3' fill='none' stroke='%23999' stroke-width='1.2'/%3E%3Cpath d='M2 10l3 3 3-3' fill='none' stroke='%23999' stroke-width='1.2'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 3px center; }
+        .fmt-prop-ctrl input[type="number"]::-webkit-inner-spin-button,
+        .fmt-prop-ctrl input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
+        .fmt-prop-ctrl input[type="number"]:focus { border-color: var(--vscode-focusBorder); }
+        .fmt-prop-ctrl select { grid-column: 2; width: 100%; height: 20px; font-size: 11px; padding: 1px 18px 1px 4px; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border); outline: none; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23ccc'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 5px center; min-width: 0; cursor: pointer; }
+        .fmt-prop-ctrl select:focus { border-color: var(--vscode-focusBorder); }
+        .fmt-clear { grid-column: 3; background: none; border: none; color: var(--vscode-descriptionForeground); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 1px; opacity: 0; flex-shrink: 0; width: 16px; text-align: center; }
+        .fmt-prop-row:hover .fmt-clear { opacity: 0.5; }
+        .fmt-prop-row:hover .fmt-clear:hover { opacity: 1; color: var(--vscode-foreground); }
+        .fmt-clear.has-val { opacity: 0.6; }
+        .fmt-action-bar { padding: 6px 12px; display: flex; gap: 4px; border-top: 1px solid var(--vscode-panel-border); }
+        .fmt-status { padding: 4px 12px; font-size: 11px; }
+        .fmt-status.error { color: var(--vscode-errorForeground); }
+        .fmt-status.success { color: #7BC96F; }
+        .fmt-status.hidden { display: none; }
+        .fmt-filename { font-size: 11px; color: var(--vscode-descriptionForeground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
+        .fmt-json-pre { background: var(--vscode-textCodeBlock-background); border: 1px solid var(--vscode-widget-border); padding: 6px 8px; font-family: var(--vscode-editor-font-family); font-size: 11px; white-space: pre; overflow: auto; max-height: 220px; margin-bottom: 6px; }
+        .fmt-placeholder { padding: 14px 12px; text-align: center; color: var(--vscode-descriptionForeground); font-size: 12px; }
     </style>
 </head>
 <body>
@@ -1468,11 +1621,51 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
     </div>
 
     <!-- ====== WORKBOOK FORMATTING ====== -->
-    <div style="padding:4px 8px 8px">
-      <button id="open-formatting-panel-btn" class="bt bp bf" style="width:100%;display:flex;align-items:center;gap:6px;justify-content:center">
-        <svg class="ic"><use href="#i-twb"/></svg>
-        Workbook Formatting
-      </button>
+    <div class="sh" style="display:flex;align-items:center;gap:4px">
+      <span class="cv"><svg class="ic" style="width:10px;height:10px"><use href="#i-chev-d"/></svg></span>
+      Workbook Formatting
+      <button class="bt bs" id="open-formatting-panel-btn" title="Open Formatting Panel" style="margin-left:auto;padding:1px 7px;font-size:11px" onclick="vscode.postMessage({type:'openFormattingPanel'})">&#8599;</button>
+    </div>
+    <div class="sb">
+      <div id="fmt-inspect-groups"></div>
+      <div class="fmt-action-bar">
+        <button class="bt bp" id="fmt-apply-edits-btn" disabled>Apply</button>
+        <button class="bt bs" id="fmt-reset-edits-btn">Reset</button>
+      </div>
+      <div id="fmt-inspect-status" class="fmt-status hidden"></div>
+      <div class="ssh c" id="fmt-apply-ssh">
+        <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
+        Apply Theme
+      </div>
+      <div class="ssb" style="display:none">
+        <div class="fs">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+            <button class="bt bs" id="fmt-browse-btn">Browse\u2026</button>
+            <span class="fmt-filename" id="fmt-import-filename">No file selected</span>
+          </div>
+          <div id="fmt-apply-mode-row" style="display:none;flex-direction:column;gap:4px;margin-bottom:8px">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px"><input type="radio" name="fmt-apply-mode" value="override" checked> Override all</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px"><input type="radio" name="fmt-apply-mode" value="preserve"> Preserve existing</label>
+          </div>
+          <button class="bt bp bf" id="fmt-apply-theme-btn" disabled>Apply Theme</button>
+          <div id="fmt-apply-status" class="fmt-status hidden"></div>
+        </div>
+      </div>
+      <div class="ssh c" id="fmt-export-ssh">
+        <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
+        Export Theme
+      </div>
+      <div class="ssb" style="display:none">
+        <div class="fs">
+          <div id="fmt-export-placeholder" class="fmt-placeholder">No active .twb file.</div>
+          <pre id="fmt-json-preview" class="fmt-json-pre" style="display:none"></pre>
+          <div id="fmt-export-actions" style="display:none;flex-direction:column;gap:4px">
+            <button class="bt bp bf" id="fmt-save-json-btn">Save to File\u2026</button>
+            <button class="bt bs bf" id="fmt-copy-json-btn">Copy JSON</button>
+          </div>
+          <div id="fmt-export-status" class="fmt-status hidden"></div>
+        </div>
+      </div>
     </div>
 
     <!-- ====== PALETTE LIBRARY ====== -->
@@ -1664,7 +1857,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
       </div>
     </div>
 
-        <script src="${scriptUri}"></script>
+        <script src="${scriptUri}?v=${cacheBust}"></script>
 
 </body>
 </html>`;

@@ -868,13 +868,6 @@ if (requiredElements.some((element) => !element)) {
     })
   }
 
-  const openFormattingPanelBtn = document.getElementById('open-formatting-panel-btn')
-  if (openFormattingPanelBtn) {
-    openFormattingPanelBtn.addEventListener('click', () => {
-      vscode.postMessage({ type: 'openFormattingPanel' })
-    })
-  }
-
   const extractCalcsHeaderBtn = document.getElementById(
     'extract-calcs-header-btn',
   )
@@ -1092,6 +1085,22 @@ if (requiredElements.some((element) => !element)) {
         return
       }
       const action = button.dataset.action
+
+      if (action === 'toggle-more') {
+        const wrap = button.previousElementSibling
+        if (wrap && wrap.classList.contains('wb-more-hidden')) {
+          wrap.hidden = !wrap.hidden
+          const lbl = button.querySelector('.tree-more-label')
+          if (lbl) {
+            lbl.textContent = wrap.hidden
+              ? 'Show ' + button.dataset.remaining + ' more'
+              : 'Show less'
+          }
+          button.classList.toggle('expanded', !wrap.hidden)
+        }
+        return
+      }
+
       const idx = Number(button.dataset.index)
       const data = state.workbookData
       if (!data) {
@@ -1164,6 +1173,318 @@ if (requiredElements.some((element) => !element)) {
 
 // Message handler and workbook/context init are intentionally OUTSIDE the
 // palette-editor guard so they always run even if a builder element is null.
+// ── Workbook Formatting (inline sidebar) ────────────────────────────────────
+
+;(function () {
+  const FMT_GROUPS = {
+    'Fonts': ['all', 'worksheet', 'worksheet-title', 'tooltip', 'dashboard-title', 'story-title', 'header', 'legend', 'legend-title', 'filter', 'filter-title', 'parameter-ctrl', 'parameter-ctrl-title', 'highlighter', 'highlighter-title', 'page-ctrl-title'],
+    'Lines': ['gridline', 'zeroline'],
+    'Borders': ['row-divider', 'column-divider', 'table-border'],
+    'Shading': ['pane', 'inner-row-banding', 'outer-row-banding', 'inner-column-banding', 'outer-column-banding'],
+    'Mark & View': ['mark', 'view'],
+  }
+  const FMT_ATTRS = {
+    'all':                  ['font-color', 'font-family'],
+    'worksheet':            ['font-color', 'font-family', 'font-size'],
+    'worksheet-title':      ['font-color', 'font-family', 'font-size'],
+    'tooltip':              ['font-color', 'font-family', 'font-size'],
+    'dashboard-title':      ['font-color', 'font-family', 'font-size', 'font-weight'],
+    'story-title':          ['font-color', 'font-family', 'font-size'],
+    'header':               ['font-color', 'font-family', 'background-color'],
+    'legend':               ['font-color', 'font-family', 'font-size', 'background-color'],
+    'legend-title':         ['font-color', 'font-family', 'font-size'],
+    'filter':               ['font-color', 'font-family', 'font-size', 'background-color'],
+    'filter-title':         ['font-color', 'font-family', 'font-size'],
+    'parameter-ctrl':       ['font-color', 'font-family', 'font-size', 'background-color'],
+    'parameter-ctrl-title': ['font-color', 'font-family', 'font-size'],
+    'highlighter':          ['font-color', 'font-family', 'font-size', 'background-color'],
+    'highlighter-title':    ['font-color', 'font-family', 'font-size'],
+    'page-ctrl-title':      ['font-color', 'font-family', 'font-size'],
+    'gridline':             ['line-visibility', 'line-pattern', 'line-width', 'line-color'],
+    'zeroline':             ['line-visibility', 'line-pattern', 'line-width', 'line-color'],
+    'row-divider':          ['line-visibility', 'line-pattern', 'line-width', 'line-color'],
+    'column-divider':       ['line-visibility', 'line-pattern', 'line-width', 'line-color'],
+    'table-border':         ['line-visibility', 'line-pattern', 'line-width', 'line-color'],
+    'pane':                 ['background-color'],
+    'inner-row-banding':    ['background-color'],
+    'outer-row-banding':    ['background-color'],
+    'inner-column-banding': ['background-color'],
+    'outer-column-banding': ['background-color'],
+    'mark':                 ['mark-color'],
+    'view':                 ['background-color'],
+  }
+  const FMT_COLOR_ATTRS = new Set(['font-color', 'background-color', 'line-color', 'mark-color'])
+  const FMT_NUMBER_ATTRS = new Set(['font-size', 'line-width'])
+  const FMT_SELECT_ATTRS = {
+    'font-weight':     ['normal', 'bold'],
+    'line-visibility': ['on', 'off'],
+    'line-pattern':    ['solid', 'dashed', 'dotted'],
+  }
+
+  let fmtState = { elements: {}, pendingEdits: {}, jsonPreview: null, importFilePath: null }
+
+  // Trigger export data fetch when Export Theme subsection is expanded
+  var fmtExportSsh = document.getElementById('fmt-export-ssh')
+  if (fmtExportSsh) {
+    fmtExportSsh.addEventListener('click', function () {
+      requestAnimationFrame(function () {
+        var body = fmtExportSsh.nextElementSibling
+        if (body && body.style.display !== 'none') {
+          vscode.postMessage({ type: 'requestFormattingExport' })
+        }
+      })
+    })
+  }
+
+  var FMT_ATTR_LABELS = {
+    'font-color': 'Color', 'font-family': 'Family', 'font-size': 'Size',
+    'font-weight': 'Weight', 'background-color': 'Background',
+    'line-visibility': 'Visibility', 'line-pattern': 'Pattern',
+    'line-width': 'Width', 'line-color': 'Color', 'mark-color': 'Color',
+  }
+  function fmtElemLabel(elem) {
+    return elem.replace(/-/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase() })
+  }
+
+  function fmtRender() {
+    var container = document.getElementById('fmt-inspect-groups')
+    if (!container) { return }
+    container.innerHTML = ''
+    for (var groupName in FMT_GROUPS) {
+      var elements = FMT_GROUPS[groupName]
+      var hdr = document.createElement('div')
+      hdr.className = 'fmt-group-hdr'
+      hdr.textContent = groupName
+      container.appendChild(hdr)
+      elements.forEach(function (element) {
+        var attrs = FMT_ATTRS[element] || []
+        var row = document.createElement('div')
+        row.className = 'fmt-elem-row'
+        row.dataset.element = element
+        var nameEl = document.createElement('div')
+        nameEl.className = 'fmt-elem-name'
+        nameEl.textContent = fmtElemLabel(element)
+        row.appendChild(nameEl)
+
+        attrs.forEach(function (attr) {
+          var currentVal = (fmtState.pendingEdits[element] !== undefined && fmtState.pendingEdits[element][attr] !== undefined)
+            ? fmtState.pendingEdits[element][attr]
+            : (fmtState.elements[element] && fmtState.elements[element][attr] != null ? fmtState.elements[element][attr] : null)
+
+          var propRow = document.createElement('div')
+          propRow.className = 'fmt-prop-row'
+
+          var lbl = document.createElement('span')
+          lbl.className = 'fmt-prop-lbl'
+          lbl.textContent = FMT_ATTR_LABELS[attr] || attr
+          lbl.title = attr
+          propRow.appendChild(lbl)
+
+          var ctrl = document.createElement('div')
+          ctrl.className = 'fmt-prop-ctrl'
+
+          if (FMT_COLOR_ATTRS.has(attr)) {
+            var sw = document.createElement('div')
+            sw.className = 'fmt-swatch' + (currentVal ? ' has-val' : '')
+            if (currentVal) { sw.style.setProperty('--fmt-color', currentVal) }
+            var inp = document.createElement('input')
+            inp.type = 'text'
+            inp.value = currentVal || ''
+            inp.placeholder = '#RRGGBB'
+            ;(function (elem, a, swEl, inpEl, rowEl) {
+              inpEl.addEventListener('input', function () {
+                var v = inpEl.value.trim()
+                if (v) {
+                  swEl.classList.add('has-val')
+                  swEl.style.setProperty('--fmt-color', v)
+                } else {
+                  swEl.classList.remove('has-val')
+                  swEl.style.removeProperty('--fmt-color')
+                }
+                fmtStage(elem, a, v || null)
+                fmtDirty(rowEl, elem)
+              })
+              swEl.addEventListener('click', function () {
+                var current = inpEl.value || '#888888'
+                if (typeof window.openColorPicker === 'function') {
+                  window.openColorPicker(current).then(function (picked) {
+                    if (picked) {
+                      swEl.classList.add('has-val')
+                      swEl.style.setProperty('--fmt-color', picked)
+                      inpEl.value = picked
+                      fmtStage(elem, a, picked)
+                      fmtDirty(rowEl, elem)
+                    }
+                  })
+                } else {
+                  inpEl.focus()
+                }
+              })
+            })(element, attr, sw, inp, row)
+            ctrl.appendChild(sw)
+            ctrl.appendChild(inp)
+          } else if (FMT_NUMBER_ATTRS.has(attr)) {
+            var ninp = document.createElement('input')
+            ninp.type = 'number'
+            ninp.value = currentVal !== null ? String(currentVal) : ''
+            ninp.placeholder = '—'
+            ninp.min = '1'; ninp.max = '99'
+            ;(function (elem, a, el2, rowEl) {
+              el2.addEventListener('input', function () {
+                fmtStage(elem, a, el2.value || null)
+                fmtDirty(rowEl, elem)
+              })
+            })(element, attr, ninp, row)
+            ctrl.appendChild(ninp)
+          } else if (FMT_SELECT_ATTRS[attr]) {
+            var sel = document.createElement('select')
+            var emptyOpt = document.createElement('option')
+            emptyOpt.value = ''; emptyOpt.textContent = '—'
+            sel.appendChild(emptyOpt)
+            FMT_SELECT_ATTRS[attr].forEach(function (opt) {
+              var o = document.createElement('option')
+              o.value = opt; o.textContent = opt.charAt(0).toUpperCase() + opt.slice(1)
+              if (currentVal === opt) { o.selected = true }
+              sel.appendChild(o)
+            })
+            ;(function (elem, a, selEl, rowEl) {
+              selEl.addEventListener('change', function () {
+                fmtStage(elem, a, selEl.value || null)
+                fmtDirty(rowEl, elem)
+              })
+            })(element, attr, sel, row)
+            ctrl.appendChild(sel)
+          } else {
+            var tinp = document.createElement('input')
+            tinp.type = 'text'
+            tinp.value = currentVal || ''
+            tinp.placeholder = '—'
+            ;(function (elem, a, el3, rowEl) {
+              el3.addEventListener('input', function () {
+                fmtStage(elem, a, el3.value || null)
+                fmtDirty(rowEl, elem)
+              })
+            })(element, attr, tinp, row)
+            ctrl.appendChild(tinp)
+          }
+
+          var clrBtn = document.createElement('button')
+          clrBtn.className = 'fmt-clear' + (currentVal ? ' has-val' : '')
+          clrBtn.title = 'Clear'
+          clrBtn.textContent = '\u00d7'
+          ;(function (elem, a, rowEl) {
+            clrBtn.addEventListener('click', function () {
+              fmtStage(elem, a, null)
+              fmtDirty(rowEl, elem)
+              fmtRender()
+            })
+          })(element, attr, row)
+          ctrl.appendChild(clrBtn)
+
+          propRow.appendChild(ctrl)
+          row.appendChild(propRow)
+        })
+        container.appendChild(row)
+      })
+    }
+    fmtUpdateApplyBtn()
+  }
+
+  function fmtStage(element, attr, value) {
+    if (!fmtState.pendingEdits[element]) { fmtState.pendingEdits[element] = {} }
+    fmtState.pendingEdits[element][attr] = value
+  }
+  function fmtDirty(row, element) {
+    var hasPending = Object.keys(fmtState.pendingEdits[element] || {}).length > 0
+    row.classList.toggle('dirty', hasPending)
+    fmtUpdateApplyBtn()
+  }
+  function fmtUpdateApplyBtn() {
+    var btn = document.getElementById('fmt-apply-edits-btn')
+    if (btn) { btn.disabled = Object.keys(fmtState.pendingEdits).length === 0 }
+  }
+  function fmtStatus(tab, msg, tone) {
+    var el = document.getElementById('fmt-' + tab + '-status')
+    if (!el) { return }
+    el.textContent = msg
+    el.className = 'fmt-status ' + tone
+  }
+  function fmtRenderExport() {
+    var ph = document.getElementById('fmt-export-placeholder')
+    var pre = document.getElementById('fmt-json-preview')
+    var acts = document.getElementById('fmt-export-actions')
+    if (!ph || !pre || !acts) { return }
+    if (!fmtState.jsonPreview) {
+      ph.textContent = 'No active .twb file or no formatting set.'
+      ph.style.display = ''
+      pre.style.display = 'none'
+      acts.style.display = 'none'
+    } else {
+      ph.style.display = 'none'
+      pre.textContent = fmtState.jsonPreview
+      pre.style.display = 'block'
+      acts.style.display = 'flex'
+    }
+  }
+
+  document.getElementById('fmt-apply-edits-btn') && document.getElementById('fmt-apply-edits-btn').addEventListener('click', function () {
+    vscode.postMessage({ type: 'applyFormattingEdits', edits: fmtState.pendingEdits })
+  })
+  document.getElementById('fmt-reset-edits-btn') && document.getElementById('fmt-reset-edits-btn').addEventListener('click', function () {
+    fmtState.pendingEdits = {}
+    fmtRender()
+  })
+  document.getElementById('fmt-browse-btn') && document.getElementById('fmt-browse-btn').addEventListener('click', function () {
+    vscode.postMessage({ type: 'pickFormattingImportFile' })
+  })
+  document.getElementById('fmt-apply-theme-btn') && document.getElementById('fmt-apply-theme-btn').addEventListener('click', function () {
+    if (!fmtState.importFilePath) { return }
+    var modeInput = document.querySelector('input[name="fmt-apply-mode"]:checked')
+    var mode = modeInput ? modeInput.value : 'override'
+    vscode.postMessage({ type: 'importFormattingTheme', path: fmtState.importFilePath, mode: mode })
+  })
+  document.getElementById('fmt-save-json-btn') && document.getElementById('fmt-save-json-btn').addEventListener('click', function () {
+    if (fmtState.jsonPreview) { vscode.postMessage({ type: 'saveFormattingJson', json: fmtState.jsonPreview }) }
+  })
+  document.getElementById('fmt-copy-json-btn') && document.getElementById('fmt-copy-json-btn').addEventListener('click', function () {
+    if (fmtState.jsonPreview) { navigator.clipboard.writeText(fmtState.jsonPreview) }
+  })
+
+  window._fmtHandleMessage = function (message) {
+    if (message.type === 'formattingLoaded') {
+      fmtState.elements = message.elements || {}
+      fmtState.pendingEdits = {}
+      fmtRender()
+    }
+    if (message.type === 'formattingImportFilePicked') {
+      fmtState.importFilePath = message.filePath
+      var el = document.getElementById('fmt-import-filename')
+      if (el) { el.textContent = (message.filePath || '').split(/[/\\]/).pop() || message.filePath }
+      var modeRow = document.getElementById('fmt-apply-mode-row')
+      if (modeRow) { modeRow.style.display = 'flex' }
+      var btn = document.getElementById('fmt-apply-theme-btn')
+      if (btn) { btn.disabled = false }
+    }
+    if (message.type === 'formattingJsonReady') {
+      fmtState.jsonPreview = message.json
+      fmtRenderExport()
+    }
+    if (message.type === 'formattingError') {
+      fmtStatus(message.tab, message.message, 'error')
+    }
+    if (message.type === 'formattingSuccess') {
+      fmtStatus(message.tab, message.message, 'success')
+      if (message.elements) {
+        fmtState.elements = message.elements
+        fmtState.pendingEdits = {}
+        fmtRender()
+      }
+    }
+  }
+
+  fmtRender()
+})()
+
 window.addEventListener('message', (event) => {
   const message = event.data
   if (!message || typeof message !== 'object') {
@@ -1278,6 +1599,9 @@ window.addEventListener('message', (event) => {
           )
         })
         .join('')
+    }
+    if (typeof window._fmtHandleMessage === 'function') {
+      window._fmtHandleMessage(message)
     }
   } catch (handlerErr) {
     console.error('[WBI] message handler threw:', handlerErr)
@@ -1777,6 +2101,30 @@ function renderFileCard(data) {
   }
 }
 
+var WB_LIST_LIMIT = 6
+// Render the first WB_LIST_LIMIT items, hiding the rest behind a "Show more"
+// toggle so long Calculated Fields / Fields lists don't flood the sidebar.
+function joinWithShowMore(htmlItems) {
+  if (htmlItems.length <= WB_LIST_LIMIT) {
+    return htmlItems.join('')
+  }
+  var remaining = htmlItems.length - WB_LIST_LIMIT
+  return (
+    htmlItems.slice(0, WB_LIST_LIMIT).join('') +
+    '<div class="wb-more-hidden" hidden>' +
+    htmlItems.slice(WB_LIST_LIMIT).join('') +
+    '</div>' +
+    '<div class="tree-more" data-action="toggle-more" data-remaining="' +
+    remaining +
+    '" role="button" tabindex="0">' +
+    '<span class="tree-more-chev"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>' +
+    '<span class="tree-more-label">Show ' +
+    remaining +
+    ' more</span>' +
+    '</div>'
+  )
+}
+
 function renderDatasources(datasources) {
   const el = document.getElementById('wb-datasources-content')
   if (!el) {
@@ -1786,8 +2134,8 @@ function renderDatasources(datasources) {
     el.innerHTML = '<div class="sub-empty">No datasources found.</div>'
     return
   }
-  el.innerHTML = datasources
-    .map((ds) => {
+  el.innerHTML = joinWithShowMore(
+    datasources.map((ds) => {
       const caption = escapeHtml(ds.caption || 'Unknown')
       const cls = ds.connectionClass || 'unknown'
       const label = CONNECTION_LABELS[cls] || escapeHtml(cls)
@@ -1802,8 +2150,8 @@ function renderDatasources(datasources) {
         '</span>' +
         '</div>'
       )
-    })
-    .join('')
+    }),
+  )
 }
 
 function renderCalcFields(calcs) {
@@ -1815,8 +2163,8 @@ function renderCalcFields(calcs) {
     el.innerHTML = '<div class="sub-empty">No calculated fields found.</div>'
     return
   }
-  el.innerHTML = calcs
-    .map((calc, idx) => {
+  el.innerHTML = joinWithShowMore(
+    calcs.map((calc, idx) => {
       const caption = escapeHtml(calc.caption || 'Unnamed')
       const formula = calc.formula || ''
       const firstLine = formula.split('\n')[0].slice(0, 120)
@@ -1851,8 +2199,8 @@ function renderCalcFields(calcs) {
         highlighted +
         '</div>'
       )
-    })
-    .join('')
+    }),
+  )
 }
 
 function renderFields(fields) {
@@ -1864,8 +2212,8 @@ function renderFields(fields) {
     el.innerHTML = '<div class="sub-empty">No fields found.</div>'
     return
   }
-  el.innerHTML = fields
-    .map((field) => {
+  el.innerHTML = joinWithShowMore(
+    fields.map((field) => {
       const name = escapeHtml(field.name || '')
       const dt = field.datatype ? escapeHtml(field.datatype) : ''
       return (
@@ -1877,8 +2225,8 @@ function renderFields(fields) {
         (dt ? '<span class="ti-type">' + dt + '</span>' : '') +
         '</div>'
       )
-    })
-    .join('')
+    }),
+  )
 }
 
 function renderWorksheets(worksheets) {
@@ -1890,8 +2238,8 @@ function renderWorksheets(worksheets) {
     el.innerHTML = '<div class="sub-empty">No worksheets found.</div>'
     return
   }
-  el.innerHTML = worksheets
-    .map((name) => {
+  el.innerHTML = joinWithShowMore(
+    worksheets.map((name) => {
       return (
         '<div class="tree-item">' +
         '<span class="ti-icon"><svg class="ic"><use href="#i-grid"/></svg></span>' +
@@ -1900,8 +2248,8 @@ function renderWorksheets(worksheets) {
         '</span>' +
         '</div>'
       )
-    })
-    .join('')
+    }),
+  )
 }
 
 function renderWorkbookPaletteList(palettes) {
