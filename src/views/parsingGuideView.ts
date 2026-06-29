@@ -36,6 +36,7 @@ import {
     xmlToThemeJson,
     applyThemeJsonToXml,
     validateThemeJson,
+    getXmlElementName,
     WorkbookTheme,
 } from '../parsers/formattingTheme.js';
 
@@ -66,7 +67,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 return;
             }
 
-            const payload = message as { type?: string; palettes?: unknown; palette?: unknown; paletteName?: unknown; path?: string; formula?: string; options?: unknown; edits?: unknown; mode?: string; json?: string; };
+            const payload = message as { type?: string; palettes?: unknown; palette?: unknown; paletteName?: unknown; path?: string; formula?: string; options?: unknown; edits?: unknown; mode?: string; json?: string; element?: string; };
             switch (payload.type) {
                 case 'openPreferencesTemplate':
                     void this.openPreferencesTemplate();
@@ -106,6 +107,9 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'openFormattingPanel':
                     void vscode.commands.executeCommand('tableauLanguageSupport.openFormattingPanel');
+                    break;
+                case 'locateElement':
+                    void this.handleLocateElement(payload.element ?? '');
                     break;
                 case 'applyFormattingEdits':
                     void this.handleFormattingApplyEdits((payload.edits ?? {}) as WorkbookTheme);
@@ -969,6 +973,22 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    private async handleLocateElement(panelElement: string): Promise<void> {
+        const uri = this.lastWorkbookUri;
+        if (!uri || !panelElement) { return; }
+        const xmlElement = getXmlElementName(panelElement);
+        const doc = await vscode.workspace.openTextDocument(uri);
+        const editor = await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside });
+        const lines = doc.getText().split(/\r?\n/);
+        const pattern = new RegExp(`<style-rule[^>]*element=['"]${xmlElement}['"]`);
+        const lineIndex = lines.findIndex(l => pattern.test(l));
+        if (lineIndex >= 0) {
+            const range = new vscode.Range(lineIndex, 0, lineIndex, lines[lineIndex].length);
+            editor.selection = new vscode.Selection(range.start, range.end);
+            editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+        }
+    }
+
     private async handleFormattingJsonSave(json: string): Promise<void> {
         if (!this.view) { return; }
         const uri = this.lastWorkbookUri;
@@ -1470,8 +1490,12 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         .fmt-group-hdr:first-child { border-top: none; margin-top: 0; }
         .fmt-elem-row { padding: 3px 0 5px; border-bottom: 1px solid transparent; }
         .fmt-elem-row.dirty { border-left: 3px solid var(--vscode-focusBorder); }
-        .fmt-elem-name { font-size: 12px; font-weight: 500; color: var(--vscode-foreground); padding: 2px 12px 1px; }
+        .fmt-elem-name { font-size: 12px; font-weight: 500; color: var(--vscode-foreground); padding: 2px 12px 1px; flex: 1; }
         .fmt-elem-row.dirty .fmt-elem-name { padding-left: 9px; }
+        .fmt-elem-hdr { display: flex; align-items: center; padding-right: 8px; }
+        .fmt-locate-btn { background: none; border: 1px solid var(--vscode-widget-border); color: var(--vscode-descriptionForeground); border-radius: 3px; padding: 0px 5px; font-size: 10px; font-family: var(--vscode-editor-font-family); cursor: pointer; white-space: nowrap; line-height: 16px; }
+        .fmt-locate-btn:not(:disabled):hover { color: var(--vscode-foreground); border-color: var(--vscode-focusBorder); }
+        .fmt-locate-btn:disabled { opacity: 0.25; cursor: default; }
         .fmt-prop-row { display: flex; align-items: center; padding: 1px 12px 1px 24px; gap: 6px; min-height: 22px; }
         .fmt-elem-row.dirty .fmt-prop-row { padding-left: 21px; }
         .fmt-prop-lbl { font-size: 11px; color: var(--vscode-descriptionForeground); width: 80px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
