@@ -32,3 +32,6 @@ select { background: var(--vscode-dropdown-background); border: 1px solid var(--
 .radio-group { display: flex; gap: 16px; margin-bottom: 12px; }
 .json-preview { background: var(--vscode-textCodeBlock-background); border: 1px solid var(--vscode-widget-border); border-radius: 4px; padding: 12px; font-family: var(--vscode-editor-font-family); font-size: 12px; white-space: pre; overflow: auto; max-height: 400px; }
 .placeholder { padding: 24px; text-align: center; color: var(--vscode-descriptionForeground); }
+.locate-btn { margin-left: auto; background: none; border: 1px solid var(--vscode-widget-border); color: var(--vscode-descriptionForeground); border-radius: 3px; padding: 1px 6px; font-size: 11px; font-family: var(--vscode-editor-font-family); cursor: pointer; white-space: nowrap; }
+.locate-btn:not(:disabled):hover { color: var(--vscode-foreground); border-color: var(--vscode-focusBorder); }
+.locate-btn:disabled { opacity: 0.3; cursor: default; }

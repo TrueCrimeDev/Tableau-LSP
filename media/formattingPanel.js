@@ -171,6 +171,17 @@
                     group.appendChild(clearBtn)
                     row.appendChild(group)
                 }
+                const hasData = state.elements[element] && Object.values(state.elements[element]).some(v => v !== null)
+                const locateBtn = document.createElement('button')
+                locateBtn.className = 'locate-btn'
+                locateBtn.title = 'Locate in .twb file'
+                locateBtn.textContent = '{ }'
+                locateBtn.disabled = !hasData
+                locateBtn.addEventListener('click', () => {
+                    vscode.postMessage({ type: 'locateElement', element })
+                })
+                row.appendChild(locateBtn)
+
                 container.appendChild(row)
             }
         }

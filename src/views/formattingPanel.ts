@@ -7,6 +7,7 @@ import {
     xmlToThemeJson,
     applyThemeJsonToXml,
     validateThemeJson,
+    getXmlElementName,
     WorkbookTheme,
 } from '../parsers/formattingTheme.js';
 
@@ -40,7 +41,7 @@ function openOrReveal(context: vscode.ExtensionContext): void {
 
     panel.webview.html = getPanelHtml(panel.webview, context);
 
-    panel.webview.onDidReceiveMessage(async (msg: { type: string; edits?: WorkbookTheme; filePath?: string; mode?: string; json?: string }) => {
+    panel.webview.onDidReceiveMessage(async (msg: { type: string; edits?: WorkbookTheme; filePath?: string; mode?: string; json?: string; element?: string }) => {
         switch (msg.type) {
             case 'applyEdits':
                 await handleApplyEdits(msg.edits ?? {});
@@ -56,6 +57,9 @@ function openOrReveal(context: vscode.ExtensionContext): void {
                 break;
             case 'pickImportFile':
                 await handlePickImportFile();
+                break;
+            case 'locateElement':
+                await handleLocateElement(msg.element ?? '');
                 break;
         }
     });
@@ -152,6 +156,23 @@ async function handleSaveJson(json: string): Promise<void> {
     if (!dest) { return; }
     await vscode.workspace.fs.writeFile(dest, Buffer.from(json, 'utf8'));
     await panel?.webview.postMessage({ type: 'formattingSuccess', tab: 'export', message: `Saved to ${basename(dest.fsPath)}` });
+}
+
+async function handleLocateElement(panelElement: string): Promise<void> {
+    const uri = getWorkbookUri();
+    if (!uri || !panelElement) { return; }
+    const xmlElement = getXmlElementName(panelElement);
+    const doc = await vscode.workspace.openTextDocument(uri);
+    const editor = await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside });
+    const text = doc.getText();
+    const lines = text.split(/\r?\n/);
+    const pattern = new RegExp(`<style-rule[^>]*element=['"]${xmlElement}['"]`);
+    const lineIndex = lines.findIndex(l => pattern.test(l));
+    if (lineIndex >= 0) {
+        const range = new vscode.Range(lineIndex, 0, lineIndex, lines[lineIndex].length);
+        editor.selection = new vscode.Selection(range.start, range.end);
+        editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+    }
 }
 
 async function postError(tab: string, message: string): Promise<void> {
