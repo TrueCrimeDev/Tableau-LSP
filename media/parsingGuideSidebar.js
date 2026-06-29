@@ -1261,10 +1261,13 @@ if (requiredElements.some((element) => !element)) {
         var row = document.createElement('div')
         row.className = 'fmt-elem-row'
         row.dataset.element = element
+        var hdrEl = document.createElement('div')
+        hdrEl.className = 'fmt-elem-hdr'
         var nameEl = document.createElement('div')
         nameEl.className = 'fmt-elem-name'
         nameEl.textContent = fmtElemLabel(element)
-        row.appendChild(nameEl)
+        hdrEl.appendChild(nameEl)
+        row.appendChild(hdrEl)
 
         attrs.forEach(function (attr) {
           var currentVal = (fmtState.pendingEdits[element] !== undefined && fmtState.pendingEdits[element][attr] !== undefined)
@@ -1384,6 +1387,19 @@ if (requiredElements.some((element) => !element)) {
           propRow.appendChild(ctrl)
           row.appendChild(propRow)
         })
+        var hasData = fmtState.elements[element] && Object.values(fmtState.elements[element]).some(function (v) { return v !== null })
+        var locBtn = document.createElement('button')
+        locBtn.className = 'fmt-locate-btn'
+        locBtn.title = 'Locate in .twb file'
+        locBtn.textContent = '{ }'
+        locBtn.disabled = !hasData
+        ;(function (elem) {
+          locBtn.addEventListener('click', function () {
+            vscode.postMessage({ type: 'locateElement', element: elem })
+          })
+        })(element)
+        hdrEl.appendChild(locBtn)
+
         container.appendChild(row)
       })
     }
