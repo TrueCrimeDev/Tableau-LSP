@@ -16,7 +16,8 @@ module.exports = {
   },
   moduleFileExtensions: ['ts', 'js', 'json'],
   moduleNameMapper: {
-    '^(\\.{1,2}/.*)\\.js$': '$1'
+    '^(\\.{1,2}/.*)\\.js$': '$1',
+    '^vscode$': '<rootDir>/src/tests/__mocks__/vscode.js'
   },
   testTimeout: 10000
 };
