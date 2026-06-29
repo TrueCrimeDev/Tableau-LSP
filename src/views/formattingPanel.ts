@@ -161,11 +161,19 @@ async function handleSaveJson(json: string): Promise<void> {
 async function handleLocateElement(panelElement: string): Promise<void> {
     const uri = getWorkbookUri();
     if (!uri || !panelElement) { return; }
+    await locateXmlElement(uri, panelElement);
+}
+
+export async function locateXmlElement(uri: vscode.Uri, panelElement: string): Promise<void> {
     const xmlElement = getXmlElementName(panelElement);
-    const doc = await vscode.workspace.openTextDocument(uri);
-    const editor = await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside });
-    const text = doc.getText();
-    const lines = text.split(/\r?\n/);
+    const uriStr = uri.toString();
+    const existing = vscode.window.visibleTextEditors.find(e => e.document.uri.toString() === uriStr);
+    const doc = existing?.document ?? await vscode.workspace.openTextDocument(uri);
+    const editor = await vscode.window.showTextDocument(doc, {
+        preview: false,
+        viewColumn: existing?.viewColumn,
+    });
+    const lines = doc.getText().split(/\r?\n/);
     const pattern = new RegExp(`<style-rule[^>]*element=['"]${xmlElement}['"]`);
     const lineIndex = lines.findIndex(l => pattern.test(l));
     if (lineIndex >= 0) {

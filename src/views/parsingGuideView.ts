@@ -36,9 +36,9 @@ import {
     xmlToThemeJson,
     applyThemeJsonToXml,
     validateThemeJson,
-    getXmlElementName,
     WorkbookTheme,
 } from '../parsers/formattingTheme.js';
+import { locateXmlElement } from './formattingPanel.js';
 
 const log = getLogger();
 const LOG_CAT = 'WorkbookInspector';
@@ -976,17 +976,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
     private async handleLocateElement(panelElement: string): Promise<void> {
         const uri = this.lastWorkbookUri;
         if (!uri || !panelElement) { return; }
-        const xmlElement = getXmlElementName(panelElement);
-        const doc = await vscode.workspace.openTextDocument(uri);
-        const editor = await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside });
-        const lines = doc.getText().split(/\r?\n/);
-        const pattern = new RegExp(`<style-rule[^>]*element=['"]${xmlElement}['"]`);
-        const lineIndex = lines.findIndex(l => pattern.test(l));
-        if (lineIndex >= 0) {
-            const range = new vscode.Range(lineIndex, 0, lineIndex, lines[lineIndex].length);
-            editor.selection = new vscode.Selection(range.start, range.end);
-            editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
-        }
+        await locateXmlElement(uri, panelElement);
     }
 
     private async handleFormattingJsonSave(json: string): Promise<void> {
