@@ -72,8 +72,10 @@ interface PendingRequest<T, R> {
     context: RequestContext;
     params: T;
     handler: RequestHandler<T, R>;
-    resolve: (value: R) => void;
-    reject: (error: any) => void;
+    // A pending request can have multiple waiters: when a newer identical
+    // request (same requestId) supersedes an older one, the older waiters are
+    // carried over so they all settle together when the request finally runs.
+    resolvers: Array<{ resolve: (value: R) => void; reject: (error: any) => void }>;
     timeoutId?: NodeJS.Timeout;
 }
 
@@ -201,16 +203,26 @@ export class RequestDebouncer {
             return this.executeImmediately(params, handler, context);
         }
 
-        // Cancel existing request for the same operation
-        this.cancelPendingRequest(requestId);
-
         return new Promise<R>((resolve, reject) => {
+            // Carry over any waiters from an existing pending request with the
+            // same id so that superseded callers still settle with the final
+            // result instead of hanging forever.
+            const existing = this.pendingRequests.get(requestId);
+            const resolvers = existing ? existing.resolvers : [];
+            resolvers.push({ resolve, reject });
+
+            if (existing) {
+                if (existing.timeoutId) {
+                    clearTimeout(existing.timeoutId);
+                }
+                this.removeFromRequestQueue(type, requestId);
+            }
+
             const pendingRequest: PendingRequest<T, R> = {
                 context,
                 params,
                 handler,
-                resolve,
-                reject
+                resolvers
             };
 
             // Determine debounce delay based on typing patterns
@@ -284,10 +296,10 @@ export class RequestDebouncer {
 
         try {
             const result = await pendingRequest.handler(pendingRequest.params, pendingRequest.context);
-            pendingRequest.resolve(result);
+            pendingRequest.resolvers.forEach(r => r.resolve(result));
         } catch (error) {
             console.error(`[RequestDebouncer] Request execution failed for ${pendingRequest.context.type}:`, error);
-            pendingRequest.reject(error);
+            pendingRequest.resolvers.forEach(r => r.reject(error));
         }
     }
 
@@ -357,14 +369,23 @@ export class RequestDebouncer {
         const config = this.debounceConfigs.get(type)!;
         const batchToProcess = queue.splice(0, config.batchSize);
 
+        // Cancel each batched request's pending timeout and remove it from the
+        // pending map so it is not also executed again by executePendingRequest.
+        batchToProcess.forEach(request => {
+            if (request.timeoutId) {
+                clearTimeout(request.timeoutId);
+            }
+            this.pendingRequests.delete(request.context.requestId);
+        });
+
         // Execute batched requests concurrently
         const batchPromises = batchToProcess.map(async (request) => {
             try {
                 const result = await request.handler(request.params, request.context);
-                request.resolve(result);
+                request.resolvers.forEach(r => r.resolve(result));
             } catch (error) {
                 console.error(`[RequestDebouncer] Batched request failed for ${type}:`, error);
-                request.reject(error);
+                request.resolvers.forEach(r => r.reject(error));
             }
         });
 
@@ -396,9 +417,9 @@ export class RequestDebouncer {
         const executionPromises = allRequests.map(async (request) => {
             try {
                 const result = await request.handler(request.params, request.context);
-                request.resolve(result);
+                request.resolvers.forEach(r => r.resolve(result));
             } catch (error) {
-                request.reject(error);
+                request.resolvers.forEach(r => r.reject(error));
             }
         });
 
@@ -456,16 +477,27 @@ export class RequestDebouncer {
      */
     clearDocumentRequests(documentUri: string): void {
         const requestsToCancel: string[] = [];
-        
+
         for (const [requestId, request] of this.pendingRequests) {
             if (request.context.documentUri === documentUri) {
                 requestsToCancel.push(requestId);
             }
         }
-        
+
         requestsToCancel.forEach(requestId => {
             this.cancelPendingRequest(requestId);
         });
+
+        // lastRequestTime keys are `${type}:${documentUri}` (see generateRequestId/
+        // calculateEffectiveDelay); without this the map grows unboundedly across the
+        // server's lifetime as documents are opened and closed.
+        const timeKeysToDelete: string[] = [];
+        for (const key of this.lastRequestTime.keys()) {
+            if (key.endsWith(`:${documentUri}`)) {
+                timeKeysToDelete.push(key);
+            }
+        }
+        timeKeysToDelete.forEach(key => this.lastRequestTime.delete(key));
     }
 
     /**

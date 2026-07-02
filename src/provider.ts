@@ -22,7 +22,7 @@ import {
 
 // REGEX CONSTANTS - inspired by your tmLanguage file
 // We use the 'g' flag to find all occurrences.
-const FIELD_REGEX = /\b([A-Z_]+)\s*\(/ig;
+const FIELD_REGEX = /\[([^\]]+)\]/g;
 const FUNCTION_REGEX = /\b([A-Z_]+)\s*\(/ig;
 const LOD_REGEX = /\{\s*(FIXED|INCLUDE|EXCLUDE)\b/ig;
 const COMMENT_LINE_REGEX = /\/\/.*/g;
@@ -150,38 +150,61 @@ function parseDocument(document: TextDocument): ParsedDocument {
 }
 
 
+function symbolKindFor(symbol: Symbol): SymbolKind {
+    switch (symbol.type) {
+        case SymbolType.CalculationName:
+            return SymbolKind.Function; // Represents the whole calc
+        case SymbolType.FieldReference:
+        case SymbolType.ParameterReference:
+        case SymbolType.Variable:
+            return SymbolKind.Variable;
+        case SymbolType.FunctionCall:
+            return SymbolKind.Function;
+        case SymbolType.LODExpression:
+            return SymbolKind.Module; // No perfect match, Module is a good choice
+        case SymbolType.Comment:
+            return SymbolKind.String;
+        case SymbolType.Keyword:
+            // A block-opening keyword (IF/CASE/...) carries children or a matched end; a bare
+            // keyword (AND, END, ...) does not.
+            return (symbol.children && symbol.children.length > 0) || symbol.end
+                ? SymbolKind.Module
+                : SymbolKind.Operator;
+        case SymbolType.Expression:
+            return SymbolKind.Object;
+        default:
+            return SymbolKind.Key;
+    }
+}
+
+/**
+ * Flatten a symbol tree (including nested `.children`) into VS Code's flat SymbolInformation list.
+ */
+function flattenSymbols(symbols: Symbol[], documentUri: string): SymbolInformation[] {
+    const result: SymbolInformation[] = [];
+    for (const symbol of symbols) {
+        result.push(SymbolInformation.create(symbol.name, symbolKindFor(symbol), symbol.range, documentUri));
+        if (symbol.children && symbol.children.length > 0) {
+            result.push(...flattenSymbols(symbol.children, documentUri));
+        }
+    }
+    return result;
+}
+
 /**
  * Provides symbols for a single document (for Outline view and Go to Symbol).
+ *
+ * `document`, when supplied, is used directly instead of relying on it already being present
+ * in `parsedDocumentCache` under the same URI (previously the only way this returned real
+ * symbols instead of an empty placeholder parse).
  */
-export function documentSymbolProvider(params: DocumentSymbolParams, _token?: CancellationToken): SymbolInformation[] {
-    const doc = TextDocument.create(params.textDocument.uri, 'twbl', 0, ''); // We just need the URI
-    const parsedDoc = parseDocument(doc); // This will need the actual document content, assuming it's managed elsewhere
-    
+export function documentSymbolProvider(params: DocumentSymbolParams, _token?: CancellationToken, document?: TextDocument): SymbolInformation[] {
+    const doc = document ?? TextDocument.create(params.textDocument.uri, 'twbl', 0, '');
+    const parsedDoc = parseDocument(doc);
+
     if (!parsedDoc) return [];
 
-    // Convert our custom symbols to VS Code's SymbolInformation
-    return parsedDoc.symbols.map(symbol => {
-        let kind: SymbolKind;
-        switch (symbol.type) {
-            case SymbolType.CalculationName:
-                kind = SymbolKind.Function; // Or Variable, represents the whole calc
-                break;
-            case SymbolType.FieldReference:
-                kind = SymbolKind.Variable;
-                break;
-            case SymbolType.FunctionCall:
-                kind = SymbolKind.Function;
-                break;
-            case SymbolType.LODExpression:
-                kind = SymbolKind.Module; // No perfect match, Module is a good choice
-                break;
-            default:
-                kind = SymbolKind.Key;
-                break;
-        }
-
-        return SymbolInformation.create(symbol.name, kind, symbol.range, parsedDoc.document.uri);
-    });
+    return flattenSymbols(parsedDoc.symbols, parsedDoc.document.uri);
 }
 
 
@@ -268,6 +291,32 @@ export function provideCodeActions(params: any, document: TextDocument): any[] {
 
     const actions = [];
     for (const diag of diagnostics) {
+        // Quick fix: insert a suggested header comment above an undocumented calc.
+        if (diag.code === 'MISSING_HEADER_COMMENT' && diag.data && typeof diag.data.insertLine === 'number') {
+            const header: string = diag.data.header || '// !NewCalc - Describe what this calculation returns';
+            const insertLine: number = diag.data.insertLine;
+            actions.push({
+                title: `Add header comment:  ${header.replace(/^\/\/\s*/, '')}`,
+                kind: 'quickfix',
+                diagnostics: [diag],
+                isPreferred: true,
+                edit: {
+                    changes: {
+                        [document.uri]: [
+                            {
+                                range: {
+                                    start: { line: insertLine, character: 0 },
+                                    end: { line: insertLine, character: 0 }
+                                },
+                                newText: header + '\n'
+                            }
+                        ]
+                    }
+                }
+            });
+            continue;
+        }
+
         const m = diag.message.match(/^Unknown function: ([A-Z_][A-Z0-9_]*)$/i);
         if (m) {
             const unknown = m[1];
