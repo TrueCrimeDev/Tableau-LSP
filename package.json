@@ -2,7 +2,7 @@
   "name": "tableau-language-support",
   "displayName": "Tableau Language Support",
   "description": "Complete language support for Tableau calculation language with syntax highlighting, IntelliSense, validation, formatting, 100+ snippets, keyboard shortcuts, and advanced analytics patterns",
-  "version": "1.5.8",
+  "version": "1.5.14",
   "publisher": "TrueCrimeAudit",
   "icon": "images/tableau-icon.png",
   "license": "MIT",
@@ -111,7 +111,7 @@
         {
           "id": "tableauLsp",
           "title": "Tableau LSP",
-          "icon": "images/tableau2.png"
+          "icon": "images/tableau2.svg"
         }
       ]
     },
@@ -223,6 +223,11 @@
             "messages",
             "verbose"
           ],
+          "enumDescriptions": [
+            "No tracing.",
+            "Log request/response method names only.",
+            "Log full request/response payloads, including parameters and results."
+          ],
           "default": "off"
         },
         "tableau-language-support.enableSnippets": {
@@ -230,17 +235,6 @@
           "type": "boolean",
           "description": "Enable snippet completions for Tableau functions",
           "default": true
-        },
-        "tableau-language-support.semanticTokens": {
-          "scope": "resource",
-          "type": "string",
-          "description": "Set level of semantic tokens for Tableau syntax highlighting",
-          "enum": [
-            "none",
-            "partial",
-            "full"
-          ],
-          "default": "full"
         },
         "tableau-language-support.enableFormatting": {
           "scope": "resource",
@@ -254,29 +248,11 @@
           "description": "Enable all code lens features",
           "default": true
         },
-        "tableau-language-support.codeLens.formatExpression": {
-          "scope": "resource",
-          "type": "boolean",
-          "description": "Show 'Format Expression' code lens on IF and CASE statements",
-          "default": false
-        },
-        "tableau-language-support.codeLens.explainLOD": {
-          "scope": "resource",
-          "type": "boolean",
-          "description": "Show 'Explain LOD' code lens on Level of Detail expressions",
-          "default": false
-        },
-        "tableau-language-support.codeLens.showFunctionHelp": {
-          "scope": "resource",
-          "type": "boolean",
-          "description": "Show 'Show Function Help' code lens on aggregate functions",
-          "default": false
-        },
         "tableau-language-support.codeLens.copyWithComment": {
           "scope": "resource",
           "type": "boolean",
-          "description": "Show 'Copy with Comment' code lens on all expressions",
-          "default": false
+          "description": "Show a subtle 'Copy' code lens above each calculation block to copy its comment header and formula",
+          "default": true
         },
         "tableau-language-support.logging.level": {
           "scope": "window",
@@ -289,6 +265,14 @@
             "warn",
             "error",
             "fatal"
+          ],
+          "enumDescriptions": [
+            "Log everything, including fine-grained diagnostic detail.",
+            "Log detailed information useful while debugging.",
+            "Log general operational messages (default).",
+            "Log potential problems that don't stop the extension from working.",
+            "Log failures that affected a single operation.",
+            "Log unrecoverable failures."
           ],
           "default": "info"
         },
@@ -382,21 +366,6 @@
         "category": "Tableau"
       },
       {
-        "command": "tableau.showHelp",
-        "title": "Show Help Panel",
-        "category": "Tableau"
-      },
-      {
-        "command": "tableau.quickHelp",
-        "title": "Quick Help",
-        "category": "Tableau"
-      },
-      {
-        "command": "tableau.contextualHelp",
-        "title": "Contextual Help",
-        "category": "Tableau"
-      },
-      {
         "command": "tableau-language-support.status",
         "title": "Show Extension Status",
         "category": "Tableau"
@@ -432,30 +401,12 @@
         "category": "Tableau"
       },
       {
-        "command": "tableau-language-support.status",
-        "title": "Show Extension Status (Duplicate Entry Cleanup Placeholder)",
-        "category": "Tableau",
-        "enablement": "false"
-      },
-      {
         "command": "tableau-lsp.extractCalculationsPython",
         "title": "Extract Calculations",
         "category": "Tableau"
       }
     ],
     "keybindings": [
-      {
-        "command": "tableau-language-support.insertSnippet",
-        "key": "ctrl+shift+s",
-        "mac": "cmd+shift+s",
-        "when": "editorTextFocus && resourceExtname == .twbl"
-      },
-      {
-        "command": "tableau-language-support.formatExpression",
-        "key": "ctrl+shift+f",
-        "mac": "cmd+shift+f",
-        "when": "editorTextFocus && resourceExtname == .twbl"
-      },
       {
         "command": "tableau-language-support.validateExpression",
         "key": "ctrl+shift+v",
@@ -496,12 +447,6 @@
         "command": "tableau-language-support.lsp.restart",
         "key": "ctrl+shift+r",
         "mac": "cmd+shift+r",
-        "when": "editorTextFocus && resourceExtname == .twbl"
-      },
-      {
-        "command": "tableau-language-support.runTests",
-        "key": "ctrl+shift+t",
-        "mac": "cmd+shift+t",
         "when": "editorTextFocus && resourceExtname == .twbl"
       },
       {

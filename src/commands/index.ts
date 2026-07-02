@@ -11,8 +11,7 @@ import { showFunctionHelpCommand } from './showFunctionHelp.js';
 import { showParsingGuideCommand } from './showParsingGuide.js';
 import { toggleCommentsCommand } from './toggleComments.js';
 import { validateExpressionCommand } from './validateExpression.js';
-// import { registerHelpCommands } from '../help/helpProvider.js';
-// import { registerLoggingCommands } from './loggingCommands.js';
+import { registerLoggingCommands } from './loggingCommands.js';
 
 /**
  * R9.1: Register all keyboard shortcut commands
@@ -45,12 +44,8 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 
     // Add all commands to context subscriptions
     context.subscriptions.push(...commands);
-    
-    // Register help commands
-    // registerHelpCommands(context);
-    
-    // Register logging commands
-    // registerLoggingCommands(context);
-    
+
+    registerLoggingCommands(context);
+
     console.log('Tableau LSP: Registered keyboard shortcut commands');
 }
