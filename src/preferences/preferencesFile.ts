@@ -237,7 +237,7 @@ function upsertPalette(text: string, palette: PaletteDefinition): string {
     const escapedName = escapeRegExp(palette.name);
     const paletteBlock = buildPaletteBlock(palette);
     const paletteRegex = new RegExp(
-        `<color-palette\\b[^>]*name="${escapedName}"[^>]*>[\\s\\S]*?<\\/color-palette>`,
+        `<color-palette\\b[^>]*name=["']${escapedName}["'][^>]*>[\\s\\S]*?<\\/color-palette>`,
         'i'
     );
 
@@ -251,7 +251,7 @@ function upsertPalette(text: string, palette: PaletteDefinition): string {
 function removePaletteByName(text: string, name: string): string {
     const escapedName = escapeRegExp(name);
     const paletteRegex = new RegExp(
-        `[\\t ]*<color-palette\\b[^>]*name="${escapedName}"[^>]*>[\\s\\S]*?<\\/color-palette>\\s*`,
+        `[\\t ]*<color-palette\\b[^>]*name=["']${escapedName}["'][^>]*>[\\s\\S]*?<\\/color-palette>\\s*`,
         'i'
     );
     return text.replace(paletteRegex, '');

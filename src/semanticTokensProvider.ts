@@ -50,11 +50,17 @@ function getSemanticTokenType(tokenType: TokenType, tokenValue: string): number 
         case TokenType.False:
         case TokenType.Null:
         case TokenType.Number:
+        case TokenType.DateLiteral:
             return TOKEN_TYPE_MAP['constant'];
 
         // Strings
         case TokenType.String:
             return TOKEN_TYPE_MAP['string'];
+
+        // Comments (must be mapped, else they fall through to 'variable' and the
+        // semantic layer overrides the grammar's green comment colour).
+        case TokenType.Comment:
+            return TOKEN_TYPE_MAP['comment'];
 
         // Field references
         case TokenType.FieldReference:
@@ -66,6 +72,7 @@ function getSemanticTokenType(tokenType: TokenType, tokenValue: string): number 
         case TokenType.Star:
         case TokenType.Slash:
         case TokenType.Percent:
+        case TokenType.Caret:
         case TokenType.Equal:
         case TokenType.EqualEqual:
         case TokenType.Bang:
@@ -85,7 +92,10 @@ function getSemanticTokenType(tokenType: TokenType, tokenValue: string): number 
             return TOKEN_TYPE_MAP['variable'];
 
         default:
-            return TOKEN_TYPE_MAP['variable']; // Default fallback
+            // Punctuation, whitespace, etc. — return -1 so the caller skips emitting a
+            // semantic token and lets the TextMate grammar colour it (avoids painting
+            // parentheses, braces and commas as 'variable').
+            return -1;
     }
 }
 
@@ -105,8 +115,12 @@ export function provideSemanticTokens(
             continue;
         }
 
-        const startPos = document.positionAt(token.start);
         const tokenType = getSemanticTokenType(token.type, token.value);
+        if (tokenType < 0) {
+            continue; // unmapped (punctuation/whitespace) — leave to the grammar
+        }
+
+        const startPos = document.positionAt(token.start);
         const length = token.end - token.start;
 
         builder.push(

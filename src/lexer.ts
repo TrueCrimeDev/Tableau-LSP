@@ -12,10 +12,10 @@
  */
 export enum TokenType {
   // Single-character tokens
-  LParen, RParen, LBrace, RBrace, Comma, Colon,
+  LParen, RParen, LBrace, RBrace, LBracket, RBracket, Comma, Colon, Semicolon,
 
   // One or two character operators
-  Plus, Minus, Star, Slash, Percent,
+  Plus, Minus, Star, Slash, Percent, Caret,
   Equal, EqualEqual, Bang, BangEqual,
   Greater, GreaterEqual, Less, LessEqual,
 
@@ -24,21 +24,34 @@ export enum TokenType {
   String,           // e.g., 'hello' or "world"
   Number,           // e.g., 123 or 45.6
   FieldReference,   // e.g., [Sales]
+  DateLiteral,      // e.g., #2020-01-01# or #2020-01-01 12:00:00#
+
+  // Trivia
+  Comment,          // e.g. // line comment or /* block comment */
+  Whitespace,       // reserved: whitespace runs (not currently emitted)
 
   // Keywords for control flow
   If, Then, Else, Elseif, End,
   Case, When,
-  
+
   // Keywords for logical operators and Level of Detail (LOD) expressions
   And, Or, Not, In,
   Fixed, Include, Exclude,
-  
+
   // Constant values
   True, False, Null,
 
   // Meta tokens
   Unexpected, // Represents a token that could not be recognized
   EOF,        // Represents the end of the input string
+
+  // Aliases (same underlying values) kept for a stable public API.
+  Multiply = Star,
+  Divide = Slash,
+  Modulo = Percent,
+  NotEqual = BangEqual,
+  ElseIf = Elseif,
+  Error = Unexpected,
 }
 
 /**
@@ -80,7 +93,7 @@ export function tokenize(source: string): Token[] {
     const tokens: Token[] = [];
     let start = 0;
     let current = 0;
-    let line = 1;
+    let line = 0; // 0-based to match the LSP line/character convention
     let lineStart = 0;
 
     function isAtEnd(): boolean {
@@ -114,13 +127,13 @@ export function tokenize(source: string): Token[] {
             type,
             value,
             line,
-            column: start - lineStart + 1,
+            column: start - lineStart, // 0-based column
             start,
             end: current,
         });
     }
 
-    function skipWhitespaceAndComments(): void {
+    function skipWhitespace(): void {
         while (true) {
             const char = peek();
             switch (char) {
@@ -134,41 +147,57 @@ export function tokenize(source: string): Token[] {
                     advance();
                     lineStart = current;
                     break;
-                case '/':
-                    if (peekNext() === '/') { // Line comment
-                        while (peek() !== '\n' && !isAtEnd()) advance();
-                    } else if (peekNext() === '*') { // Block comment
-                        advance(); // consume /
-                        advance(); // consume *
-                        while (!(peek() === '*' && peekNext() === '/') && !isAtEnd()) {
-                            if (peek() === '\n') {
-                                line++;
-                                lineStart = current + 1;
-                            }
-                            advance();
-                        }
-                        if (!isAtEnd()) {
-                            advance(); // consume *
-                            advance(); // consume /
-                        }
-                    } else {
-                        return; // Not a comment, but a division operator. Exit the loop.
-                    }
-                    break;
                 default:
                     return;
             }
         }
     }
 
+    // Scans a comment as a token. The opening '/' has already been consumed by
+    // the main loop; the caller has verified the next char is '/' or '*'.
+    function scanComment(): void {
+        if (match('/')) { // Line comment
+            while (peek() !== '\n' && !isAtEnd()) advance();
+        } else if (match('*')) { // Block comment
+            while (!(peek() === '*' && peekNext() === '/') && !isAtEnd()) {
+                if (peek() === '\n') {
+                    line++;
+                    lineStart = current + 1;
+                }
+                advance();
+            }
+            if (!isAtEnd()) {
+                advance(); // consume '*'
+                advance(); // consume '/'
+            }
+        }
+        makeToken(TokenType.Comment);
+    }
+
     function scanString(quote: string): void {
-        while (peek() !== quote && !isAtEnd()) {
-            if (peek() === '\n') {
+        while (!isAtEnd()) {
+            const char = peek();
+
+            if (char === quote) {
+                // Tableau doubled-quote escaping: '' (or "") inside a string of
+                // the matching quote is a literal quote, not a terminator.
+                if (peekNext() === quote) {
+                    advance(); // consume the first quote
+                    advance(); // consume the second (escaped) quote
+                    continue;
+                }
+                // A quote is a hard terminator in Tableau; the only in-string escape is
+                // the doubled quote handled above. (A single apostrophe inside a
+                // single-quoted string must be written as '' or the string uses ".)
+                break; // closing quote
+            }
+
+            if (char === '\n') {
                 line++;
                 lineStart = current + 1;
             }
             // Handle escape sequences as defined in tmLanguage (any escaped char is valid)
-            if (peek() === '\\' && peekNext() !== '\0') {
+            if (char === '\\' && peekNext() !== '\0') {
                 advance();
             }
             advance();
@@ -205,9 +234,17 @@ export function tokenize(source: string): Token[] {
     }
 
     function scanFieldReference(): void {
-        // Field references are enclosed in square brackets.
-        // This simple implementation reads until the closing bracket.
-        while (peek() !== ']' && !isAtEnd()) {
+        // Field references are enclosed in square brackets. Tableau escapes a literal
+        // ']' inside a name by doubling it (]]), so [a]]b] is the single field `a]b`.
+        while (!isAtEnd()) {
+            if (peek() === ']') {
+                if (peekNext() === ']') {
+                    advance(); // consume the first ']'
+                    advance(); // consume the second (escaped) ']'
+                    continue;
+                }
+                break; // closing ']'
+            }
             if (peek() === '\n') {
                 line++;
                 lineStart = current + 1;
@@ -224,6 +261,22 @@ export function tokenize(source: string): Token[] {
         makeToken(TokenType.FieldReference);
     }
 
+    // Scans a Tableau date literal: #...# (e.g. #2020-01-01# or #2020-01-01 12:00:00#).
+    // The opening '#' has already been consumed by the main loop.
+    function scanDateLiteral(): void {
+        while (!isAtEnd() && peek() !== '#' && peek() !== '\n') {
+            advance();
+        }
+
+        if (peek() !== '#') {
+            makeToken(TokenType.Unexpected); // Unterminated date literal
+            return;
+        }
+
+        advance(); // consume the closing '#'
+        makeToken(TokenType.DateLiteral);
+    }
+
     function isDigit(char: string): boolean {
         return char >= '0' && char <= '9';
     }
@@ -237,7 +290,7 @@ export function tokenize(source: string): Token[] {
     }
 
     while (!isAtEnd()) {
-        skipWhitespaceAndComments();
+        skipWhitespace();
 
         start = current;
 
@@ -254,19 +307,31 @@ export function tokenize(source: string): Token[] {
             case '}': makeToken(TokenType.RBrace); break;
             case ',': makeToken(TokenType.Comma); break;
             case ':': makeToken(TokenType.Colon); break;
+            case ';': makeToken(TokenType.Semicolon); break;
             case '+': makeToken(TokenType.Plus); break;
             case '-': makeToken(TokenType.Minus); break;
             case '*': makeToken(TokenType.Star); break;
             case '%': makeToken(TokenType.Percent); break;
+            case '^': makeToken(TokenType.Caret); break; // Tableau power operator (e.g. [Profit]^2)
 
             // Operators that might be two characters
             case '!': makeToken(match('=') ? TokenType.BangEqual : TokenType.Bang); break;
             case '=': makeToken(match('=') ? TokenType.EqualEqual : TokenType.Equal); break;
-            case '<': makeToken(match('=') ? TokenType.LessEqual : TokenType.Less); break;
+            case '<':
+                if (match('=')) makeToken(TokenType.LessEqual);
+                else if (match('>')) makeToken(TokenType.BangEqual); // Tableau '<>' is not-equal
+                else makeToken(TokenType.Less);
+                break;
             case '>': makeToken(match('=') ? TokenType.GreaterEqual : TokenType.Greater); break;
 
-            // The slash is for division; comments are handled by `skipWhitespaceAndComments`.
-            case '/': makeToken(TokenType.Slash); break;
+            // '/' starts a comment (// or /*), otherwise it is the division operator.
+            case '/':
+                if (peek() === '/' || peek() === '*') {
+                    scanComment();
+                } else {
+                    makeToken(TokenType.Slash);
+                }
+                break;
 
             // Strings
             case "'":
@@ -277,6 +342,11 @@ export function tokenize(source: string): Token[] {
             // Field References
             case '[':
                 scanFieldReference();
+                break;
+
+            // Date literals
+            case '#':
+                scanDateLiteral();
                 break;
 
             default:
