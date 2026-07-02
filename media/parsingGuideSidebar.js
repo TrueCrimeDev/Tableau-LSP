@@ -1151,6 +1151,7 @@ if (requiredElements.some((element) => !element)) {
           return
         }
         vscode.postMessage({ type: 'copyFormula', formula: calc.formula || '' })
+        setStatus('Copied formula “' + (calc.caption || 'Unnamed') + '”', 'success')
       } else if (action === 'insert-formula') {
         if (!data.calculations) {
           return
@@ -1163,6 +1164,7 @@ if (requiredElements.some((element) => !element)) {
           type: 'insertFormula',
           formula: calc.formula || '',
         })
+        setStatus('Inserted formula “' + (calc.caption || 'Unnamed') + '”', 'success')
       }
     })
   }
