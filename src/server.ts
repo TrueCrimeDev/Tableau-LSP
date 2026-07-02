@@ -11,8 +11,8 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { getDiagnostics } from './diagnosticsProvider.js';
 import { format } from './format.js';
 import { parseDocument } from './documentModel.js';
-import { provideHover } from './hoverProvider.js';
-import { buildSignatureHelp } from './signatureProvider.js';
+import { provideHover, HoverPerformanceAPI } from './hoverProvider.js';
+import { buildSignatureHelp, SignaturePerformanceAPI } from './signatureProvider.js';
 import { provideCompletion } from './completionProvider.js';
 import { provideSemanticTokens } from './semanticTokensProvider.js';
 import { documentSymbolProvider, workspaceSymbolProvider, provideCodeActions, provideDefinition, provideReferences } from './provider.js';
@@ -33,6 +33,12 @@ function shouldSkipDiagnostics(uri: string): boolean {
     }
     // Skip files in syntaxes/ directory
     if (uri.includes('/syntaxes/') || uri.includes('\\syntaxes\\')) {
+        return true;
+    }
+    // Skip Tableau workbook files — they are XML, not formula text.
+    // Running the formula parser over raw XML produces false positives on
+    // field names, XML attribute values, and encoded field paths.
+    if (uri.endsWith('.twb') || uri.endsWith('.twbx')) {
         return true;
     }
     return false;
@@ -91,6 +97,9 @@ connection.onInitialize((params) => {
             workspaceSymbolProvider: true,
             documentFormattingProvider: true,
             hoverProvider: true,
+            codeActionProvider: true,
+            definitionProvider: true,
+            referencesProvider: true,
             completionProvider: {
                 resolveProvider: false,
                 triggerCharacters: ['.', '[', '(', ' ', '\t']
@@ -130,6 +139,12 @@ connection.onInitialized(() => {
 });
 
 documents.onDidChangeContent((change) => {
+    // Drop stale hover/signature symbol-index caches for this document version;
+    // they were previously TTL-only and could serve results computed against
+    // superseded document content for up to SYMBOL_INDEX_TTL_MS.
+    HoverPerformanceAPI.invalidateDocument(change.document.uri);
+    SignaturePerformanceAPI.invalidateDocument(change.document.uri);
+
     // Skip diagnostics for declaration files
     if (shouldSkipDiagnostics(change.document.uri)) {
         connection.sendDiagnostics({ uri: change.document.uri, diagnostics: [] });
@@ -177,6 +192,8 @@ documents.onDidClose((event) => {
     IncrementalParser.clearDocumentCache(event.document.uri);
     // R7.2: Clear any pending debounced requests for the closed document
     globalDebouncer.clearDocumentRequests(event.document.uri);
+    HoverPerformanceAPI.invalidateDocument(event.document.uri);
+    SignaturePerformanceAPI.invalidateDocument(event.document.uri);
 });
 
 // R7.2: Debounce document and workspace symbol requests
@@ -188,7 +205,7 @@ connection.onDocumentSymbol((params, token) => {
         RequestType.DOCUMENT_SYMBOLS,
         { params, document },
         async ({ params, document }) => {
-            return documentSymbolProvider(params, token);
+            return documentSymbolProvider(params, token, document);
         },
         document.uri
     );
