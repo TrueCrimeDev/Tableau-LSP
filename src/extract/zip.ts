@@ -2,8 +2,28 @@ import { workspace, Uri } from 'vscode';
 import { TextDecoder } from 'util';
 import { basename } from 'path';
 import JSZip from 'jszip';
-import { ExtractedCalculation, ExtractionResult, ExtractedDatasource, ExtractedField } from './types.js';
-import { extractCalcsFromXml, extractDatasourcesFromXml, extractFieldsFromXml, XmlPreprocessor } from './xml.js';
+import {
+    ExtractedCalculation,
+    ExtractionResult,
+    ExtractedDatasource,
+    ExtractedField,
+    ExtractedParameter,
+    ExtractedFilter,
+    ExtractedDashboard,
+    ExtractedWorksheet,
+    ExtractedHierarchy
+} from './types.js';
+import {
+    extractCalcsFromXml,
+    extractDatasourcesFromXml,
+    extractFieldsFromXml,
+    extractParametersFromXml,
+    extractFiltersFromXml,
+    extractDashboardsFromXml,
+    extractWorksheetsFromXml,
+    extractHierarchiesFromXml,
+    XmlPreprocessor
+} from './xml.js';
 
 const textDecoder = new TextDecoder('utf8');
 
@@ -98,6 +118,11 @@ export async function extractAllFromFile(
             const calculations = extractCalcsFromXml(xml, workbookName, preprocessor);
             const datasources = extractDatasourcesFromXml(xml, workbookName, preprocessor);
             const fields = extractFieldsFromXml(xml, workbookName, preprocessor);
+            const parameters = extractParametersFromXml(xml, workbookName, preprocessor);
+            const filters = extractFiltersFromXml(xml, workbookName, preprocessor);
+            const dashboards = extractDashboardsFromXml(xml, workbookName, preprocessor);
+            const worksheets = extractWorksheetsFromXml(xml, workbookName, preprocessor);
+            const hierarchies = extractHierarchiesFromXml(xml, workbookName, preprocessor);
 
             const uniqueWorkbooks = new Set([
                 ...calculations.map(c => c.workbook),
@@ -114,11 +139,21 @@ export async function extractAllFromFile(
                 calculations,
                 datasources,
                 fields,
+                parameters,
+                filters,
+                dashboards,
+                worksheets,
+                hierarchies,
                 summary: {
                     workbooks: uniqueWorkbooks.size,
                     datasources: uniqueDatasources.size,
                     calculations: calculations.length,
-                    fields: fields.length
+                    fields: fields.length,
+                    parameters: parameters.length,
+                    filters: filters.length,
+                    dashboards: dashboards.length,
+                    worksheets: worksheets.length,
+                    hierarchies: hierarchies.length
                 }
             };
         }
@@ -127,11 +162,21 @@ export async function extractAllFromFile(
             calculations: [],
             datasources: [],
             fields: [],
+            parameters: [],
+            filters: [],
+            dashboards: [],
+            worksheets: [],
+            hierarchies: [],
             summary: {
                 workbooks: 0,
                 datasources: 0,
                 calculations: 0,
-                fields: 0
+                fields: 0,
+                parameters: 0,
+                filters: 0,
+                dashboards: 0,
+                worksheets: 0,
+                hierarchies: 0
             }
         };
     } catch (error) {
@@ -162,6 +207,11 @@ async function extractAllFromTwbx(
         const calculations: ExtractedCalculation[] = [];
         const datasources: ExtractedDatasource[] = [];
         const fields: ExtractedField[] = [];
+        const parameters: ExtractedParameter[] = [];
+        const filters: ExtractedFilter[] = [];
+        const dashboards: ExtractedDashboard[] = [];
+        const worksheets: ExtractedWorksheet[] = [];
+        const hierarchies: ExtractedHierarchy[] = [];
         const errors: string[] = [];
 
         for (const [entryPath, entry] of twbEntries) {
@@ -172,6 +222,11 @@ async function extractAllFromTwbx(
                 calculations.push(...extractCalcsFromXml(xml, workbookName, preprocessor));
                 datasources.push(...extractDatasourcesFromXml(xml, workbookName, preprocessor));
                 fields.push(...extractFieldsFromXml(xml, workbookName, preprocessor));
+                parameters.push(...extractParametersFromXml(xml, workbookName, preprocessor));
+                filters.push(...extractFiltersFromXml(xml, workbookName, preprocessor));
+                dashboards.push(...extractDashboardsFromXml(xml, workbookName, preprocessor));
+                worksheets.push(...extractWorksheetsFromXml(xml, workbookName, preprocessor));
+                hierarchies.push(...extractHierarchiesFromXml(xml, workbookName, preprocessor));
             } catch (entryError) {
                 const message = entryError instanceof Error ? entryError.message : String(entryError);
                 errors.push(`${entryPath}: ${message}`);
@@ -197,11 +252,21 @@ async function extractAllFromTwbx(
             calculations,
             datasources,
             fields,
+            parameters,
+            filters,
+            dashboards,
+            worksheets,
+            hierarchies,
             summary: {
                 workbooks: uniqueWorkbooks.size,
                 datasources: uniqueDatasources.size,
                 calculations: calculations.length,
-                fields: fields.length
+                fields: fields.length,
+                parameters: parameters.length,
+                filters: filters.length,
+                dashboards: dashboards.length,
+                worksheets: worksheets.length,
+                hierarchies: hierarchies.length
             }
         };
     } catch (error) {

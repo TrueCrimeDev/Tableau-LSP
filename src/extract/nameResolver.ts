@@ -214,10 +214,21 @@ export function applyNameResolution(xmlString: string, mappings: NameMappings): 
         );
     }
 
-    // 3. Replace calculation ID patterns
-    for (const [oldName, newName] of mappings.references.entries()) {
+    // 3. Replace calculation ID patterns.
+    // `Calculation_1` is a literal substring of `Calculation_18`/`Calculation_123`, so an
+    // unanchored replace can corrupt a longer ID's occurrences if the shorter one runs first
+    // (e.g. [Calculation_18] -> [<caption for _1>]8]). A trailing `\b` closes that gap for the
+    // bare `Calculation_N` form (which ends in a word character, so `\b` disambiguates from a
+    // longer run of digits) — but must NOT be added when oldName already ends in a non-word
+    // delimiter like `]` (the bracketed/`:nk` forms), since `\b` can never match immediately
+    // after a non-word character and would make the whole pattern fail to match anything.
+    // Sorting longest-first is defense in depth on top of that.
+    const referenceEntries = Array.from(mappings.references.entries())
+        .sort((a, b) => b[0].length - a[0].length);
+    for (const [oldName, newName] of referenceEntries) {
+        const needsBoundary = /\w$/.test(oldName);
         resolved = resolved.replace(
-            new RegExp(escapeRegex(oldName), 'g'),
+            new RegExp(escapeRegex(oldName) + (needsBoundary ? '\\b' : ''), 'g'),
             newName
         );
     }
