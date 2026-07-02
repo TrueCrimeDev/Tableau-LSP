@@ -32,6 +32,20 @@ export interface LogEntry {
     data?: any;
 }
 
+const CONFIG_SECTION = 'tableau-language-support';
+
+function parseLogLevelSetting(value: string | undefined): LogLevel {
+    switch ((value ?? 'info').toLowerCase()) {
+        case 'trace': return LogLevel.TRACE;
+        case 'debug': return LogLevel.DEBUG;
+        case 'warn': return LogLevel.WARN;
+        case 'error': return LogLevel.ERROR;
+        case 'fatal': return LogLevel.FATAL;
+        case 'info':
+        default: return LogLevel.INFO;
+    }
+}
+
 class Logger {
     private outputChannel: vscode.OutputChannel;
     private logLevel: LogLevel = LogLevel.INFO;
@@ -52,6 +66,19 @@ class Logger {
             bufferSize: 0,
             maxBufferSize: this.maxBufferSize
         };
+
+        this.applyConfiguration();
+        vscode.workspace.onDidChangeConfiguration(event => {
+            if (event.affectsConfiguration(`${CONFIG_SECTION}.logging`)) {
+                this.applyConfiguration();
+            }
+        });
+    }
+
+    private applyConfiguration(): void {
+        const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+        this.setLogLevel(parseLogLevelSetting(config.get<string>('logging.level')));
+        this.setFileLogging(config.get<boolean>('logging.enableFileLogging', false));
     }
 
     public setLogLevel(level: LogLevel): void {

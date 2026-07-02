@@ -1,9 +1,11 @@
-import { ExtensionContext, commands, window, languages, workspace, Uri, ProgressLocation, debug, tasks, Task, TaskExecution, extensions, TextDocument } from 'vscode';
+import { ExtensionContext, ExtensionMode, commands, window, languages, workspace, env, Uri, ProgressLocation, debug, tasks, Task, TaskExecution, extensions, TextDocument } from 'vscode';
 import { LanguageClient } from 'vscode-languageclient/node';
 import { SlashCommandProvider } from './slashCommandProvider.js';
 import { ActivationManager } from './activation/activationManager.js';
 import { extractCalculationsPythonCommand } from './commands/extractCalculationsPython.js';
 import { registerFormattingPanel } from './views/formattingPanel.js';
+import { CalcCopyCodeLensProvider, COPY_CALC_BLOCK_COMMAND } from './calcCopyLens.js';
+import { registerRunTestsCommand } from './commands/runTests.js';
 
 let client: LanguageClient | undefined;
 let activationManager: ActivationManager;
@@ -17,6 +19,12 @@ let activationManager: ActivationManager;
 
 export async function activate(context: ExtensionContext): Promise<void> {
     console.log('Tableau LSP: Extension activation started');
+
+    // Registered unconditionally, before anything below that could throw, so these
+    // always resolve to a real command instead of "command not found" whenever
+    // activation happens to succeed (registerBasicFunctionality previously only
+    // ran from the catch block below, i.e. only when activation had already failed).
+    registerBasicFunctionality(context);
 
     try {
         await warnIfConflictingExtensionInstalled();
@@ -40,31 +48,40 @@ export async function activate(context: ExtensionContext): Promise<void> {
             await restartExtension(context);
         });
 
-        const compileAndReloadCommand = commands.registerCommand('tableau-language-support.compileAndReload', async () => {
-            try {
-                await window.withProgress(
-                    {
-                        location: ProgressLocation.Notification,
-                        title: 'Compiling and reloading Tableau Language Support...'
-                    },
-                    async () => {
-                        const compileTask = await findCompileTask();
-                        if (!compileTask) {
-                            throw new Error('Unable to find the "npm: compile" task. Run it once from Tasks > Run Task to generate it.');
+        context.subscriptions.push(restartCommand);
+
+        // Development-only tooling: these assume a source checkout (an "npm: compile"
+        // task, a "Run Extension (VS Code)" debug config, `npm run test:*` scripts) that
+        // does not exist in a packaged/installed extension, so they only make sense
+        // inside the extension's own Extension Development Host.
+        if (context.extensionMode !== ExtensionMode.Production) {
+            const compileAndReloadCommand = commands.registerCommand('tableau-language-support.compileAndReload', async () => {
+                try {
+                    await window.withProgress(
+                        {
+                            location: ProgressLocation.Notification,
+                            title: 'Compiling and reloading Tableau Language Support...'
+                        },
+                        async () => {
+                            const compileTask = await findCompileTask();
+                            if (!compileTask) {
+                                throw new Error('Unable to find the "npm: compile" task. Run it once from Tasks > Run Task to generate it.');
+                            }
+
+                            const execution = await tasks.executeTask(compileTask);
+                            await waitForTaskCompletion(execution);
+                            await restartDebuggerSession();
                         }
+                    );
+                } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    window.showErrorMessage(`Compile and reload failed: ${errorMessage}`);
+                }
+            });
 
-                        const execution = await tasks.executeTask(compileTask);
-                        await waitForTaskCompletion(execution);
-                        await restartDebuggerSession();
-                    }
-                );
-            } catch (error) {
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                window.showErrorMessage(`Compile and reload failed: ${errorMessage}`);
-            }
-        });
-
-        context.subscriptions.push(restartCommand, compileAndReloadCommand);
+            context.subscriptions.push(compileAndReloadCommand);
+            registerRunTestsCommand(context);
+        }
 
         console.log('Tableau LSP: Extension activation completed successfully');
 
@@ -75,12 +92,8 @@ export async function activate(context: ExtensionContext): Promise<void> {
         const errorMessage = error instanceof Error ? error.message : String(error);
         window.showErrorMessage(`Tableau Language Support activation failed: ${errorMessage}`);
 
-        // Try to register basic functionality even if language server fails
-        try {
-            await registerBasicFunctionality(context);
-        } catch (basicError) {
-            console.error('Tableau LSP: Failed to register basic functionality:', basicError);
-        }
+        // registerBasicFunctionality already ran unconditionally above; nothing further
+        // to register here.
     }
 }
 
@@ -166,6 +179,24 @@ async function registerAdditionalComponents(context: ExtensionContext): Promise<
         context.subscriptions.push(extractPythonCommand);
 
         registerFormattingPanel(context);
+
+        // "Copy" CodeLens above each calculation block (copies comment header + formula).
+        const calcCopyLens = new CalcCopyCodeLensProvider();
+        const copyCalcBlockCommand = commands.registerCommand(COPY_CALC_BLOCK_COMMAND, async (text?: string) => {
+            if (typeof text !== 'string' || text.length === 0) { return; }
+            await env.clipboard.writeText(text);
+            window.setStatusBarMessage('$(check) Calculation copied', 1500);
+        });
+        const calcCopyLensDisposable = languages.registerCodeLensProvider(
+            { scheme: 'file', language: 'twbl' },
+            calcCopyLens
+        );
+        const calcCopyConfigWatch = workspace.onDidChangeConfiguration((e) => {
+            if (e.affectsConfiguration('tableau-language-support.codeLens')) {
+                calcCopyLens.refresh();
+            }
+        });
+        context.subscriptions.push(copyCalcBlockCommand, calcCopyLensDisposable, calcCopyConfigWatch);
 
         console.log('Tableau LSP: Additional components registered successfully');
 
