@@ -9,6 +9,7 @@
 
 # Runtime assets used by the extension
 !language-configuration.json
+!twb-language-configuration.json
 !syntaxes/**
 !snippets/**
 !images/tableau-icon.png
@@ -20,8 +21,6 @@
 !out/extension.js
 !out/server.js
 
-# Webview toolkit used by Parsing Guide view
-!media/toolkit.js
 !media/parsingGuideSidebar.js
 
 # Formatting Panel webview assets
