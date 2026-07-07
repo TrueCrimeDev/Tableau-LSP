@@ -95,3 +95,6 @@ Thumbs.db
 # Legacy client build output
 client/*.js
 
+
+# VS Code webview/browser cache (removed from history 2026-07-06)
+.vscode/vscode-devdata/
