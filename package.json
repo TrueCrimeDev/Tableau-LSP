@@ -2,17 +2,17 @@
   "name": "tableau-language-support",
   "displayName": "Tableau Language Support",
   "description": "Complete language support for Tableau calculation language with syntax highlighting, IntelliSense, validation, formatting, 100+ snippets, keyboard shortcuts, and advanced analytics patterns",
-  "version": "1.5.14",
+  "version": "1.5.15",
   "publisher": "TrueCrimeAudit",
   "icon": "images/tableau-icon.png",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/TrueCrimeAudit/tableau-language-support"
+    "url": "https://github.com/TrueCrimeDev/Tableau-LSP"
   },
-  "homepage": "https://github.com/TrueCrimeAudit/tableau-language-support#readme",
+  "homepage": "https://github.com/TrueCrimeDev/Tableau-LSP#readme",
   "bugs": {
-    "url": "https://github.com/TrueCrimeAudit/tableau-language-support/issues"
+    "url": "https://github.com/TrueCrimeDev/Tableau-LSP/issues"
   },
   "keywords": [
     "tableau",
