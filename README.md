@@ -123,3 +123,21 @@ The extension ships with a Toolbox-style compile/reload loop. See `docs/AUTO_REL
 - `Tasks: Run Task` exposes both `npm: compile` and a `Compile and Reload Debugger` helper, if you prefer sticking with VS Code tasks.
 - `npm run watch` keeps builds flowing automatically; pair it with `Ctrl+Shift+F5` or the command above for ultra-fast iteration.
 - CLI helpers `auto-reload.sh` and `auto-reload.cmd` give you a terminal-friendly entry point that mirrors the VS Code task.
+
+## Install from a GitHub Release
+
+Grab the latest `.vsix` from [Releases](https://github.com/TrueCrimeDev/Tableau-LSP/releases), save it to your Downloads folder, then install it from the command line.
+
+**CMD:**
+
+```batch
+code --install-extension "%USERPROFILE%\Downloads\tableau-language-support-1.5.15.vsix"
+```
+
+**PowerShell:**
+
+```powershell
+code --install-extension "$env:USERPROFILE\Downloads\tableau-language-support-1.5.15.vsix"
+```
+
+Then reload VS Code. If an older version is already installed, add `--force`.
