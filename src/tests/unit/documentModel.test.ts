@@ -2,7 +2,18 @@
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { parseDocument } from '../../documentModel.js';
-import { SymbolType } from '../../common.js';
+import { SymbolType, Symbol } from '../../common.js';
+
+// parseDocument returns the symbol TREE (root.children); flatten it so assertions
+// can find symbols at any nesting depth (IF conditions, THEN/ELSE values, etc.).
+function all(symbols: Symbol[]): Symbol[] {
+  const out: Symbol[] = [];
+  const walk = (list: Symbol[]): void => {
+    for (const s of list) { out.push(s); if (s.children) { walk(s.children); } }
+  };
+  walk(symbols);
+  return out;
+}
 
 describe('Document Model', () => {
   describe('parseDocument', () => {
@@ -11,18 +22,18 @@ describe('Document Model', () => {
       const result = parseDocument(document);
       
       expect(result.symbols.length).toBeGreaterThan(0);
-      expect(result.symbols.some(s => s.name === 'SUM')).toBe(true);
-      expect(result.symbols.some(s => s.name === 'Sales')).toBe(true);
+      expect(all(result.symbols).some(s => s.name === 'SUM')).toBe(true);
+      expect(all(result.symbols).some(s => s.name === 'Sales')).toBe(true);
     });
     
     it('should parse IF statements', () => {
       const document = createTestDocument('IF [Sales] > 100 THEN "High" ELSE "Low" END');
       const result = parseDocument(document);
       
-      expect(result.symbols.some(s => s.name === 'IF')).toBe(true);
-      expect(result.symbols.some(s => s.name === 'THEN')).toBe(true);
-      expect(result.symbols.some(s => s.name === 'ELSE')).toBe(true);
-      expect(result.symbols.some(s => s.name === 'END')).toBe(true);
+      expect(all(result.symbols).some(s => s.name === 'IF')).toBe(true);
+      expect(all(result.symbols).some(s => s.name === 'THEN')).toBe(true);
+      expect(all(result.symbols).some(s => s.name === 'ELSE')).toBe(true);
+      expect(all(result.symbols).some(s => s.name === 'END')).toBe(true);
     });
     
     it('should parse CASE statements', () => {
@@ -35,20 +46,20 @@ describe('Document Model', () => {
       `);
       const result = parseDocument(document);
       
-      expect(result.symbols.some(s => s.name === 'CASE')).toBe(true);
-      expect(result.symbols.filter(s => s.name === 'WHEN').length).toBe(2);
-      expect(result.symbols.some(s => s.name === 'ELSE')).toBe(true);
-      expect(result.symbols.some(s => s.name === 'END')).toBe(true);
+      expect(all(result.symbols).some(s => s.name === 'CASE')).toBe(true);
+      expect(all(result.symbols).filter(s => s.name === 'WHEN').length).toBe(2);
+      expect(all(result.symbols).some(s => s.name === 'ELSE')).toBe(true);
+      expect(all(result.symbols).some(s => s.name === 'END')).toBe(true);
     });
     
     it('should parse LOD expressions', () => {
       const document = createTestDocument('{FIXED [Customer] : SUM([Sales])}');
       const result = parseDocument(document);
       
-      expect(result.symbols.some(s => s.name === 'FIXED')).toBe(true);
-      expect(result.symbols.some(s => s.name === 'SUM')).toBe(true);
-      expect(result.symbols.some(s => s.name === 'Customer')).toBe(true);
-      expect(result.symbols.some(s => s.name === 'Sales')).toBe(true);
+      expect(all(result.symbols).some(s => s.name === 'FIXED')).toBe(true);
+      expect(all(result.symbols).some(s => s.name === 'SUM')).toBe(true);
+      expect(all(result.symbols).some(s => s.name === 'Customer')).toBe(true);
+      expect(all(result.symbols).some(s => s.name === 'Sales')).toBe(true);
     });
     
     it('should parse multi-line expressions', () => {
@@ -60,10 +71,10 @@ describe('Document Model', () => {
       `);
       const result = parseDocument(document);
       
-      expect(result.symbols.some(s => s.name === 'IF')).toBe(true);
-      expect(result.symbols.some(s => s.name === 'THEN')).toBe(true);
-      expect(result.symbols.some(s => s.name === 'ELSE')).toBe(true);
-      expect(result.symbols.some(s => s.name === 'END')).toBe(true);
+      expect(all(result.symbols).some(s => s.name === 'IF')).toBe(true);
+      expect(all(result.symbols).some(s => s.name === 'THEN')).toBe(true);
+      expect(all(result.symbols).some(s => s.name === 'ELSE')).toBe(true);
+      expect(all(result.symbols).some(s => s.name === 'END')).toBe(true);
     });
     
     it('should handle comments', () => {
@@ -74,8 +85,8 @@ describe('Document Model', () => {
       `);
       const result = parseDocument(document);
       
-      expect(result.symbols.some(s => s.name === 'SUM')).toBe(true);
-      expect(result.symbols.some(s => s.type === SymbolType.Comment)).toBe(true);
+      expect(all(result.symbols).some(s => s.name === 'SUM')).toBe(true);
+      expect(all(result.symbols).some(s => s.type === SymbolType.Comment)).toBe(true);
     });
     
     it('should handle nested expressions', () => {
@@ -88,17 +99,17 @@ describe('Document Model', () => {
       `);
       const result = parseDocument(document);
       
-      expect(result.symbols.some(s => s.name === 'SUM')).toBe(true);
-      expect(result.symbols.some(s => s.name === 'AVG')).toBe(true);
-      expect(result.symbols.some(s => s.name === 'MAX')).toBe(true);
-      expect(result.symbols.some(s => s.name === 'MIN')).toBe(true);
+      expect(all(result.symbols).some(s => s.name === 'SUM')).toBe(true);
+      expect(all(result.symbols).some(s => s.name === 'AVG')).toBe(true);
+      expect(all(result.symbols).some(s => s.name === 'MAX')).toBe(true);
+      expect(all(result.symbols).some(s => s.name === 'MIN')).toBe(true);
     });
     
     it('should handle string literals with special characters', () => {
       const document = createTestDocument('IF [Category] = "Men\'s Clothing" THEN "Special" ELSE "Normal" END');
       const result = parseDocument(document);
       
-      expect(result.symbols.some(s => s.text?.includes("Men's"))).toBe(true);
+      expect(all(result.symbols).some(s => s.text?.includes("Men's"))).toBe(true);
     });
   });
 });

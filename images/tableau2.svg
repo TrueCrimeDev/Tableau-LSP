@@ -1,3 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <path fill="currentColor" fill-rule="evenodd" d="M1,12 A11,11 0 1,0 23,12 A11,11 0 1,0 1,12 Z M11,9 h2 v2 h2 v2 h-2 v2 h-2 v-2 h-2 v-2 h2 Z M6,5 h2 v1 h1 v2 h-1 v1 h-2 v-1 h-1 v-2 h1 Z M16,5 h2 v1 h1 v2 h-1 v1 h-2 v-1 h-1 v-2 h1 Z M6,15 h2 v1 h1 v2 h-1 v1 h-2 v-1 h-1 v-2 h1 Z M16,15 h2 v1 h1 v2 h-1 v1 h-2 v-1 h-1 v-2 h1 Z M11.5,3.5 h1 v1 h1.5 v1 h-1.5 v1 h-1 v-1 h-1.5 v-1 h1.5 Z M11.5,17.5 h1 v1 h1.5 v1 h-1.5 v1 h-1 v-1 h-1.5 v-1 h1.5 Z M4.5,10.5 h1 v1 h1 v1 h-1 v1 h-1 v-1 h-1 v-1 h1 Z M18.5,10.5 h1 v1 h1 v1 h-1 v1 h-1 v-1 h-1 v-1 h1 Z"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M9 4 H6.5 A2.5 2.5 0 0 0 4 6.5 V17.5 A2.5 2.5 0 0 0 6.5 20 H9"/>
+  <path d="M15 4 H17.5 A2.5 2.5 0 0 1 20 6.5 V17.5 A2.5 2.5 0 0 1 17.5 20 H15"/>
+  <line x1="9.2" y1="10" x2="13" y2="10"/>
+  <line x1="9.2" y1="14" x2="14.8" y2="14"/>
 </svg>

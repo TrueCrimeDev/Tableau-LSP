@@ -366,5 +366,4 @@ function createTestDocument(
   uri: string = 'test://test.twbl'
 ): TextDocument {
   return TextDocument.create(uri, 'tableau', version, content);
-}
-</text>
+}

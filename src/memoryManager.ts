@@ -375,6 +375,12 @@ export class MemoryManager {
      * Clean up document cache
      */
     private async cleanupDocumentCache(type: 'normal' | 'aggressive', stats: CleanupStats): Promise<void> {
+        // Sync metadata with the current cache so documents added directly to
+        // parsedDocumentCache (e.g. by the parser, before any monitoring pass)
+        // are visible as removal candidates. Without this a forced cleanup over
+        // a freshly-populated cache would find no candidates.
+        this.updateCacheMetadata();
+
         const now = Date.now();
         const candidatesForRemoval: Array<{ uri: string; priority: number; metadata: CacheEntryMetadata }> = [];
         
@@ -425,27 +431,31 @@ export class MemoryManager {
         timeSinceAccess: number, 
         cleanupType: 'normal' | 'aggressive'
     ): number {
-        let priority = 0;
-        
+        // Active document protection (never remove active documents)
+        if (metadata.isActive) {
+            return 0;
+        }
+
+        // Inactive documents are eligible for removal. Start from a base priority
+        // so a forced cleanup reclaims closed documents even when accessed
+        // recently: metadata is (re)created lazily at cleanup time, so
+        // timeSinceAccess is ~0 for documents that are already closed.
+        let priority = 1;
+
         // Time-based priority (older = higher priority for removal)
         if (timeSinceAccess > this.config.cacheRetentionMs) {
             priority += Math.min(10, timeSinceAccess / this.config.cacheRetentionMs);
         }
-        
+
         // Access frequency (less accessed = higher priority for removal)
         const avgAccessInterval = timeSinceAccess / Math.max(1, metadata.accessCount);
         priority += Math.min(5, avgAccessInterval / (60 * 1000)); // Minutes since last access per access
-        
+
         // Memory size (larger = higher priority for removal in aggressive mode)
         if (cleanupType === 'aggressive') {
             priority += Math.min(3, metadata.memorySize / (1024 * 1024)); // MB
         }
-        
-        // Active document protection (never remove active documents)
-        if (metadata.isActive) {
-            priority = 0;
-        }
-        
+
         return priority;
     }
     
@@ -582,7 +592,11 @@ export class MemoryManager {
      */
     getDocumentsExceedingLimit(): Array<{ uri: string; sizeMB: number; limit: number }> {
         const exceedingDocs: Array<{ uri: string; sizeMB: number; limit: number }> = [];
-        
+
+        // Refresh metadata from the current cache so results reflect documents
+        // that were added directly to parsedDocumentCache (not only via monitoring).
+        this.updateCacheMetadata();
+
         for (const [uri, metadata] of this.cacheMetadata) {
             if (metadata.exceedsDocumentLimit) {
                 exceedingDocs.push({

@@ -1,1 +1,395 @@
-// src/tests/unit/performanceMonitor.test.ts\n\nimport { PerformanceMonitor, PerformanceTimer } from '../../performanceMonitor.js';\n\ndescribe('Performance Monitor', () => {\n    beforeEach(() => {\n        // Reset performance monitor state\n        PerformanceMonitor.reset();\n    });\n\n    describe('Basic Timing Operations', () => {\n        it('should start and end timing operations', () => {\n            const timer = PerformanceMonitor.startTiming('test-operation');\n            \n            expect(timer).toBeDefined();\n            expect(typeof timer.end).toBe('function');\n            \n            // Simulate some work\n            const start = Date.now();\n            while (Date.now() - start < 10) {\n                // Wait 10ms\n            }\n            \n            const result = timer.end();\n            \n            expect(result.operation).toBe('test-operation');\n            expect(result.duration).toBeGreaterThan(0);\n            expect(result.duration).toBeGreaterThanOrEqual(10);\n        });\n\n        it('should measure multiple operations independently', () => {\n            const timer1 = PerformanceMonitor.startTiming('operation-1');\n            const timer2 = PerformanceMonitor.startTiming('operation-2');\n            \n            // Simulate different work durations\n            const start1 = Date.now();\n            while (Date.now() - start1 < 5) {}\n            const result1 = timer1.end();\n            \n            const start2 = Date.now();\n            while (Date.now() - start2 < 15) {}\n            const result2 = timer2.end();\n            \n            expect(result1.operation).toBe('operation-1');\n            expect(result2.operation).toBe('operation-2');\n            expect(result1.duration).toBeLessThan(result2.duration);\n        });\n\n        it('should handle nested timing operations', () => {\n            const outerTimer = PerformanceMonitor.startTiming('outer-operation');\n            \n            const start1 = Date.now();\n            while (Date.now() - start1 < 5) {}\n            \n            const innerTimer = PerformanceMonitor.startTiming('inner-operation');\n            const start2 = Date.now();\n            while (Date.now() - start2 < 10) {}\n            const innerResult = innerTimer.end();\n            \n            const start3 = Date.now();\n            while (Date.now() - start3 < 5) {}\n            const outerResult = outerTimer.end();\n            \n            expect(innerResult.operation).toBe('inner-operation');\n            expect(outerResult.operation).toBe('outer-operation');\n            expect(outerResult.duration).toBeGreaterThan(innerResult.duration);\n        });\n    });\n\n    describe('Performance Statistics', () => {\n        it('should collect statistics for operations', () => {\n            // Perform multiple operations\n            for (let i = 0; i < 5; i++) {\n                const timer = PerformanceMonitor.startTiming('repeated-operation');\n                const start = Date.now();\n                while (Date.now() - start < 5 + i) {} // Variable duration\n                timer.end();\n            }\n            \n            const stats = PerformanceMonitor.getStatistics('repeated-operation');\n            \n            expect(stats).toBeDefined();\n            expect(stats.operation).toBe('repeated-operation');\n            expect(stats.count).toBe(5);\n            expect(stats.totalDuration).toBeGreaterThan(0);\n            expect(stats.averageDuration).toBeGreaterThan(0);\n            expect(stats.minDuration).toBeGreaterThan(0);\n            expect(stats.maxDuration).toBeGreaterThan(stats.minDuration);\n        });\n\n        it('should calculate correct statistical values', () => {\n            const durations = [10, 20, 30, 40, 50];\n            \n            durations.forEach((duration, index) => {\n                const timer = PerformanceMonitor.startTiming('stats-test');\n                const start = Date.now();\n                while (Date.now() - start < duration) {}\n                timer.end();\n            });\n            \n            const stats = PerformanceMonitor.getStatistics('stats-test');\n            \n            expect(stats.count).toBe(5);\n            expect(stats.averageDuration).toBeGreaterThan(20); // Should be around 30\n            expect(stats.averageDuration).toBeLessThan(40);\n            expect(stats.minDuration).toBeLessThan(stats.averageDuration);\n            expect(stats.maxDuration).toBeGreaterThan(stats.averageDuration);\n        });\n\n        it('should return undefined for non-existent operations', () => {\n            const stats = PerformanceMonitor.getStatistics('non-existent-operation');\n            expect(stats).toBeUndefined();\n        });\n    });\n\n    describe('All Statistics Retrieval', () => {\n        it('should return all collected statistics', () => {\n            // Create multiple different operations\n            const operations = ['op1', 'op2', 'op3'];\n            \n            operations.forEach(op => {\n                const timer = PerformanceMonitor.startTiming(op);\n                const start = Date.now();\n                while (Date.now() - start < 5) {}\n                timer.end();\n            });\n            \n            const allStats = PerformanceMonitor.getAllStatistics();\n            \n            expect(Object.keys(allStats)).toHaveLength(3);\n            expect(allStats).toHaveProperty('op1');\n            expect(allStats).toHaveProperty('op2');\n            expect(allStats).toHaveProperty('op3');\n            \n            Object.values(allStats).forEach(stats => {\n                expect(stats.count).toBe(1);\n                expect(stats.totalDuration).toBeGreaterThan(0);\n            });\n        });\n\n        it('should return empty object when no operations recorded', () => {\n            const allStats = PerformanceMonitor.getAllStatistics();\n            expect(allStats).toEqual({});\n        });\n    });\n\n    describe('Performance Monitoring Reset', () => {\n        it('should reset all statistics', () => {\n            // Record some operations\n            const timer1 = PerformanceMonitor.startTiming('test-op-1');\n            timer1.end();\n            \n            const timer2 = PerformanceMonitor.startTiming('test-op-2');\n            timer2.end();\n            \n            // Verify operations were recorded\n            let allStats = PerformanceMonitor.getAllStatistics();\n            expect(Object.keys(allStats)).toHaveLength(2);\n            \n            // Reset and verify\n            PerformanceMonitor.reset();\n            allStats = PerformanceMonitor.getAllStatistics();\n            expect(allStats).toEqual({});\n        });\n\n        it('should allow new operations after reset', () => {\n            // Record and reset\n            const timer1 = PerformanceMonitor.startTiming('before-reset');\n            timer1.end();\n            \n            PerformanceMonitor.reset();\n            \n            // Record new operation\n            const timer2 = PerformanceMonitor.startTiming('after-reset');\n            timer2.end();\n            \n            const allStats = PerformanceMonitor.getAllStatistics();\n            expect(Object.keys(allStats)).toHaveLength(1);\n            expect(allStats).toHaveProperty('after-reset');\n            expect(allStats).not.toHaveProperty('before-reset');\n        });\n    });\n\n    describe('Timer Object Behavior', () => {\n        it('should prevent double-ending of timers', () => {\n            const timer = PerformanceMonitor.startTiming('double-end-test');\n            \n            const result1 = timer.end();\n            expect(result1).toBeDefined();\n            \n            // Second end should not crash but may return different result\n            const result2 = timer.end();\n            expect(result2).toBeDefined();\n            \n            // Should still have only one recorded operation\n            const stats = PerformanceMonitor.getStatistics('double-end-test');\n            expect(stats?.count).toBe(1);\n        });\n\n        it('should handle timer end without start gracefully', () => {\n            // This tests internal robustness\n            expect(() => {\n                const timer = PerformanceMonitor.startTiming('graceful-test');\n                timer.end();\n            }).not.toThrow();\n        });\n    });\n\n    describe('High-Frequency Operations', () => {\n        it('should handle many rapid operations efficiently', () => {\n            const operationCount = 1000;\n            const startTime = Date.now();\n            \n            for (let i = 0; i < operationCount; i++) {\n                const timer = PerformanceMonitor.startTiming('rapid-operation');\n                timer.end();\n            }\n            \n            const totalTime = Date.now() - startTime;\n            const stats = PerformanceMonitor.getStatistics('rapid-operation');\n            \n            expect(stats?.count).toBe(operationCount);\n            expect(totalTime).toBeLessThan(1000); // Should complete within 1 second\n        });\n\n        it('should maintain accuracy with concurrent operations', () => {\n            const timers: PerformanceTimer[] = [];\n            \n            // Start multiple timers\n            for (let i = 0; i < 10; i++) {\n                timers.push(PerformanceMonitor.startTiming(`concurrent-${i}`));\n            }\n            \n            // End them in reverse order\n            for (let i = 9; i >= 0; i--) {\n                timers[i].end();\n            }\n            \n            // Verify all operations were recorded\n            const allStats = PerformanceMonitor.getAllStatistics();\n            expect(Object.keys(allStats)).toHaveLength(10);\n            \n            for (let i = 0; i < 10; i++) {\n                expect(allStats).toHaveProperty(`concurrent-${i}`);\n                expect(allStats[`concurrent-${i}`].count).toBe(1);\n            }\n        });\n    });\n\n    describe('Memory and Resource Management', () => {\n        it('should not leak memory with many operations', () => {\n            const initialMemory = process.memoryUsage?.()?.heapUsed || 0;\n            \n            // Perform many operations\n            for (let i = 0; i < 10000; i++) {\n                const timer = PerformanceMonitor.startTiming(`memory-test-${i % 100}`);\n                timer.end();\n            }\n            \n            // Force garbage collection if available\n            if (global.gc) {\n                global.gc();\n            }\n            \n            const finalMemory = process.memoryUsage?.()?.heapUsed || 0;\n            const memoryIncrease = finalMemory - initialMemory;\n            \n            // Memory increase should be reasonable (less than 10MB)\n            expect(memoryIncrease).toBeLessThan(10 * 1024 * 1024);\n        });\n\n        it('should handle operation names efficiently', () => {\n            const longOperationName = 'a'.repeat(1000);\n            \n            const timer = PerformanceMonitor.startTiming(longOperationName);\n            const result = timer.end();\n            \n            expect(result.operation).toBe(longOperationName);\n            \n            const stats = PerformanceMonitor.getStatistics(longOperationName);\n            expect(stats?.operation).toBe(longOperationName);\n        });\n    });\n\n    describe('Edge Cases and Error Handling', () => {\n        it('should handle empty operation names', () => {\n            expect(() => {\n                const timer = PerformanceMonitor.startTiming('');\n                timer.end();\n            }).not.toThrow();\n            \n            const stats = PerformanceMonitor.getStatistics('');\n            expect(stats?.count).toBe(1);\n        });\n\n        it('should handle null or undefined operation names', () => {\n            expect(() => {\n                const timer = PerformanceMonitor.startTiming(null as any);\n                timer.end();\n            }).not.toThrow();\n            \n            expect(() => {\n                const timer = PerformanceMonitor.startTiming(undefined as any);\n                timer.end();\n            }).not.toThrow();\n        });\n\n        it('should handle special characters in operation names', () => {\n            const specialNames = [\n                'operation-with-dashes',\n                'operation_with_underscores',\n                'operation.with.dots',\n                'operation with spaces',\n                'operation/with/slashes',\n                'operation:with:colons'\n            ];\n            \n            specialNames.forEach(name => {\n                expect(() => {\n                    const timer = PerformanceMonitor.startTiming(name);\n                    timer.end();\n                }).not.toThrow();\n                \n                const stats = PerformanceMonitor.getStatistics(name);\n                expect(stats?.operation).toBe(name);\n            });\n        });\n\n        it('should handle very short duration operations', () => {\n            const timer = PerformanceMonitor.startTiming('instant-operation');\n            const result = timer.end(); // End immediately\n            \n            expect(result.duration).toBeGreaterThanOrEqual(0);\n            expect(typeof result.duration).toBe('number');\n            expect(isFinite(result.duration)).toBe(true);\n        });\n    });\n\n    describe('Integration Scenarios', () => {\n        it('should work with async operations', async () => {\n            const timer = PerformanceMonitor.startTiming('async-operation');\n            \n            await new Promise(resolve => setTimeout(resolve, 10));\n            \n            const result = timer.end();\n            \n            expect(result.operation).toBe('async-operation');\n            expect(result.duration).toBeGreaterThanOrEqual(10);\n        });\n\n        it('should handle operations with promises', async () => {\n            const promises = [];\n            \n            for (let i = 0; i < 5; i++) {\n                promises.push(new Promise(async (resolve) => {\n                    const timer = PerformanceMonitor.startTiming(`promise-${i}`);\n                    await new Promise(r => setTimeout(r, 5 + i));\n                    const result = timer.end();\n                    resolve(result);\n                }));\n            }\n            \n            const results = await Promise.all(promises);\n            \n            expect(results).toHaveLength(5);\n            results.forEach((result: any, index) => {\n                expect(result.operation).toBe(`promise-${index}`);\n                expect(result.duration).toBeGreaterThan(0);\n            });\n        });\n\n        it('should provide consistent results across multiple calls', () => {\n            const operationName = 'consistency-test';\n            const iterations = 100;\n            \n            for (let i = 0; i < iterations; i++) {\n                const timer = PerformanceMonitor.startTiming(operationName);\n                // Simulate consistent work\n                const start = Date.now();\n                while (Date.now() - start < 1) {}\n                timer.end();\n            }\n            \n            const stats = PerformanceMonitor.getStatistics(operationName);\n            \n            expect(stats?.count).toBe(iterations);\n            expect(stats?.averageDuration).toBeGreaterThan(0);\n            expect(stats?.minDuration).toBeGreaterThan(0);\n            expect(stats?.maxDuration).toBeGreaterThan(0);\n            expect(stats?.totalDuration).toBe(stats?.averageDuration * iterations);\n        });\n    });\n});\n"
+// src/tests/unit/performanceMonitor.test.ts
+
+import { PerformanceMonitor, PerformanceTimer } from '../../performanceMonitor.js';
+
+describe('Performance Monitor', () => {
+    beforeEach(() => {
+        // Reset performance monitor state
+        PerformanceMonitor.reset();
+    });
+
+    describe('Basic Timing Operations', () => {
+        it('should start and end timing operations', () => {
+            const timer = PerformanceMonitor.startTiming('test-operation');
+            
+            expect(timer).toBeDefined();
+            expect(typeof timer.end).toBe('function');
+            
+            // Simulate some work
+            const start = Date.now();
+            while (Date.now() - start < 10) {
+                // Wait 10ms
+            }
+            
+            const result = timer.end();
+            
+            expect(result.operation).toBe('test-operation');
+            expect(result.duration).toBeGreaterThan(0);
+            expect(result.duration).toBeGreaterThanOrEqual(10);
+        });
+
+        it('should measure multiple operations independently', () => {
+            const timer1 = PerformanceMonitor.startTiming('operation-1');
+            const timer2 = PerformanceMonitor.startTiming('operation-2');
+            
+            // Simulate different work durations
+            const start1 = Date.now();
+            while (Date.now() - start1 < 5) {}
+            const result1 = timer1.end();
+            
+            const start2 = Date.now();
+            while (Date.now() - start2 < 15) {}
+            const result2 = timer2.end();
+            
+            expect(result1.operation).toBe('operation-1');
+            expect(result2.operation).toBe('operation-2');
+            expect(result1.duration).toBeLessThan(result2.duration);
+        });
+
+        it('should handle nested timing operations', () => {
+            const outerTimer = PerformanceMonitor.startTiming('outer-operation');
+            
+            const start1 = Date.now();
+            while (Date.now() - start1 < 5) {}
+            
+            const innerTimer = PerformanceMonitor.startTiming('inner-operation');
+            const start2 = Date.now();
+            while (Date.now() - start2 < 10) {}
+            const innerResult = innerTimer.end();
+            
+            const start3 = Date.now();
+            while (Date.now() - start3 < 5) {}
+            const outerResult = outerTimer.end();
+            
+            expect(innerResult.operation).toBe('inner-operation');
+            expect(outerResult.operation).toBe('outer-operation');
+            expect(outerResult.duration).toBeGreaterThan(innerResult.duration);
+        });
+    });
+
+    describe('Performance Statistics', () => {
+        it('should collect statistics for operations', () => {
+            // Perform multiple operations
+            for (let i = 0; i < 5; i++) {
+                const timer = PerformanceMonitor.startTiming('repeated-operation');
+                const start = Date.now();
+                while (Date.now() - start < 5 + i) {} // Variable duration
+                timer.end();
+            }
+            
+            const stats = PerformanceMonitor.getStatistics('repeated-operation');
+            
+            expect(stats).toBeDefined();
+            expect(stats.operation).toBe('repeated-operation');
+            expect(stats.count).toBe(5);
+            expect(stats.totalDuration).toBeGreaterThan(0);
+            expect(stats.averageDuration).toBeGreaterThan(0);
+            expect(stats.minDuration).toBeGreaterThan(0);
+            expect(stats.maxDuration).toBeGreaterThan(stats.minDuration);
+        });
+
+        it('should calculate correct statistical values', () => {
+            const durations = [10, 20, 30, 40, 50];
+            
+            durations.forEach((duration, index) => {
+                const timer = PerformanceMonitor.startTiming('stats-test');
+                const start = Date.now();
+                while (Date.now() - start < duration) {}
+                timer.end();
+            });
+            
+            const stats = PerformanceMonitor.getStatistics('stats-test');
+            
+            expect(stats.count).toBe(5);
+            expect(stats.averageDuration).toBeGreaterThan(20); // Should be around 30
+            expect(stats.averageDuration).toBeLessThan(40);
+            expect(stats.minDuration).toBeLessThan(stats.averageDuration);
+            expect(stats.maxDuration).toBeGreaterThan(stats.averageDuration);
+        });
+
+        it('should return undefined for non-existent operations', () => {
+            const stats = PerformanceMonitor.getStatistics('non-existent-operation');
+            expect(stats).toBeUndefined();
+        });
+    });
+
+    describe('All Statistics Retrieval', () => {
+        it('should return all collected statistics', () => {
+            // Create multiple different operations
+            const operations = ['op1', 'op2', 'op3'];
+            
+            operations.forEach(op => {
+                const timer = PerformanceMonitor.startTiming(op);
+                const start = Date.now();
+                while (Date.now() - start < 5) {}
+                timer.end();
+            });
+            
+            const allStats = PerformanceMonitor.getAllStatistics();
+            
+            expect(Object.keys(allStats)).toHaveLength(3);
+            expect(allStats).toHaveProperty('op1');
+            expect(allStats).toHaveProperty('op2');
+            expect(allStats).toHaveProperty('op3');
+            
+            Object.values(allStats).forEach(stats => {
+                expect(stats.count).toBe(1);
+                expect(stats.totalDuration).toBeGreaterThan(0);
+            });
+        });
+
+        it('should return empty object when no operations recorded', () => {
+            const allStats = PerformanceMonitor.getAllStatistics();
+            expect(allStats).toEqual({});
+        });
+    });
+
+    describe('Performance Monitoring Reset', () => {
+        it('should reset all statistics', () => {
+            // Record some operations
+            const timer1 = PerformanceMonitor.startTiming('test-op-1');
+            timer1.end();
+            
+            const timer2 = PerformanceMonitor.startTiming('test-op-2');
+            timer2.end();
+            
+            // Verify operations were recorded
+            let allStats = PerformanceMonitor.getAllStatistics();
+            expect(Object.keys(allStats)).toHaveLength(2);
+            
+            // Reset and verify
+            PerformanceMonitor.reset();
+            allStats = PerformanceMonitor.getAllStatistics();
+            expect(allStats).toEqual({});
+        });
+
+        it('should allow new operations after reset', () => {
+            // Record and reset
+            const timer1 = PerformanceMonitor.startTiming('before-reset');
+            timer1.end();
+            
+            PerformanceMonitor.reset();
+            
+            // Record new operation
+            const timer2 = PerformanceMonitor.startTiming('after-reset');
+            timer2.end();
+            
+            const allStats = PerformanceMonitor.getAllStatistics();
+            expect(Object.keys(allStats)).toHaveLength(1);
+            expect(allStats).toHaveProperty('after-reset');
+            expect(allStats).not.toHaveProperty('before-reset');
+        });
+    });
+
+    describe('Timer Object Behavior', () => {
+        it('should prevent double-ending of timers', () => {
+            const timer = PerformanceMonitor.startTiming('double-end-test');
+            
+            const result1 = timer.end();
+            expect(result1).toBeDefined();
+            
+            // Second end should not crash but may return different result
+            const result2 = timer.end();
+            expect(result2).toBeDefined();
+            
+            // Should still have only one recorded operation
+            const stats = PerformanceMonitor.getStatistics('double-end-test');
+            expect(stats?.count).toBe(1);
+        });
+
+        it('should handle timer end without start gracefully', () => {
+            // This tests internal robustness
+            expect(() => {
+                const timer = PerformanceMonitor.startTiming('graceful-test');
+                timer.end();
+            }).not.toThrow();
+        });
+    });
+
+    describe('High-Frequency Operations', () => {
+        it('should handle many rapid operations efficiently', () => {
+            const operationCount = 1000;
+            const startTime = Date.now();
+            
+            for (let i = 0; i < operationCount; i++) {
+                const timer = PerformanceMonitor.startTiming('rapid-operation');
+                timer.end();
+            }
+            
+            const totalTime = Date.now() - startTime;
+            const stats = PerformanceMonitor.getStatistics('rapid-operation');
+            
+            expect(stats?.count).toBe(operationCount);
+            expect(totalTime).toBeLessThan(1000); // Should complete within 1 second
+        });
+
+        it('should maintain accuracy with concurrent operations', () => {
+            const timers: PerformanceTimer[] = [];
+            
+            // Start multiple timers
+            for (let i = 0; i < 10; i++) {
+                timers.push(PerformanceMonitor.startTiming(`concurrent-${i}`));
+            }
+            
+            // End them in reverse order
+            for (let i = 9; i >= 0; i--) {
+                timers[i].end();
+            }
+            
+            // Verify all operations were recorded
+            const allStats = PerformanceMonitor.getAllStatistics();
+            expect(Object.keys(allStats)).toHaveLength(10);
+            
+            for (let i = 0; i < 10; i++) {
+                expect(allStats).toHaveProperty(`concurrent-${i}`);
+                expect(allStats[`concurrent-${i}`].count).toBe(1);
+            }
+        });
+    });
+
+    describe('Memory and Resource Management', () => {
+        it('should not leak memory with many operations', () => {
+            const initialMemory = process.memoryUsage?.()?.heapUsed || 0;
+            
+            // Perform many operations
+            for (let i = 0; i < 10000; i++) {
+                const timer = PerformanceMonitor.startTiming(`memory-test-${i % 100}`);
+                timer.end();
+            }
+            
+            // Force garbage collection if available
+            if (global.gc) {
+                global.gc();
+            }
+            
+            const finalMemory = process.memoryUsage?.()?.heapUsed || 0;
+            const memoryIncrease = finalMemory - initialMemory;
+            
+            // Memory increase should be reasonable (less than 10MB)
+            expect(memoryIncrease).toBeLessThan(10 * 1024 * 1024);
+        });
+
+        it('should handle operation names efficiently', () => {
+            const longOperationName = 'a'.repeat(1000);
+            
+            const timer = PerformanceMonitor.startTiming(longOperationName);
+            const result = timer.end();
+            
+            expect(result.operation).toBe(longOperationName);
+            
+            const stats = PerformanceMonitor.getStatistics(longOperationName);
+            expect(stats?.operation).toBe(longOperationName);
+        });
+    });
+
+    describe('Edge Cases and Error Handling', () => {
+        it('should handle empty operation names', () => {
+            expect(() => {
+                const timer = PerformanceMonitor.startTiming('');
+                timer.end();
+            }).not.toThrow();
+            
+            const stats = PerformanceMonitor.getStatistics('');
+            expect(stats?.count).toBe(1);
+        });
+
+        it('should handle null or undefined operation names', () => {
+            expect(() => {
+                const timer = PerformanceMonitor.startTiming(null as any);
+                timer.end();
+            }).not.toThrow();
+            
+            expect(() => {
+                const timer = PerformanceMonitor.startTiming(undefined as any);
+                timer.end();
+            }).not.toThrow();
+        });
+
+        it('should handle special characters in operation names', () => {
+            const specialNames = [
+                'operation-with-dashes',
+                'operation_with_underscores',
+                'operation.with.dots',
+                'operation with spaces',
+                'operation/with/slashes',
+                'operation:with:colons'
+            ];
+            
+            specialNames.forEach(name => {
+                expect(() => {
+                    const timer = PerformanceMonitor.startTiming(name);
+                    timer.end();
+                }).not.toThrow();
+                
+                const stats = PerformanceMonitor.getStatistics(name);
+                expect(stats?.operation).toBe(name);
+            });
+        });
+
+        it('should handle very short duration operations', () => {
+            const timer = PerformanceMonitor.startTiming('instant-operation');
+            const result = timer.end(); // End immediately
+            
+            expect(result.duration).toBeGreaterThanOrEqual(0);
+            expect(typeof result.duration).toBe('number');
+            expect(isFinite(result.duration)).toBe(true);
+        });
+    });
+
+    describe('Integration Scenarios', () => {
+        it('should work with async operations', async () => {
+            const timer = PerformanceMonitor.startTiming('async-operation');
+            
+            await new Promise(resolve => setTimeout(resolve, 10));
+            
+            const result = timer.end();
+            
+            expect(result.operation).toBe('async-operation');
+            // setTimeout(n) can resolve a fraction of a millisecond early relative to
+            // the performance.now() interval, so allow a small tolerance below 10ms.
+            expect(result.duration).toBeGreaterThanOrEqual(9);
+        });
+
+        it('should handle operations with promises', async () => {
+            const promises = [];
+            
+            for (let i = 0; i < 5; i++) {
+                promises.push(new Promise(async (resolve) => {
+                    const timer = PerformanceMonitor.startTiming(`promise-${i}`);
+                    await new Promise(r => setTimeout(r, 5 + i));
+                    const result = timer.end();
+                    resolve(result);
+                }));
+            }
+            
+            const results = await Promise.all(promises);
+            
+            expect(results).toHaveLength(5);
+            results.forEach((result: any, index) => {
+                expect(result.operation).toBe(`promise-${index}`);
+                expect(result.duration).toBeGreaterThan(0);
+            });
+        });
+
+        it('should provide consistent results across multiple calls', () => {
+            const operationName = 'consistency-test';
+            const iterations = 100;
+            
+            for (let i = 0; i < iterations; i++) {
+                const timer = PerformanceMonitor.startTiming(operationName);
+                // Simulate consistent work
+                const start = Date.now();
+                while (Date.now() - start < 1) {}
+                timer.end();
+            }
+            
+            const stats = PerformanceMonitor.getStatistics(operationName);
+            
+            expect(stats?.count).toBe(iterations);
+            expect(stats?.averageDuration).toBeGreaterThan(0);
+            expect(stats?.minDuration).toBeGreaterThan(0);
+            expect(stats?.maxDuration).toBeGreaterThan(0);
+            expect(stats?.totalDuration).toBe(stats?.averageDuration * iterations);
+        });
+    });
+});

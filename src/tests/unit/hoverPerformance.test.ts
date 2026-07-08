@@ -87,7 +87,11 @@ describe('Hover Performance Optimization', () => {
       
       const params: HoverParams = {
         textDocument: { uri: document.uri },
-        position: { line: 3, character: 4 } // Position on 'MAX'
+        // The template literal starts with a newline, so line 0 is empty and
+        // 'MAX([Discount])' is on line 4 (indented 10 spaces -> MAX at char 10-12).
+        // The previous coords (line 3, char 4) landed in the IF line's leading
+        // whitespace, where no symbol exists and hover is correctly undefined.
+        position: { line: 4, character: 11 } // Position on 'MAX'
       };
 
       const hover = provideHover(params, document, null);
@@ -245,5 +249,4 @@ function createTestDocument(
   uri: string = 'test://test.twbl'
 ): TextDocument {
   return TextDocument.create(uri, 'tableau', version, content);
-}
-</text>
+}

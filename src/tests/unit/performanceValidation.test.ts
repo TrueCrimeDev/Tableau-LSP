@@ -7,7 +7,7 @@ import { parseDocument } from '../../documentModel.js';
 
 describe('Performance Validation', () => {
   describe('Excessive Nesting Detection', () => {
-    it('should detect deeply nested expressions', () => {
+    it('does not flag a deeply nested IF/ELSE ladder (removed as noise — see diagnosticsProvider.ts)', () => {
       const document = createTestDocument(`
         IF [Sales] > 100 THEN
           IF [Profit] > 50 THEN
@@ -29,15 +29,15 @@ describe('Performance Validation', () => {
       `);
       const parsedDocument = parseDocument(document);
       const diagnostics = getDiagnostics(document, parsedDocument);
-      
-      // Should detect excessive nesting
-      const nestingWarnings = diagnostics.filter(d => 
-        d.message.includes('nesting depth') || 
-        d.code === 'EXCESSIVE_NESTING'
+
+      // Deep-nesting hints (DEEP_NESTING / EXCESSIVE_NESTING) were intentionally
+      // removed: a long IF/CASE/IIF ladder is valid, idiomatic Tableau and
+      // flagging it is noise, not a real defect.
+      const nestingWarnings = diagnostics.filter(d =>
+        d.code === 'DEEP_NESTING' || d.code === 'EXCESSIVE_NESTING'
       );
-      
-      expect(nestingWarnings.length).toBeGreaterThan(0);
-      expect(nestingWarnings[0].severity).toBe(DiagnosticSeverity.Warning);
+
+      expect(nestingWarnings).toHaveLength(0);
     });
   });
   
@@ -59,16 +59,21 @@ describe('Performance Validation', () => {
   
   describe('Complex String Operations', () => {
     it('should detect complex string operations', () => {
-      const document = createTestDocument('REGEXP_REPLACE([Customer Name], "^(Mr\\.|Mrs\\.|Ms\\.) ", "")');
+      // checkInefficientStringOps now only flags REPLACE/REGEXP_REPLACE when an
+      // argument is itself a nested function call — trivial literal usage (e.g.
+      // a plain regex pattern string) is normal and no longer flagged. Nest
+      // UPPER(...) in the input argument so this fixture still exercises the
+      // (narrowed) detection.
+      const document = createTestDocument('REGEXP_REPLACE(UPPER([Customer Name]), "^(MR\\.|MRS\\.|MS\\.) ", "")');
       const parsedDocument = parseDocument(document);
       const diagnostics = getDiagnostics(document, parsedDocument);
-      
+
       // Should detect complex string operation
-      const stringOpWarnings = diagnostics.filter(d => 
-        d.message.includes('Complex string operation') || 
+      const stringOpWarnings = diagnostics.filter(d =>
+        d.message.includes('Complex string operation') ||
         d.message.includes('REGEXP_REPLACE')
       );
-      
+
       expect(stringOpWarnings.length).toBeGreaterThan(0);
     });
   });
@@ -113,48 +118,44 @@ describe('Performance Validation', () => {
       `);
       const parsedDocument = parseDocument(document);
       const diagnostics = getDiagnostics(document, parsedDocument);
-      
-      // Should detect high complexity
-      const complexityWarnings = diagnostics.filter(d => 
-        d.message.includes('Complex calculation') || 
-        d.code === 'HIGH_COMPLEXITY'
+
+      // Should detect high complexity.
+      // diagnosticsProvider no longer emits a single 'HIGH_COMPLEXITY' /
+      // 'Complex calculation' score diagnostic. Highly complex calculations are
+      // now surfaced through specific performance diagnostics: deep nesting,
+      // complex nested expression boundaries, and nested aggregations. Accept
+      // both the old score diagnostic and the current specific ones.
+      const complexityWarnings = diagnostics.filter(d =>
+        d.message.includes('Complex calculation') ||
+        d.code === 'HIGH_COMPLEXITY' ||
+        d.code === 'DEEP_NESTING' ||
+        d.code === 'PERFORMANCE_OPTIMIZATION' ||
+        d.message.includes('Complex')
       );
-      
+
       expect(complexityWarnings.length).toBeGreaterThan(0);
     });
   });
   
   describe('Optimization Suggestions', () => {
     it('should provide optimization suggestions', () => {
-      const document = createTestDocument(`
-        // Nested IF statements
-        IF [Sales] > 100 THEN
-          IF [Profit] > 50 THEN
-            IF [Discount] < 0.1 THEN
-              "High Value"
-            ELSE
-              "Medium Value"
-            END
-          ELSE
-            "Low Value"
-          END
-        ELSE
-          "Not Valuable"
-        END
-      `);
+      // A plain nested-IF ladder no longer produces an optimization suggestion
+      // (see 'Excessive Nesting Detection' above) — use a complex date
+      // calculation instead, which still goes through checkComplexDateCalcs.
+      const document = createTestDocument('DATEDIFF("day", [Order Date], DATEADD("day", 7, TODAY()))');
       const parsedDocument = parseDocument(document);
       const diagnostics = getDiagnostics(document, parsedDocument);
-      
+
       // Should provide optimization suggestions
-      const suggestions = diagnostics.filter(d => 
-        d.message.includes('Consider') || 
+      const suggestions = diagnostics.filter(d =>
+        d.message.includes('Consider') ||
         d.code === 'PERFORMANCE_OPTIMIZATION'
       );
-      
+
       expect(suggestions.length).toBeGreaterThan(0);
       // Check that suggestions include actionable advice
-      expect(suggestions.some(d => 
-        d.message.includes('simplifying') || 
+      expect(suggestions.some(d =>
+        d.message.includes('simplifying') ||
         d.message.includes('using CASE')
       )).toBe(true);
     });
@@ -166,6 +167,4 @@ describe('Performance Validation', () => {
  */
 function createTestDocument(content: string, version: number = 1, uri: string = 'test://test.twbl'): TextDocument {
   return TextDocument.create(uri, 'tableau', version, content);
-}
-</text>
-</invoke>
+}

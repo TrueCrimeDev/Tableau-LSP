@@ -6,6 +6,7 @@ import {
   Range
 } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
+import { performance } from 'perf_hooks';
 import { ParsedDocument, Symbol, SymbolType, FUNCTION_SIGNATURES } from './common.js';
 
 /**
@@ -146,40 +147,349 @@ export function buildSignatureHelp(
   position: Position,
   parsed: ParsedDocument
 ): SignatureHelp | null {
-  const startTime = SIGNATURE_PERFORMANCE_CONFIG.ENABLE_PERFORMANCE_LOGGING ? Date.now() : 0;
-  const documentUri = document.uri;
-  const documentVersion = document.version;
-  
-  // R5.4: Check cache first
-  const cacheKey = generateSignatureCacheKey(documentUri, position, documentVersion);
+  // The returned signature is computed by scanning the source text up to the
+  // cursor (see computeSignatureHelp): signature help is requested mid-edit,
+  // when the call under the cursor is almost always unclosed, and for such
+  // calls the parsed symbol ranges only cover the function name (and
+  // IF/CASE/LOD block ranges only cover the keyword), which is too coarse to
+  // resolve the active parameter or the innermost nested call.
+  //
+  // `parsed` is still used to maintain the per-document symbol index, which
+  // backs the performance API (symbol-index cache + stats) and lets repeated
+  // requests on the same document reuse the index.
+  getOrCreateSymbolIndex(document, parsed);
+
+  const cacheKey = generateSignatureCacheKey(document.uri, position, document.version);
   const cachedSignature = getFromSignatureCache(cacheKey);
   if (cachedSignature) {
-    logPerformance('Signature cache hit', startTime);
     return cachedSignature;
   }
-  
-  // R5.4: Get or create symbol index for efficient lookup
-  const symbolIndex = getOrCreateSymbolIndex(document, parsed);
-  
-  // R5.4: Use efficient symbol lookup
-  const block = findEnclosingConditionalBlockOptimized(position, symbolIndex);
-  let signature: SignatureHelp | null = null;
-  
-  if (block) {
-    // R3.3: Show complete block structure with active branch highlighted
-    signature = buildConditionalSignature(block, position, document);
-  } else {
-    // Check if we're in a function call that needs signature help
-    signature = buildFunctionSignatureHelpOptimized(document, position, symbolIndex);
-  }
-  
-  // R5.4: Cache the result if we found a signature
+
+  const signature = computeSignatureHelp(document, position);
+
   if (signature) {
-    addToSignatureCache(cacheKey, signature, documentVersion);
+    addToSignatureCache(cacheKey, signature, document.version);
   }
-  
-  logPerformance('Total signature help processing', startTime);
   return signature;
+}
+
+// Words that look like a function call (NAME `(`) but are operators, not functions.
+const NON_FUNCTION_WORDS = new Set(['AND', 'OR', 'NOT', 'IN']);
+
+/**
+ * Text-based signature detection driven by the source up to the cursor.
+ * Priority: innermost open function call, then LOD expression, then IF/CASE.
+ */
+function computeSignatureHelp(document: TextDocument, position: Position): SignatureHelp | null {
+  const offset = document.offsetAt(position);
+  const before = document.getText().slice(0, offset);
+
+  // 0. Function name directly under the cursor. Handles the cursor resting on a
+  //    function name before its '(' has been scanned as an enclosing open call
+  //    (e.g. cursor on `SUM` in `SUM([Sales])`, or on the inner `AVG` in
+  //    `SUM(AVG([Sales]))`). Takes priority so the innermost name the user is
+  //    pointing at wins over any outer enclosing call.
+  const nameAtCursor = findFunctionNameAtCursor(
+    getLineText(document, position.line),
+    position.character
+  );
+  if (nameAtCursor) {
+    const nameSignature = buildFunctionSignature(nameAtCursor, 0);
+    if (nameSignature) {
+      return nameSignature;
+    }
+  }
+
+  // 1. Innermost still-open function call (the cursor is inside its parens).
+  const fnCall = findEnclosingFunctionCall(before);
+  if (fnCall) {
+    const fnSignature = buildFunctionSignature(fnCall.name, fnCall.activeParameter);
+    if (fnSignature) {
+      return fnSignature;
+    }
+    // Unknown function name: fall through (no useful signature to show).
+  }
+
+  // 2. Level-of-detail expression context: { FIXED | INCLUDE | EXCLUDE ... }.
+  const lod = findEnclosingLOD(before);
+  if (lod) {
+    return buildLODSignature(lod);
+  }
+
+  // 3. Conditional context: an open IF / CASE block.
+  const conditional = findEnclosingConditional(before);
+  if (conditional) {
+    return buildConditionalKeywordSignature(conditional);
+  }
+
+  return null;
+}
+
+function isIdentifierChar(c: string): boolean {
+  return /[A-Za-z0-9_]/.test(c);
+}
+
+/**
+ * Scan `text` tracking parenthesis depth (skipping strings and [field] refs)
+ * and return the innermost still-open function call together with the number
+ * of top-level commas seen inside it before the cursor (the active parameter).
+ */
+function findEnclosingFunctionCall(
+  text: string
+): { name: string; activeParameter: number } | null {
+  interface Frame { name: string | null; commas: number; }
+  const stack: Frame[] = [];
+  let inString = false;
+  let stringChar = '';
+  let bracketDepth = 0;
+
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+
+    if (inString) {
+      if (c === stringChar) { inString = false; }
+      continue;
+    }
+    if (c === '"' || c === "'") { inString = true; stringChar = c; continue; }
+    if (c === '[') { bracketDepth++; continue; }
+    if (c === ']') { if (bracketDepth > 0) { bracketDepth--; } continue; }
+    if (bracketDepth > 0) { continue; }
+
+    if (c === '(') {
+      stack.push({ name: readFunctionNameBefore(text, i), commas: 0 });
+    } else if (c === ')') {
+      if (stack.length > 0) { stack.pop(); }
+    } else if (c === ',') {
+      if (stack.length > 0) { stack[stack.length - 1].commas++; }
+    }
+  }
+
+  for (let s = stack.length - 1; s >= 0; s--) {
+    const frame = stack[s];
+    if (frame.name) {
+      return { name: frame.name, activeParameter: frame.commas };
+    }
+  }
+  return null;
+}
+
+/**
+ * Read the identifier immediately preceding an opening parenthesis. Returns the
+ * upper-cased name, or null for a grouping paren or a logical operator.
+ */
+function readFunctionNameBefore(text: string, parenIndex: number): string | null {
+  let end = parenIndex;
+  while (end > 0 && /\s/.test(text[end - 1])) { end--; }
+  let start = end;
+  while (start > 0 && isIdentifierChar(text[start - 1])) { start--; }
+  if (start === end) { return null; }
+  const name = text.slice(start, end).toUpperCase();
+  if (NON_FUNCTION_WORDS.has(name)) { return null; }
+  return name;
+}
+
+/**
+ * Resolve the function name the cursor is pointing at on a single line.
+ *
+ * The cursor "touches" a function when it sits within / immediately adjacent to
+ * an identifier (or on whitespace just before one) that is followed by `(`. This
+ * surfaces the signature for a function whose name is under the cursor before
+ * its opening paren has been typed/scanned. Returns the upper-cased name, or
+ * null when the cursor is not on such a call.
+ */
+function findFunctionNameAtCursor(lineText: string, col: number): string | null {
+  const isId = (c: string | undefined): boolean => c !== undefined && isIdentifierChar(c);
+  let start = col;
+  let end = col;
+
+  if (isId(lineText[col]) || isId(lineText[col - 1])) {
+    // Cursor within / adjacent to an identifier: expand to its full span.
+    while (start > 0 && isId(lineText[start - 1])) { start--; }
+    while (end < lineText.length && isId(lineText[end])) { end++; }
+  } else if (lineText[col] !== undefined && /\s/.test(lineText[col])) {
+    // Cursor on whitespace: skip forward to the next identifier on the line.
+    let i = col;
+    while (i < lineText.length && /\s/.test(lineText[i])) { i++; }
+    if (!isId(lineText[i])) { return null; }
+    start = i;
+    end = i;
+    while (end < lineText.length && isId(lineText[end])) { end++; }
+  } else {
+    return null;
+  }
+
+  if (end <= start) { return null; }
+
+  // Require the identifier to be immediately followed by '(' (optionally after
+  // whitespace) to qualify as a function call rather than a field/keyword.
+  let k = end;
+  while (k < lineText.length && /\s/.test(lineText[k])) { k++; }
+  if (lineText[k] !== '(') { return null; }
+
+  const name = lineText.slice(start, end).toUpperCase();
+  if (NON_FUNCTION_WORDS.has(name)) { return null; }
+  return name;
+}
+
+/**
+ * Build signature help for a known function, using FUNCTION_SIGNATURES for the
+ * expected argument count. Optional parameters (beyond the minimum) are shown
+ * in [brackets]; variadic functions grow to cover the active parameter.
+ */
+function buildFunctionSignature(name: string, activeParameter: number): SignatureHelp | null {
+  const signature = FUNCTION_SIGNATURES[name];
+  if (!signature) { return null; }
+  const [minArgs, maxArgs] = signature;
+
+  const paramCount = Math.max(
+    minArgs,
+    maxArgs === Infinity ? activeParameter + 1 : maxArgs,
+    activeParameter + 1
+  );
+
+  const parameters: { label: string }[] = [];
+  let label = `${name}(`;
+  for (let i = 0; i < paramCount; i++) {
+    if (i > 0) { label += ', '; }
+    const optional = i >= minArgs;
+    const paramLabel = optional ? `[arg${i + 1}]` : `arg${i + 1}`;
+    parameters.push({ label: paramLabel });
+    label += paramLabel;
+  }
+  label += ')';
+
+  const argRange = maxArgs === Infinity
+    ? `${minArgs}+`
+    : (maxArgs === minArgs ? `${minArgs}` : `${minArgs}-${maxArgs}`);
+  const plural = (maxArgs === 1 && minArgs === 1) ? '' : 's';
+
+  return {
+    signatures: [{
+      label,
+      documentation: {
+        kind: MarkupKind.Markdown,
+        value: `Function **${name}** expects ${argRange} argument${plural}`
+      },
+      parameters
+    }],
+    activeSignature: 0,
+    activeParameter: Math.max(0, Math.min(activeParameter, parameters.length - 1))
+  };
+}
+
+/**
+ * Find the keyword of the innermost unclosed LOD brace before the cursor.
+ */
+function findEnclosingLOD(text: string): 'FIXED' | 'INCLUDE' | 'EXCLUDE' | null {
+  const stack: Array<'FIXED' | 'INCLUDE' | 'EXCLUDE' | null> = [];
+  let inString = false;
+  let stringChar = '';
+
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (c === stringChar) { inString = false; }
+      continue;
+    }
+    if (c === '"' || c === "'") { inString = true; stringChar = c; continue; }
+    if (c === '{') {
+      stack.push(readLODKeywordAfter(text, i));
+    } else if (c === '}') {
+      if (stack.length > 0) { stack.pop(); }
+    }
+  }
+
+  for (let s = stack.length - 1; s >= 0; s--) {
+    if (stack[s]) { return stack[s]; }
+  }
+  return null;
+}
+
+function readLODKeywordAfter(text: string, braceIndex: number): 'FIXED' | 'INCLUDE' | 'EXCLUDE' | null {
+  let i = braceIndex + 1;
+  while (i < text.length && /\s/.test(text[i])) { i++; }
+  let j = i;
+  while (j < text.length && isIdentifierChar(text[j])) { j++; }
+  const word = text.slice(i, j).toUpperCase();
+  if (word === 'FIXED' || word === 'INCLUDE' || word === 'EXCLUDE') { return word; }
+  return null;
+}
+
+function buildLODSignature(keyword: 'FIXED' | 'INCLUDE' | 'EXCLUDE'): SignatureHelp {
+  return {
+    signatures: [{
+      label: `{ ${keyword} [dimension, ...] : <aggregate expression> }`,
+      documentation: {
+        kind: MarkupKind.Markdown,
+        value: `**${keyword}** level-of-detail expression`
+      },
+      parameters: []
+    }],
+    activeSignature: 0,
+    activeParameter: 0
+  };
+}
+
+/**
+ * Return the keyword of the innermost IF/CASE block that is still open
+ * (no matching END) before the cursor.
+ */
+function findEnclosingConditional(text: string): 'IF' | 'CASE' | null {
+  const stack: Array<'IF' | 'CASE'> = [];
+  let inString = false;
+  let stringChar = '';
+  let bracketDepth = 0;
+  let i = 0;
+
+  while (i < text.length) {
+    const c = text[i];
+    if (inString) {
+      if (c === stringChar) { inString = false; }
+      i++;
+      continue;
+    }
+    if (c === '"' || c === "'") { inString = true; stringChar = c; i++; continue; }
+    if (c === '[') { bracketDepth++; i++; continue; }
+    if (c === ']') { if (bracketDepth > 0) { bracketDepth--; } i++; continue; }
+    if (bracketDepth > 0) { i++; continue; }
+
+    if (/[A-Za-z_]/.test(c)) {
+      const prev = i > 0 ? text[i - 1] : '';
+      let j = i;
+      while (j < text.length && isIdentifierChar(text[j])) { j++; }
+      if (!isIdentifierChar(prev)) {
+        const word = text.slice(i, j).toUpperCase();
+        if (word === 'IF' || word === 'CASE') {
+          stack.push(word);
+        } else if (word === 'END') {
+          stack.pop();
+        }
+      }
+      i = j;
+      continue;
+    }
+    i++;
+  }
+
+  return stack.length > 0 ? stack[stack.length - 1] : null;
+}
+
+function buildConditionalKeywordSignature(keyword: 'IF' | 'CASE'): SignatureHelp {
+  const label = keyword === 'IF'
+    ? 'IF <condition> THEN <result> [ ELSEIF <condition> THEN <result> ] [ ELSE <result> ] END'
+    : 'CASE <expression> WHEN <value> THEN <result> [ ... ] [ ELSE <default> ] END';
+  return {
+    signatures: [{
+      label,
+      documentation: {
+        kind: MarkupKind.Markdown,
+        value: `**${keyword}** conditional expression`
+      },
+      parameters: []
+    }],
+    activeSignature: 0,
+    activeParameter: 0
+  };
 }
 
 /**
@@ -734,10 +1044,14 @@ export const SignaturePerformanceAPI = {
     totalTests: number;
   }> {
     const times: number[] = [];
-    
+
     for (const pos of samplePositions) {
-      const start = Date.now();
-      
+      // Use a high-resolution timer: each sample does sub-millisecond work, so
+      // Date.now()'s 1ms granularity rounds every measurement down to 0.
+      // performance.now() returns fractional milliseconds, giving an accurate
+      // (and strictly positive) duration for this micro-benchmark.
+      const start = performance.now();
+
       // Simulate signature help processing
       const mockSymbols: Symbol[] = [
         {
@@ -761,8 +1075,8 @@ export const SignaturePerformanceAPI = {
       
       const mockIndex = createSignatureSymbolIndex(mockSymbols);
       findEnclosingConditionalBlockOptimized({ line: pos.line, character: pos.character }, mockIndex);
-      
-      const duration = Date.now() - start;
+
+      const duration = performance.now() - start;
       times.push(duration);
     }
     

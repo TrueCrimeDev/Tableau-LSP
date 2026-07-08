@@ -11,23 +11,33 @@ export class PerformanceMonitor {
      * Start timing an operation
      */
     static startTiming(operation: string): PerformanceTimer {
-        if (!this.enabled) {
-            return { end: () => {} };
-        }
-        
         const startTime = performance.now();
         const startMemory = this.getMemoryUsage();
-        
+        let ended = false;
+        let result: PerformanceTimerResult = { operation, duration: 0 };
+
         return {
             end: () => {
+                // Guard against double-ending so a metric is only recorded once.
+                if (ended) {
+                    return result;
+                }
+                ended = true;
+
                 const endTime = performance.now();
                 const endMemory = this.getMemoryUsage();
-                
-                this.recordMetric(operation, {
-                    duration: endTime - startTime,
-                    memoryDelta: endMemory - startMemory,
-                    timestamp: Date.now()
-                });
+                const duration = endTime - startTime;
+
+                if (this.enabled) {
+                    this.recordMetric(operation, {
+                        duration,
+                        memoryDelta: endMemory - startMemory,
+                        timestamp: Date.now()
+                    });
+                }
+
+                result = { operation, duration };
+                return result;
             }
         };
     }
@@ -91,6 +101,50 @@ export class PerformanceMonitor {
     static clearMetrics(): void {
         this.metrics.clear();
     }
+
+    /**
+     * Reset all collected statistics (alias for clearMetrics).
+     */
+    static reset(): void {
+        this.metrics.clear();
+    }
+
+    /**
+     * Get aggregated statistics for a single operation.
+     * Returns undefined when the operation has not been recorded.
+     */
+    static getStatistics(operation: string): PerformanceStatistics | undefined {
+        const metric = this.metrics.get(operation);
+        if (!metric) {
+            return undefined;
+        }
+        return this.toStatistics(metric);
+    }
+
+    /**
+     * Get statistics for every recorded operation, keyed by operation name.
+     */
+    static getAllStatistics(): Record<string, PerformanceStatistics> {
+        const all: Record<string, PerformanceStatistics> = {};
+        for (const [operation, metric] of this.metrics) {
+            all[operation] = this.toStatistics(metric);
+        }
+        return all;
+    }
+
+    /**
+     * Map an internal metric to the public statistics shape.
+     */
+    private static toStatistics(metric: PerformanceMetric): PerformanceStatistics {
+        return {
+            operation: metric.operation,
+            count: metric.totalCalls,
+            totalDuration: metric.totalDuration,
+            averageDuration: metric.averageDuration,
+            minDuration: metric.minDuration,
+            maxDuration: metric.maxDuration
+        };
+    }
     
     /**
      * Enable or disable performance monitoring
@@ -140,8 +194,22 @@ export class PerformanceMonitor {
     }
 }
 
+export interface PerformanceTimerResult {
+    operation: string;
+    duration: number;
+}
+
 export interface PerformanceTimer {
-    end(): void;
+    end(): PerformanceTimerResult;
+}
+
+export interface PerformanceStatistics {
+    operation: string;
+    count: number;
+    totalDuration: number;
+    averageDuration: number;
+    minDuration: number;
+    maxDuration: number;
 }
 
 export interface PerformanceMetric {

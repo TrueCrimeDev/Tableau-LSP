@@ -26,29 +26,14 @@
 // === HIERARCHIES ===
 // (No hierarchies found)
 
-/*
-=== FIELDS (for declaration file) ===
-/**
- * Field from datasource: DataTable (DataTable)
- * Datatype: string | Role: dimension
- */
-[!Age]: String
-
-/**
- * Field from datasource: DataTable (DataTable)
- * Datatype: string | Role: dimension
- */
-[Firstname]: String
-
-/**
- * Field from datasource: DataTable (DataTable)
- * Datatype: string | Role: dimension
- */
-[Lastname]: String
-
-*/
+// === FIELDS ===
+// Field: [!Age] : String
+//   Datasource: DataTable (DataTable) | Type: string | Role: dimension
+// Field: [Firstname] : String
+//   Datasource: DataTable (DataTable) | Type: string | Role: dimension
+// Field: [Lastname] : String
+//   Datasource: DataTable (DataTable) | Type: string | Role: dimension
 
 // === CALCULATIONS ===
 // !Age | DataTable_(DataTable) | Test_LSP.twb
 STR([Age])
-

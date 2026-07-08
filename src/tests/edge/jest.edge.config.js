@@ -1,6 +1,7 @@
 // src/tests/edge/jest.edge.config.js
 
 module.exports = {
+  rootDir: '../../..',
   displayName: 'Edge Case Tests',
   testMatch: ['<rootDir>/src/tests/edge/**/*.test.ts'],
   testEnvironment: 'node',
@@ -12,7 +13,13 @@ module.exports = {
   bail: false, // Continue running tests even if some fail
   
   transform: {
-    '^.+\\.ts$': 'ts-jest'
+    '^.+\\.ts$': ['ts-jest', {
+      tsconfig: '<rootDir>/tsconfig.test.json',
+      diagnostics: false
+    }]
+  },
+  moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.js$': '$1'
   },
   moduleFileExtensions: ['ts', 'js', 'json'],
   roots: ['<rootDir>/src'],
@@ -25,20 +32,11 @@ module.exports = {
   reporters: [
     'default',
     ['<rootDir>/src/tests/edge/edgeCaseReporter.js', {
-      outputFile: '<rootDir>/test-results/edge-cases/edge-case-results.json'
+      outputFile: 'test-results/edge-cases/edge-case-results.json'
     }]
   ],
   
-  globals: {
-    'ts-jest': {
-      tsconfig: '<rootDir>/tsconfig.json'
-    }
-  },
-  
   // Error handling
   errorOnDeprecated: false,
-  
-  setupFilesAfterEnv: [
-    '<rootDir>/src/tests/edge/setup.ts'
-  ]
+
 };

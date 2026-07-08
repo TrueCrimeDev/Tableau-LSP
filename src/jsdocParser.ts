@@ -482,3 +482,239 @@ export class JSDocParser {
         return null;
     }
 }
+
+// ---------------------------------------------------------------------------
+// Functional facade API
+//
+// The original public surface of this module was a set of standalone functions
+// (parseJSDoc / extractTypeFromJSDoc / validateJSDocType) operating on a single
+// comment string. The module was later refactored around the JSDocParser class
+// (which parses the twbl.d.twbl definition file). These thin wrappers preserve
+// the original functional API for callers/tests that work on one comment at a
+// time. The class above remains the primary entry point for file parsing.
+// ---------------------------------------------------------------------------
+
+export interface ParsedJSDocTag {
+    name: string;
+    value: string;
+    description: string;
+}
+
+export interface ParsedJSDoc {
+    type?: string;
+    description: string;
+    tags: ParsedJSDocTag[];
+}
+
+export interface JSDocTypeValidationError {
+    message: string;
+    suggestion?: string;
+}
+
+export interface JSDocTypeValidation {
+    isValid: boolean;
+    errors: JSDocTypeValidationError[];
+}
+
+const VALID_JSDOC_BASE_TYPES = new Set<string>([
+    // primitives
+    'string', 'number', 'boolean', 'date', 'null', 'undefined',
+    // Tableau field categories
+    'field', 'dimension', 'measure', 'calculated_field', 'parameter', 'set', 'group',
+    // Tableau function return categories
+    'aggregate', 'table_calc', 'lod_expression',
+    'string_function', 'date_function', 'math_function',
+]);
+
+/**
+ * Strip the leading parameter name (and optional separator) from a @param
+ * description, leaving only the human-readable description text.
+ */
+function stripJSDocParamName(rest: string): string {
+    const s = rest.trim();
+    const m = s.match(/^(\w+)\s*(?:[-—:]\s*)?([\s\S]*)$/);
+    return m ? m[2].trim() : s;
+}
+
+/**
+ * Parse a single JSDoc comment string into its type, description, and tags.
+ */
+export function parseJSDoc(comment: string): ParsedJSDoc {
+    const result: ParsedJSDoc = { type: undefined, description: '', tags: [] };
+    if (!comment || typeof comment !== 'string') {
+        return result;
+    }
+
+    // Strip the comment delimiters and per-line leading asterisks.
+    let cleaned = comment
+        .replace(/^\s*\/\*+/, '')
+        .replace(/\*+\/\s*$/, '');
+    cleaned = cleaned
+        .split(/\r?\n/)
+        .map(line => line.replace(/^\s*\*+[ \t]?/, ''))
+        .join('\n')
+        .trim();
+
+    if (!cleaned) {
+        return result;
+    }
+
+    // Free-standing description appears before the first @tag.
+    const firstTagIndex = cleaned.search(/@\w/);
+    const leading = (firstTagIndex === -1 ? cleaned : cleaned.slice(0, firstTagIndex)).trim();
+
+    const descriptionParts: string[] = [];
+    if (leading) {
+        descriptionParts.push(leading);
+    }
+
+    // Match each @tag, its optional {type}, and the trailing text up to the next @.
+    const tagRegex = /@(\w+)[ \t]*(?:\{([^}]*)\})?([^@]*)/g;
+    let match: RegExpExecArray | null;
+    while ((match = tagRegex.exec(cleaned)) !== null) {
+        const name = match[1].toLowerCase();
+        const value = (match[2] ?? '').trim();
+        const rest = match[3] ?? '';
+
+        let description: string;
+        if (name === 'param' || name === 'parameter') {
+            description = stripJSDocParamName(rest);
+        } else {
+            description = rest.trim();
+        }
+
+        if (name === 'type') {
+            result.type = value;
+            // @type trailing text describes the documented symbol overall.
+            if (description) {
+                descriptionParts.push(description);
+            }
+        }
+
+        result.tags.push({ name, value, description });
+    }
+
+    result.description = descriptionParts.join(' ').trim();
+    return result;
+}
+
+/**
+ * Extract the raw type expression from a JSDoc @type tag, with balanced-brace
+ * handling so object literal types (e.g. {name: string}) are preserved intact.
+ */
+export function extractTypeFromJSDoc(comment: string): string | undefined {
+    if (!comment || typeof comment !== 'string') {
+        return undefined;
+    }
+
+    const tagIndex = comment.search(/@type\b/);
+    if (tagIndex === -1) {
+        return undefined;
+    }
+
+    const start = comment.indexOf('{', tagIndex);
+    if (start === -1) {
+        return undefined;
+    }
+
+    let depth = 0;
+    for (let i = start; i < comment.length; i++) {
+        const ch = comment[i];
+        if (ch === '{') {
+            depth++;
+        } else if (ch === '}') {
+            depth--;
+            if (depth === 0) {
+                return comment.substring(start + 1, i).trim();
+            }
+        }
+    }
+
+    return undefined;
+}
+
+/**
+ * Recursively determine whether a type expression is well-formed and uses only
+ * recognized base types (supports unions, [] arrays, and Array<...> generics).
+ */
+function isValidJSDocTypeExpression(type: string): boolean {
+    const t = type.trim();
+    if (!t) {
+        return false;
+    }
+
+    // Intersection operator is not supported in this type vocabulary.
+    if (t.includes('&')) {
+        return false;
+    }
+
+    // Union types: every member must be non-empty and valid.
+    if (t.includes('|')) {
+        const parts = t.split('|');
+        return parts.every(part => part.trim() !== '' && isValidJSDocTypeExpression(part));
+    }
+
+    // Array suffix syntax: base[].
+    if (t.endsWith('[]')) {
+        return isValidJSDocTypeExpression(t.slice(0, -2));
+    }
+    // Stray brackets => malformed array.
+    if (t.includes('[') || t.includes(']')) {
+        return false;
+    }
+
+    // Generic Array<...> syntax.
+    const genericMatch = t.match(/^Array<(.+)>$/);
+    if (genericMatch) {
+        return isValidJSDocTypeExpression(genericMatch[1]);
+    }
+    // Stray angle brackets => malformed generic.
+    if (t.includes('<') || t.includes('>')) {
+        return false;
+    }
+
+    return VALID_JSDOC_BASE_TYPES.has(t);
+}
+
+/**
+ * Produce a best-effort correction hint for an invalid type expression.
+ */
+function suggestJSDocType(type: string): string {
+    const lower = type.trim().toLowerCase();
+
+    // Casing mistake (e.g. String -> string).
+    if (VALID_JSDOC_BASE_TYPES.has(lower) && lower !== type.trim()) {
+        return `Did you mean '${lower}'?`;
+    }
+
+    // Closest recognized type by substring overlap (e.g. field_reference -> field).
+    for (const valid of VALID_JSDOC_BASE_TYPES) {
+        if (lower.includes(valid) || valid.includes(lower)) {
+            return `Did you mean '${valid}'?`;
+        }
+    }
+
+    return `Valid types include: ${Array.from(VALID_JSDOC_BASE_TYPES).join(', ')}`;
+}
+
+/**
+ * Validate a JSDoc type expression against the recognized Tableau type set.
+ */
+export function validateJSDocType(type: string): JSDocTypeValidation {
+    if (!type || typeof type !== 'string' || !type.trim()) {
+        return {
+            isValid: false,
+            errors: [{ message: 'Invalid type: empty type expression', suggestion: suggestJSDocType('') }],
+        };
+    }
+
+    const trimmed = type.trim();
+    if (isValidJSDocTypeExpression(trimmed)) {
+        return { isValid: true, errors: [] };
+    }
+
+    return {
+        isValid: false,
+        errors: [{ message: `Invalid type: ${trimmed}`, suggestion: suggestJSDocType(trimmed) }],
+    };
+}

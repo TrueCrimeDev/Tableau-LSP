@@ -337,6 +337,38 @@ function createHoverForSymbol(symbol: Symbol, fieldParser: FieldParser | null): 
 }
 
 /**
+ * Control-flow and LOD keywords. These are documented in twbl.d.twbl as
+ * reference-only comments (not parsed as functions), so the hover provider
+ * supplies their descriptions directly.
+ */
+const KEYWORD_HOVERS: Record<string, string> = {
+    IF: '**IF** — conditional expression. Returns one value when the test is true and another otherwise.',
+    THEN: '**THEN** — introduces the result returned by the preceding IF/CASE/WHEN test.',
+    ELSEIF: '**ELSEIF** — conditional branch tested when prior IF/ELSEIF conditions are false.',
+    ELSE: '**ELSE** — optional fallback value returned when no IF/CASE condition matches.',
+    END: '**END** — terminates an IF, CASE, or LOD expression.',
+    CASE: '**CASE** — compares an expression against multiple values and returns the matching result.',
+    WHEN: '**WHEN** — defines a value to compare against the CASE expression.',
+    FIXED: '**FIXED** — Level of Detail expression computing an aggregate using only the specified dimensions.',
+    INCLUDE: '**INCLUDE** — Level of Detail expression adding dimensions to the view-level aggregation.',
+    EXCLUDE: '**EXCLUDE** — Level of Detail expression removing dimensions from the view-level aggregation.'
+};
+
+/**
+ * Create hover for a control-flow / LOD keyword.
+ */
+function createKeywordHover(word: string, range: any): Hover | undefined {
+    const value = KEYWORD_HOVERS[word];
+    if (!value) {
+        return undefined;
+    }
+    return {
+        contents: { kind: MarkupKind.Markdown, value },
+        range
+    };
+}
+
+/**
  * R3.4: Create hover for word at position (fallback)
  */
 function createHoverForWordAtPosition(document: TextDocument, position: any, fieldParser: FieldParser | null): Hover | undefined {
@@ -369,6 +401,12 @@ function createHoverForWordAtPosition(document: TextDocument, position: any, fie
             }
             return createUndefinedFieldHoverResponse(fieldName, wordRange);
         }
+    }
+
+    // Control-flow / LOD keywords (documented as reference-only in twbl.d.twbl)
+    const keywordHover = createKeywordHover(upperWord, wordRange);
+    if (keywordHover) {
+        return keywordHover;
     }
 
     // Try JSDoc parser first for functions

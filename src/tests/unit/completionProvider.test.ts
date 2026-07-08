@@ -1,1 +1,620 @@
-// src/tests/unit/completionProvider.test.ts\n\nimport { TextDocument } from 'vscode-languageserver-textdocument';\nimport { Position, CompletionItem, CompletionItemKind } from 'vscode-languageserver';\nimport { provideCompletion } from '../../completionProvider.js';\nimport { FieldParser } from '../../fieldParser.js';\nimport { parsedDocumentCache } from '../../common.js';\nimport { IncrementalParser } from '../../incrementalParser.js';\n\ndescribe('Completion Provider', () => {\n    let fieldParser: FieldParser | null;\n    \n    beforeEach(() => {\n        // Clear cache\n        parsedDocumentCache.clear();\n        \n        // Mock field parser\n        fieldParser = {\n            getFieldInfo: jest.fn(),\n            getAllFields: jest.fn().mockReturnValue([\n                { name: 'Sales', type: 'Number' },\n                { name: 'Profit', type: 'Number' },\n                { name: 'Customer Name', type: 'String' },\n                { name: 'Order Date', type: 'Date' },\n                { name: 'Category', type: 'String' }\n            ]),\n            findDefinitionFile: jest.fn()\n        } as any;\n    });\n    \n    describe('Function Completion', () => {\n        it('should provide function completions at document start', async () => {\n            const document = createTestDocument('');\n            const position: Position = { line: 0, character: 0 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 } // Invoked\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            expect(completions).toBeDefined();\n            expect(Array.isArray(completions.items)).toBe(true);\n            \n            // Should include common functions\n            const functionNames = completions.items.map(item => item.label);\n            expect(functionNames).toContain('SUM');\n            expect(functionNames).toContain('AVG');\n            expect(functionNames).toContain('COUNT');\n            expect(functionNames).toContain('IF');\n        });\n        \n        it('should provide function completions with partial input', async () => {\n            const document = createTestDocument('SU');\n            const position: Position = { line: 0, character: 2 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            expect(completions).toBeDefined();\n            \n            // Should prioritize functions starting with 'SU'\n            const functionNames = completions.items.map(item => item.label);\n            expect(functionNames).toContain('SUM');\n            \n            // SUM should be ranked highly\n            const sumItem = completions.items.find(item => item.label === 'SUM');\n            expect(sumItem).toBeDefined();\n            expect(sumItem?.kind).toBe(CompletionItemKind.Function);\n        });\n        \n        it('should provide string function completions', async () => {\n            const document = createTestDocument('LE');\n            const position: Position = { line: 0, character: 2 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            const functionNames = completions.items.map(item => item.label);\n            expect(functionNames).toContain('LEFT');\n            expect(functionNames).toContain('LEN');\n        });\n        \n        it('should provide date function completions', async () => {\n            const document = createTestDocument('DATE');\n            const position: Position = { line: 0, character: 4 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            const functionNames = completions.items.map(item => item.label);\n            expect(functionNames).toContain('DATEADD');\n            expect(functionNames).toContain('DATEDIFF');\n            expect(functionNames).toContain('DATEPART');\n        });\n    });\n    \n    describe('Field Completion', () => {\n        it('should provide field completions after opening bracket', async () => {\n            const document = createTestDocument('[');\n            const position: Position = { line: 0, character: 1 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 2, triggerCharacter: '[' }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            expect(completions).toBeDefined();\n            \n            const fieldNames = completions.items.map(item => item.label);\n            expect(fieldNames).toContain('Sales');\n            expect(fieldNames).toContain('Profit');\n            expect(fieldNames).toContain('Customer Name');\n            \n            // Should have field kind\n            const salesItem = completions.items.find(item => item.label === 'Sales');\n            expect(salesItem?.kind).toBe(CompletionItemKind.Field);\n        });\n        \n        it('should provide field completions with partial field name', async () => {\n            const document = createTestDocument('[Sal');\n            const position: Position = { line: 0, character: 4 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            const fieldNames = completions.items.map(item => item.label);\n            expect(fieldNames).toContain('Sales');\n            \n            // Should prioritize matching fields\n            const salesItem = completions.items.find(item => item.label === 'Sales');\n            expect(salesItem).toBeDefined();\n        });\n        \n        it('should provide fuzzy matching for field names', async () => {\n            const document = createTestDocument('[CustNm');\n            const position: Position = { line: 0, character: 7 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            // Should match 'Customer Name' with fuzzy matching\n            const fieldNames = completions.items.map(item => item.label);\n            expect(fieldNames).toContain('Customer Name');\n        });\n    });\n    \n    describe('Keyword Completion', () => {\n        it('should provide IF/THEN/ELSE completions', async () => {\n            const document = createTestDocument('I');\n            const position: Position = { line: 0, character: 1 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            const labels = completions.items.map(item => item.label);\n            expect(labels).toContain('IF');\n            \n            const ifItem = completions.items.find(item => item.label === 'IF');\n            expect(ifItem?.kind).toBe(CompletionItemKind.Keyword);\n        });\n        \n        it('should provide THEN completion after IF condition', async () => {\n            const document = createTestDocument('IF [Sales] > 100 T');\n            const position: Position = { line: 0, character: 17 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            const labels = completions.items.map(item => item.label);\n            expect(labels).toContain('THEN');\n        });\n        \n        it('should provide ELSE completion after THEN clause', async () => {\n            const document = createTestDocument('IF [Sales] > 100 THEN \"High\" E');\n            const position: Position = { line: 0, character: 31 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            const labels = completions.items.map(item => item.label);\n            expect(labels).toContain('ELSE');\n            expect(labels).toContain('ELSEIF');\n        });\n        \n        it('should provide CASE/WHEN/END completions', async () => {\n            const document = createTestDocument('CAS');\n            const position: Position = { line: 0, character: 3 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            const labels = completions.items.map(item => item.label);\n            expect(labels).toContain('CASE');\n        });\n    });\n    \n    describe('Context-Aware Completion', () => {\n        it('should provide appropriate completions inside function calls', async () => {\n            const document = createTestDocument('SUM(');\n            const position: Position = { line: 0, character: 4 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 2, triggerCharacter: '(' }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            // Should prioritize fields and expressions suitable for SUM\n            const labels = completions.items.map(item => item.label);\n            expect(labels).toContain('Sales');\n            expect(labels).toContain('Profit');\n        });\n        \n        it('should provide completions in LOD expressions', async () => {\n            const document = createTestDocument('{ FIXED [Region] : ');\n            const position: Position = { line: 0, character: 19 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            // Should provide aggregate functions\n            const labels = completions.items.map(item => item.label);\n            expect(labels).toContain('SUM');\n            expect(labels).toContain('AVG');\n            expect(labels).toContain('COUNT');\n        });\n        \n        it('should provide completions after operators', async () => {\n            const document = createTestDocument('[Sales] + ');\n            const position: Position = { line: 0, character: 10 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            // Should provide fields and functions\n            const labels = completions.items.map(item => item.label);\n            expect(labels).toContain('Profit');\n            expect(labels).toContain('SUM');\n        });\n    });\n    \n    describe('Snippet Completion', () => {\n        it('should provide IF statement snippet', async () => {\n            const document = createTestDocument('if');\n            const position: Position = { line: 0, character: 2 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            // Should include IF snippet\n            const snippetItem = completions.items.find(item => \n                item.kind === CompletionItemKind.Snippet && \n                item.label.includes('IF')\n            );\n            \n            expect(snippetItem).toBeDefined();\n            expect(snippetItem?.insertText).toContain('IF');\n            expect(snippetItem?.insertText).toContain('THEN');\n            expect(snippetItem?.insertText).toContain('END');\n        });\n        \n        it('should provide CASE statement snippet', async () => {\n            const document = createTestDocument('case');\n            const position: Position = { line: 0, character: 4 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            const snippetItem = completions.items.find(item => \n                item.kind === CompletionItemKind.Snippet && \n                item.label.includes('CASE')\n            );\n            \n            expect(snippetItem).toBeDefined();\n            expect(snippetItem?.insertText).toContain('CASE');\n            expect(snippetItem?.insertText).toContain('WHEN');\n            expect(snippetItem?.insertText).toContain('END');\n        });\n        \n        it('should provide LOD expression snippets', async () => {\n            const document = createTestDocument('fixed');\n            const position: Position = { line: 0, character: 5 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            const snippetItem = completions.items.find(item => \n                item.kind === CompletionItemKind.Snippet && \n                item.label.includes('FIXED')\n            );\n            \n            expect(snippetItem).toBeDefined();\n            expect(snippetItem?.insertText).toContain('FIXED');\n            expect(snippetItem?.insertText).toContain('{');\n            expect(snippetItem?.insertText).toContain('}');\n        });\n    });\n    \n    describe('Relevance Ranking', () => {\n        it('should rank exact matches higher', async () => {\n            const document = createTestDocument('SUM');\n            const position: Position = { line: 0, character: 3 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            // SUM should be ranked highly (exact match)\n            const sumItem = completions.items.find(item => item.label === 'SUM');\n            expect(sumItem).toBeDefined();\n            \n            // Should be in top results\n            const topItems = completions.items.slice(0, 5);\n            expect(topItems.some(item => item.label === 'SUM')).toBe(true);\n        });\n        \n        it('should rank frequently used functions higher', async () => {\n            const document = createTestDocument('A');\n            const position: Position = { line: 0, character: 1 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            // Common functions like AVG should rank higher than obscure ones\n            const avgIndex = completions.items.findIndex(item => item.label === 'AVG');\n            const absIndex = completions.items.findIndex(item => item.label === 'ABS');\n            \n            expect(avgIndex).toBeGreaterThanOrEqual(0);\n            expect(absIndex).toBeGreaterThanOrEqual(0);\n        });\n        \n        it('should filter duplicate suggestions', async () => {\n            const document = createTestDocument('S');\n            const position: Position = { line: 0, character: 1 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            // Should not have duplicate labels\n            const labels = completions.items.map(item => item.label);\n            const uniqueLabels = [...new Set(labels)];\n            \n            expect(labels.length).toBe(uniqueLabels.length);\n        });\n    });\n    \n    describe('Edge Cases', () => {\n        it('should handle completion at document start', async () => {\n            const document = createTestDocument('');\n            const position: Position = { line: 0, character: 0 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            expect(completions).toBeDefined();\n            expect(completions.items.length).toBeGreaterThan(0);\n        });\n        \n        it('should handle completion in malformed expressions', async () => {\n            const document = createTestDocument('SUM([Sales] +');\n            const position: Position = { line: 0, character: 13 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            // Should still provide completions\n            expect(completions).toBeDefined();\n            expect(completions.items.length).toBeGreaterThan(0);\n        });\n        \n        it('should handle completion without field parser', async () => {\n            const document = createTestDocument('[');\n            const position: Position = { line: 0, character: 1 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 2, triggerCharacter: '[' }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, null);\n            \n            // Should handle gracefully without field parser\n            expect(completions).toBeDefined();\n        });\n        \n        it('should handle very long input', async () => {\n            const longInput = 'A'.repeat(1000);\n            const document = createTestDocument(longInput);\n            const position: Position = { line: 0, character: 1000 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            \n            // Should handle gracefully\n            expect(completions).toBeDefined();\n        });\n    });\n    \n    describe('Performance', () => {\n        it('should provide completions quickly', async () => {\n            const document = createTestDocument('S');\n            const position: Position = { line: 0, character: 1 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const startTime = Date.now();\n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            const duration = Date.now() - startTime;\n            \n            expect(completions).toBeDefined();\n            expect(duration).toBeLessThan(100); // Should be fast\n        });\n        \n        it('should handle large field lists efficiently', async () => {\n            // Mock large field list\n            (fieldParser?.getAllFields as jest.Mock).mockReturnValue(\n                Array.from({ length: 1000 }, (_, i) => ({\n                    name: `Field${i}`,\n                    type: 'Number'\n                }))\n            );\n            \n            const document = createTestDocument('[F');\n            const position: Position = { line: 0, character: 2 };\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params = {\n                textDocument: { uri: document.uri },\n                position,\n                context: { triggerKind: 1 }\n            };\n            \n            const startTime = Date.now();\n            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);\n            const duration = Date.now() - startTime;\n            \n            expect(completions).toBeDefined();\n            expect(duration).toBeLessThan(200); // Should handle large lists efficiently\n        });\n    });\n});\n\n/**\n * Helper function to create test documents\n */\nfunction createTestDocument(\n    content: string, \n    version: number = 1, \n    uri: string = 'test://test.twbl'\n): TextDocument {\n    return TextDocument.create(uri, 'tableau', version, content);\n}\n"
+// src/tests/unit/completionProvider.test.ts
+
+import { TextDocument } from 'vscode-languageserver-textdocument';
+import { Position, CompletionItem, CompletionItemKind } from 'vscode-languageserver';
+import { provideCompletion } from '../../completionProvider.js';
+import { FieldParser } from '../../fieldParser.js';
+import { parsedDocumentCache } from '../../common.js';
+import { IncrementalParser } from '../../incrementalParser.js';
+
+describe('Completion Provider', () => {
+    let fieldParser: FieldParser | null;
+    
+    beforeEach(() => {
+        // Clear cache
+        parsedDocumentCache.clear();
+        
+        // Mock field parser
+        fieldParser = {
+            getFieldInfo: jest.fn(),
+            // getAllFields() returns a Map<string, CustomField> in the real API (fieldParser.ts),
+            // keyed by upper-cased field name. The mock must match that shape.
+            getAllFields: jest.fn().mockReturnValue(new Map([
+                ['SALES', { name: 'Sales', type: 'Number' }],
+                ['PROFIT', { name: 'Profit', type: 'Number' }],
+                ['CUSTOMER NAME', { name: 'Customer Name', type: 'String' }],
+                ['ORDER DATE', { name: 'Order Date', type: 'Date' }],
+                ['CATEGORY', { name: 'Category', type: 'String' }]
+            ])),
+            findDefinitionFile: jest.fn()
+        } as any;
+    });
+    
+    describe('Function Completion', () => {
+        it('should provide function completions at document start', async () => {
+            const document = createTestDocument('');
+            const position: Position = { line: 0, character: 0 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 } // Invoked
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            expect(completions).toBeDefined();
+            expect(Array.isArray(completions.items)).toBe(true);
+            
+            // Should include common functions
+            const functionNames = completions.items.map(item => item.label);
+            expect(functionNames).toContain('SUM');
+            expect(functionNames).toContain('AVG');
+            expect(functionNames).toContain('COUNT');
+            expect(functionNames).toContain('IF');
+        });
+        
+        it('should provide function completions with partial input', async () => {
+            const document = createTestDocument('SU');
+            const position: Position = { line: 0, character: 2 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            expect(completions).toBeDefined();
+            
+            // Should prioritize functions starting with 'SU'
+            const functionNames = completions.items.map(item => item.label);
+            expect(functionNames).toContain('SUM');
+            
+            // SUM should be ranked highly
+            const sumItem = completions.items.find(item => item.label === 'SUM');
+            expect(sumItem).toBeDefined();
+            expect(sumItem?.kind).toBe(CompletionItemKind.Function);
+        });
+        
+        it('should provide string function completions', async () => {
+            const document = createTestDocument('LE');
+            const position: Position = { line: 0, character: 2 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            const functionNames = completions.items.map(item => item.label);
+            expect(functionNames).toContain('LEFT');
+            expect(functionNames).toContain('LEN');
+        });
+        
+        it('should provide date function completions', async () => {
+            const document = createTestDocument('DATE');
+            const position: Position = { line: 0, character: 4 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            const functionNames = completions.items.map(item => item.label);
+            expect(functionNames).toContain('DATEADD');
+            expect(functionNames).toContain('DATEDIFF');
+            expect(functionNames).toContain('DATEPART');
+        });
+    });
+    
+    describe('Field Completion', () => {
+        it('should provide field completions after opening bracket', async () => {
+            const document = createTestDocument('[');
+            const position: Position = { line: 0, character: 1 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 2, triggerCharacter: '[' }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            expect(completions).toBeDefined();
+            
+            const fieldNames = completions.items.map(item => item.label);
+            expect(fieldNames).toContain('Sales');
+            expect(fieldNames).toContain('Profit');
+            expect(fieldNames).toContain('Customer Name');
+            
+            // Should have field kind
+            const salesItem = completions.items.find(item => item.label === 'Sales');
+            expect(salesItem?.kind).toBe(CompletionItemKind.Field);
+        });
+        
+        it('should provide field completions with partial field name', async () => {
+            const document = createTestDocument('[Sal');
+            const position: Position = { line: 0, character: 4 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            const fieldNames = completions.items.map(item => item.label);
+            expect(fieldNames).toContain('Sales');
+            
+            // Should prioritize matching fields
+            const salesItem = completions.items.find(item => item.label === 'Sales');
+            expect(salesItem).toBeDefined();
+        });
+        
+        it('should provide fuzzy matching for field names', async () => {
+            const document = createTestDocument('[CustNm');
+            const position: Position = { line: 0, character: 7 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            // Should match 'Customer Name' with fuzzy matching
+            const fieldNames = completions.items.map(item => item.label);
+            expect(fieldNames).toContain('Customer Name');
+        });
+    });
+    
+    describe('Keyword Completion', () => {
+        it('should provide IF/THEN/ELSE completions', async () => {
+            const document = createTestDocument('I');
+            const position: Position = { line: 0, character: 1 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            const labels = completions.items.map(item => item.label);
+            expect(labels).toContain('IF');
+            
+            const ifItem = completions.items.find(item => item.label === 'IF');
+            expect(ifItem?.kind).toBe(CompletionItemKind.Keyword);
+        });
+        
+        it('should provide THEN completion after IF condition', async () => {
+            const document = createTestDocument('IF [Sales] > 100 T');
+            const position: Position = { line: 0, character: 17 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            const labels = completions.items.map(item => item.label);
+            expect(labels).toContain('THEN');
+        });
+        
+        it('should provide ELSE completion after THEN clause', async () => {
+            const document = createTestDocument('IF [Sales] > 100 THEN "High" E');
+            const position: Position = { line: 0, character: 31 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            const labels = completions.items.map(item => item.label);
+            expect(labels).toContain('ELSE');
+            expect(labels).toContain('ELSEIF');
+        });
+        
+        it('should provide CASE/WHEN/END completions', async () => {
+            const document = createTestDocument('CAS');
+            const position: Position = { line: 0, character: 3 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            const labels = completions.items.map(item => item.label);
+            expect(labels).toContain('CASE');
+        });
+    });
+    
+    describe('Context-Aware Completion', () => {
+        it('should provide appropriate completions inside function calls', async () => {
+            const document = createTestDocument('SUM(');
+            const position: Position = { line: 0, character: 4 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 2, triggerCharacter: '(' }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            // Should prioritize fields and expressions suitable for SUM
+            const labels = completions.items.map(item => item.label);
+            expect(labels).toContain('Sales');
+            expect(labels).toContain('Profit');
+        });
+        
+        it('should provide completions in LOD expressions', async () => {
+            const document = createTestDocument('{ FIXED [Region] : ');
+            const position: Position = { line: 0, character: 19 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            // Should provide aggregate functions
+            const labels = completions.items.map(item => item.label);
+            expect(labels).toContain('SUM');
+            expect(labels).toContain('AVG');
+            expect(labels).toContain('COUNT');
+        });
+        
+        it('should provide completions after operators', async () => {
+            const document = createTestDocument('[Sales] + ');
+            const position: Position = { line: 0, character: 10 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            // Should provide fields and functions
+            const labels = completions.items.map(item => item.label);
+            expect(labels).toContain('Profit');
+            expect(labels).toContain('SUM');
+        });
+    });
+    
+    describe('Snippet Completion', () => {
+        it('should provide IF statement snippet', async () => {
+            const document = createTestDocument('if');
+            const position: Position = { line: 0, character: 2 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            // Should include IF snippet. Snippet labels are the lowercase prefix
+            // (e.g. "if"), so match case-insensitively.
+            const snippetItem = completions.items.find(item =>
+                item.kind === CompletionItemKind.Snippet &&
+                item.label.toUpperCase().includes('IF')
+            );
+            
+            expect(snippetItem).toBeDefined();
+            expect(snippetItem?.insertText).toContain('IF');
+            expect(snippetItem?.insertText).toContain('THEN');
+            expect(snippetItem?.insertText).toContain('END');
+        });
+        
+        it('should provide CASE statement snippet', async () => {
+            const document = createTestDocument('case');
+            const position: Position = { line: 0, character: 4 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            const snippetItem = completions.items.find(item =>
+                item.kind === CompletionItemKind.Snippet &&
+                item.label.toUpperCase().includes('CASE')
+            );
+            
+            expect(snippetItem).toBeDefined();
+            expect(snippetItem?.insertText).toContain('CASE');
+            expect(snippetItem?.insertText).toContain('WHEN');
+            expect(snippetItem?.insertText).toContain('END');
+        });
+        
+        it('should provide LOD expression snippets', async () => {
+            const document = createTestDocument('fixed');
+            const position: Position = { line: 0, character: 5 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            const snippetItem = completions.items.find(item =>
+                item.kind === CompletionItemKind.Snippet &&
+                item.label.toUpperCase().includes('FIXED')
+            );
+            
+            expect(snippetItem).toBeDefined();
+            expect(snippetItem?.insertText).toContain('FIXED');
+            expect(snippetItem?.insertText).toContain('{');
+            expect(snippetItem?.insertText).toContain('}');
+        });
+    });
+    
+    describe('Relevance Ranking', () => {
+        it('should rank exact matches higher', async () => {
+            const document = createTestDocument('SUM');
+            const position: Position = { line: 0, character: 3 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            // SUM should be ranked highly (exact match)
+            const sumItem = completions.items.find(item => item.label === 'SUM');
+            expect(sumItem).toBeDefined();
+            
+            // Should be in top results
+            const topItems = completions.items.slice(0, 5);
+            expect(topItems.some(item => item.label === 'SUM')).toBe(true);
+        });
+        
+        it('should rank frequently used functions higher', async () => {
+            const document = createTestDocument('A');
+            const position: Position = { line: 0, character: 1 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            // Common functions like AVG should rank higher than obscure ones
+            const avgIndex = completions.items.findIndex(item => item.label === 'AVG');
+            const absIndex = completions.items.findIndex(item => item.label === 'ABS');
+            
+            expect(avgIndex).toBeGreaterThanOrEqual(0);
+            expect(absIndex).toBeGreaterThanOrEqual(0);
+        });
+        
+        it('should filter duplicate suggestions', async () => {
+            const document = createTestDocument('S');
+            const position: Position = { line: 0, character: 1 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            // Should not have duplicate labels
+            const labels = completions.items.map(item => item.label);
+            const uniqueLabels = [...new Set(labels)];
+            
+            expect(labels.length).toBe(uniqueLabels.length);
+        });
+    });
+    
+    describe('Edge Cases', () => {
+        it('should handle completion at document start', async () => {
+            const document = createTestDocument('');
+            const position: Position = { line: 0, character: 0 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            expect(completions).toBeDefined();
+            expect(completions.items.length).toBeGreaterThan(0);
+        });
+        
+        it('should handle completion in malformed expressions', async () => {
+            const document = createTestDocument('SUM([Sales] +');
+            const position: Position = { line: 0, character: 13 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            // Should still provide completions
+            expect(completions).toBeDefined();
+            expect(completions.items.length).toBeGreaterThan(0);
+        });
+        
+        it('should handle completion without field parser', async () => {
+            const document = createTestDocument('[');
+            const position: Position = { line: 0, character: 1 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 2, triggerCharacter: '[' }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, null);
+            
+            // Should handle gracefully without field parser
+            expect(completions).toBeDefined();
+        });
+        
+        it('should handle very long input', async () => {
+            const longInput = 'A'.repeat(1000);
+            const document = createTestDocument(longInput);
+            const position: Position = { line: 0, character: 1000 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            
+            // Should handle gracefully
+            expect(completions).toBeDefined();
+        });
+    });
+    
+    describe('Performance', () => {
+        it('should provide completions quickly', async () => {
+            const document = createTestDocument('S');
+            const position: Position = { line: 0, character: 1 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const startTime = Date.now();
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            const duration = Date.now() - startTime;
+            
+            expect(completions).toBeDefined();
+            expect(duration).toBeLessThan(100); // Should be fast
+        });
+        
+        it('should handle large field lists efficiently', async () => {
+            // Mock large field list
+            (fieldParser?.getAllFields as jest.Mock).mockReturnValue(
+                new Map(
+                    Array.from({ length: 1000 }, (_, i) => [
+                        `FIELD${i}`,
+                        { name: `Field${i}`, type: 'Number' }
+                    ])
+                )
+            );
+            
+            const document = createTestDocument('[F');
+            const position: Position = { line: 0, character: 2 };
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params = {
+                textDocument: { uri: document.uri },
+                position,
+                context: { triggerKind: 1 }
+            };
+            
+            const startTime = Date.now();
+            const completions = await provideCompletion(params, document, parsedDoc, fieldParser);
+            const duration = Date.now() - startTime;
+            
+            expect(completions).toBeDefined();
+            expect(duration).toBeLessThan(200); // Should handle large lists efficiently
+        });
+    });
+});
+
+/**
+ * Helper function to create test documents
+ */
+function createTestDocument(
+    content: string, 
+    version: number = 1, 
+    uri: string = 'test://test.twbl'
+): TextDocument {
+    return TextDocument.create(uri, 'tableau', version, content);
+}

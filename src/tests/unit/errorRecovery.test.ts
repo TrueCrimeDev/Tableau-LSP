@@ -219,5 +219,4 @@ describe('Advanced Error Recovery', () => {
  */
 function createTestDocument(content: string, version: number = 1, uri: string = 'test://test.twbl'): TextDocument {
   return TextDocument.create(uri, 'tableau', version, content);
-}
-</text>
+}

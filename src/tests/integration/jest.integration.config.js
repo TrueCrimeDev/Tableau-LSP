@@ -1,6 +1,7 @@
 // src/tests/integration/jest.integration.config.js
 
 module.exports = {
+  rootDir: '../../..',
   displayName: 'Integration Tests',
   testMatch: ['<rootDir>/src/tests/integration/**/*.test.ts'],
   testEnvironment: 'node',
@@ -17,24 +18,18 @@ module.exports = {
     '/coverage/'
   ],
   transform: {
-    '^.+\\.ts$': 'ts-jest'
+    '^.+\\.ts$': ['ts-jest', {
+      tsconfig: '<rootDir>/tsconfig.test.json',
+      diagnostics: false
+    }]
+  },
+  moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.js$': '$1'
   },
   moduleFileExtensions: ['ts', 'js', 'json'],
   roots: ['<rootDir>/src'],
   testResultsProcessor: '<rootDir>/src/tests/integration/testResultsProcessor.js',
-  reporters: [
-    'default',
-    ['jest-html-reporters', {
-      publicPath: '<rootDir>/test-results/integration',
-      filename: 'integration-test-report.html',
-      expand: true
-    }]
-  ],
-  globals: {
-    'ts-jest': {
-      tsconfig: '<rootDir>/tsconfig.json'
-    }
-  },
+  reporters: ['default'],
   // Integration test specific settings
   maxWorkers: 1, // Run integration tests sequentially
   verbose: true,
@@ -42,10 +37,5 @@ module.exports = {
   
   // Performance monitoring
   detectOpenHandles: true,
-  forceExit: true,
-  
-  // Custom matchers for integration tests
-  setupFilesAfterEnv: [
-    '<rootDir>/src/tests/integration/setup.ts'
-  ]
+  forceExit: true
 };
