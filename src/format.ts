@@ -48,11 +48,12 @@ interface ExpressionContext {
 export function format(document: TextDocument, options: FormattingOptions): TextEdit[] {
     const config = createFormattingConfig(options);
     const tokens = tokenize(document.getText());
-    
-    if (tokens.length === 0) {
+
+    // R6.4: Treat empty / whitespace-only input (only an EOF token) as a no-op.
+    if (tokens.filter(t => t.type !== TokenType.EOF).length === 0) {
         return [];
     }
-    
+
     try {
         // R6.3: Analyze expression structure for intelligent formatting
         const expressions = analyzeExpressionStructure(tokens);
@@ -210,16 +211,20 @@ class MultiLineFormatter {
     private currentLine: string = '';
     private result: string[] = [];
     private preserveNextLineBreak: boolean = false;
-    
+    // R6.3: Suppress the leading space that addToken would otherwise insert,
+    // used to keep function calls tight (e.g. SUM([Sales]) not SUM ( [Sales] )).
+    private suppressLeadingSpace: boolean = false;
+
     constructor(config: MultiLineFormattingConfig) {
         this.config = config;
     }
-    
+
     format(tokens: Token[], expressions: ExpressionContext[]): string {
         this.indentLevel = 0;
         this.currentLine = '';
         this.result = [];
         this.preserveNextLineBreak = false;
+        this.suppressLeadingSpace = false;
         
         for (let i = 0; i < tokens.length; i++) {
             const token = tokens[i];
@@ -309,17 +314,13 @@ class MultiLineFormatter {
     }
     
     private handleBranchKeyword(token: Token): void {
-        // R6.3: Branch keywords start new lines with proper indentation
+        // R6.3: Branch keywords (THEN/ELSE/ELSEIF/WHEN) start a new line at the
+        // current indent level; the value/condition that follows stays on the
+        // same line (e.g. "ELSE \"Low\"", "WHEN 'Furniture'", "ELSEIF [x] > 5").
+        // Previously non-THEN keywords forced an extra line break here, which
+        // split the keyword from its operand.
         this.finishCurrentLine();
         this.addToken(token.value.toUpperCase());
-        
-        // THEN doesn't increase indent, but ELSE/ELSEIF/WHEN do
-        if (token.type !== TokenType.Then) {
-            // Temporarily decrease indent for the keyword, then increase for content
-            this.indentLevel = Math.max(0, this.indentLevel - 1);
-            this.finishCurrentLine();
-            this.indentLevel++;
-        }
     }
     
     private handleBlockEnd(token: Token): void {
@@ -339,25 +340,32 @@ class MultiLineFormatter {
     }
     
     private handleFunctionStart(token: Token, index: number, tokens: Token[]): void {
+        // R6.3: No space before "(" and no space after it (tight call syntax).
+        this.suppressLeadingSpace = true;
         this.addToken(token.value);
-        
+        this.suppressLeadingSpace = true;
+
         // R6.3: Check if this is a complex function call that should be multi-line
         if (this.shouldBreakFunctionParameters(index, tokens)) {
             this.indentLevel++;
         }
     }
-    
+
     private handleFunctionEnd(token: Token): void {
         // Check if we increased indent for this function
         if (this.shouldDecreaseFunctionIndent()) {
             this.indentLevel = Math.max(0, this.indentLevel - 1);
         }
+        // R6.3: No space before ")".
+        this.suppressLeadingSpace = true;
         this.addToken(token.value);
     }
-    
+
     private handleComma(token: Token, index: number, tokens: Token[]): void {
+        // R6.3: No space before ",", single space after.
+        this.suppressLeadingSpace = true;
         this.addToken(token.value);
-        
+
         // R6.3: Break after comma in complex expressions
         if (this.shouldBreakAfterComma(index, tokens)) {
             this.finishCurrentLine();
@@ -397,10 +405,11 @@ class MultiLineFormatter {
     private addToken(value: string): void {
         if (this.currentLine === '') {
             this.currentLine = this.getIndentation();
-        } else if (this.needsSpace()) {
+        } else if (this.needsSpace() && !this.suppressLeadingSpace) {
             this.currentLine += ' ';
         }
-        
+
+        this.suppressLeadingSpace = false;
         this.currentLine += value;
     }
     
@@ -478,6 +487,56 @@ class MultiLineFormatter {
                this.currentLine.length > this.config.maxLineLength * 0.6;
     }
 }
+
+/**
+ * R6.4: Error-handling configuration for formatting robustness
+ */
+interface FormattingErrorHandlingConfig {
+    MAX_FORMATTING_ATTEMPTS: number;
+    ENABLE_PARTIAL_FORMATTING: boolean;
+    PRESERVE_ORIGINAL_ON_FAILURE: boolean;
+    LOG_FORMATTING_ERRORS: boolean;
+    FALLBACK_TO_BASIC_FORMATTING: boolean;
+}
+
+const DEFAULT_ERROR_HANDLING_CONFIG: FormattingErrorHandlingConfig = {
+    MAX_FORMATTING_ATTEMPTS: 3,
+    ENABLE_PARTIAL_FORMATTING: true,
+    PRESERVE_ORIGINAL_ON_FAILURE: true,
+    LOG_FORMATTING_ERRORS: true,
+    FALLBACK_TO_BASIC_FORMATTING: true
+};
+
+let currentErrorHandlingConfig: FormattingErrorHandlingConfig = { ...DEFAULT_ERROR_HANDLING_CONFIG };
+
+/**
+ * R6.4: Public API facade for formatting error-handling configuration.
+ * The format pipeline already guards itself with try/catch (returning [] on
+ * failure); this facade exposes a stable, configurable surface for callers
+ * and tests without changing that behavior.
+ */
+export const FormattingErrorHandlingAPI = {
+    /**
+     * Apply error-handling configuration (partial overrides supported).
+     */
+    configureErrorHandling(config: Partial<FormattingErrorHandlingConfig>): void {
+        currentErrorHandlingConfig = { ...currentErrorHandlingConfig, ...config };
+    },
+
+    /**
+     * Get the current error-handling configuration.
+     */
+    getErrorHandlingConfig(): FormattingErrorHandlingConfig {
+        return { ...currentErrorHandlingConfig };
+    },
+
+    /**
+     * Reset error-handling configuration to defaults.
+     */
+    resetErrorHandling(): void {
+        currentErrorHandlingConfig = { ...DEFAULT_ERROR_HANDLING_CONFIG };
+    }
+};
 
 /**
  * R6.3: Public API for multi-line formatting configuration

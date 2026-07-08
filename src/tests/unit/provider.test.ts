@@ -1,1 +1,488 @@
-// src/tests/unit/provider.test.ts\n\nimport { TextDocument } from 'vscode-languageserver-textdocument';\nimport { Position, DocumentSymbolParams, WorkspaceSymbolParams, CodeActionParams, DefinitionParams, ReferenceParams } from 'vscode-languageserver';\nimport { documentSymbolProvider, workspaceSymbolProvider, provideCodeActions, provideDefinition, provideReferences } from '../../provider.js';\nimport { parsedDocumentCache } from '../../common.js';\nimport { IncrementalParser } from '../../incrementalParser.js';\n\ndescribe('Provider Module', () => {\n    function createTestDocument(content: string, uri: string = 'test://test.twbl'): TextDocument {\n        return TextDocument.create(uri, 'tableau', 1, content);\n    }\n\n    beforeEach(() => {\n        parsedDocumentCache.clear();\n    });\n\n    describe('Document Symbol Provider', () => {\n        it('should provide symbols for simple expressions', async () => {\n            const document = createTestDocument('SUM([Sales])');\n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params: DocumentSymbolParams = {\n                textDocument: { uri: document.uri }\n            };\n            \n            const symbols = await documentSymbolProvider(params, undefined as any);\n            \n            expect(symbols).toBeDefined();\n            expect(Array.isArray(symbols)).toBe(true);\n            expect(symbols.length).toBeGreaterThan(0);\n        });\n\n        it('should provide symbols for complex IF expressions', async () => {\n            const document = createTestDocument(`\n                IF [Sales] > 100 THEN\n                    \"High Sales\"\n                ELSEIF [Sales] > 50 THEN\n                    \"Medium Sales\"\n                ELSE\n                    \"Low Sales\"\n                END\n            `);\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params: DocumentSymbolParams = {\n                textDocument: { uri: document.uri }\n            };\n            \n            const symbols = await documentSymbolProvider(params, undefined as any);\n            \n            expect(symbols).toBeDefined();\n            expect(symbols.length).toBeGreaterThan(0);\n            \n            // Should contain IF symbol\n            const symbolNames = symbols.map(s => s.name);\n            expect(symbolNames.some(name => name.includes('IF'))).toBe(true);\n        });\n\n        it('should provide symbols for CASE expressions', async () => {\n            const document = createTestDocument(`\n                CASE [Category]\n                    WHEN 'Furniture' THEN 'F'\n                    WHEN 'Technology' THEN 'T'\n                    ELSE 'O'\n                END\n            `);\n            \n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params: DocumentSymbolParams = {\n                textDocument: { uri: document.uri }\n            };\n            \n            const symbols = await documentSymbolProvider(params, undefined as any);\n            \n            expect(symbols).toBeDefined();\n            expect(symbols.length).toBeGreaterThan(0);\n        });\n\n        it('should provide symbols for LOD expressions', async () => {\n            const document = createTestDocument('{ FIXED [Region] : SUM([Sales]) }');\n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params: DocumentSymbolParams = {\n                textDocument: { uri: document.uri }\n            };\n            \n            const symbols = await documentSymbolProvider(params, undefined as any);\n            \n            expect(symbols).toBeDefined();\n            expect(symbols.length).toBeGreaterThan(0);\n        });\n\n        it('should handle empty documents', async () => {\n            const document = createTestDocument('');\n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params: DocumentSymbolParams = {\n                textDocument: { uri: document.uri }\n            };\n            \n            const symbols = await documentSymbolProvider(params, undefined as any);\n            \n            expect(symbols).toBeDefined();\n            expect(Array.isArray(symbols)).toBe(true);\n        });\n    });\n\n    describe('Workspace Symbol Provider', () => {\n        it('should provide workspace symbols for query', async () => {\n            // Set up multiple documents in cache\n            const doc1 = createTestDocument('SUM([Sales])', 'test://doc1.twbl');\n            const doc2 = createTestDocument('AVG([Profit])', 'test://doc2.twbl');\n            \n            IncrementalParser.parseDocumentIncremental(doc1);\n            IncrementalParser.parseDocumentIncremental(doc2);\n            \n            const params: WorkspaceSymbolParams = {\n                query: 'SUM'\n            };\n            \n            const symbols = await workspaceSymbolProvider(params, undefined as any);\n            \n            expect(symbols).toBeDefined();\n            expect(Array.isArray(symbols)).toBe(true);\n        });\n\n        it('should filter symbols by query', async () => {\n            const document = createTestDocument('SUM([Sales]) + AVG([Profit])');\n            IncrementalParser.parseDocumentIncremental(document);\n            \n            const params: WorkspaceSymbolParams = {\n                query: 'SUM'\n            };\n            \n            const symbols = await workspaceSymbolProvider(params, undefined as any);\n            \n            expect(symbols).toBeDefined();\n            // Should filter to only SUM-related symbols\n        });\n\n        it('should handle empty query', async () => {\n            const document = createTestDocument('SUM([Sales])');\n            IncrementalParser.parseDocumentIncremental(document);\n            \n            const params: WorkspaceSymbolParams = {\n                query: ''\n            };\n            \n            const symbols = await workspaceSymbolProvider(params, undefined as any);\n            \n            expect(symbols).toBeDefined();\n            expect(Array.isArray(symbols)).toBe(true);\n        });\n    });\n\n    describe('Code Actions Provider', () => {\n        it('should provide code actions for syntax errors', async () => {\n            const document = createTestDocument('IF [Sales] > 100 THEN \"High\" ELSE \"Low\"'); // Missing END\n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params: CodeActionParams = {\n                textDocument: { uri: document.uri },\n                range: {\n                    start: { line: 0, character: 0 },\n                    end: { line: 0, character: 40 }\n                },\n                context: {\n                    diagnostics: []\n                }\n            };\n            \n            const actions = await provideCodeActions(params, document);\n            \n            expect(actions).toBeDefined();\n            expect(Array.isArray(actions)).toBe(true);\n        });\n\n        it('should provide quick fixes for common issues', async () => {\n            const document = createTestDocument('SUM([Sales] +'); // Incomplete expression\n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params: CodeActionParams = {\n                textDocument: { uri: document.uri },\n                range: {\n                    start: { line: 0, character: 0 },\n                    end: { line: 0, character: 14 }\n                },\n                context: {\n                    diagnostics: []\n                }\n            };\n            \n            const actions = await provideCodeActions(params, document);\n            \n            expect(actions).toBeDefined();\n            expect(Array.isArray(actions)).toBe(true);\n        });\n\n        it('should provide refactoring actions', async () => {\n            const document = createTestDocument('IF [Sales] > 100 THEN \"High\" ELSE \"Low\" END');\n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params: CodeActionParams = {\n                textDocument: { uri: document.uri },\n                range: {\n                    start: { line: 0, character: 0 },\n                    end: { line: 0, character: 44 }\n                },\n                context: {\n                    diagnostics: []\n                }\n            };\n            \n            const actions = await provideCodeActions(params, document);\n            \n            expect(actions).toBeDefined();\n            expect(Array.isArray(actions)).toBe(true);\n        });\n\n        it('should handle empty range', async () => {\n            const document = createTestDocument('SUM([Sales])');\n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params: CodeActionParams = {\n                textDocument: { uri: document.uri },\n                range: {\n                    start: { line: 0, character: 0 },\n                    end: { line: 0, character: 0 }\n                },\n                context: {\n                    diagnostics: []\n                }\n            };\n            \n            const actions = await provideCodeActions(params, document);\n            \n            expect(actions).toBeDefined();\n            expect(Array.isArray(actions)).toBe(true);\n        });\n    });\n\n    describe('Definition Provider', () => {\n        it('should provide definition for function calls', async () => {\n            const document = createTestDocument('SUM([Sales])');\n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params: DefinitionParams = {\n                textDocument: { uri: document.uri },\n                position: { line: 0, character: 1 } // On 'SUM'\n            };\n            \n            const definition = await provideDefinition(params, document);\n            \n            expect(definition).toBeDefined();\n        });\n\n        it('should provide definition for field references', async () => {\n            const document = createTestDocument('[Sales]');\n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params: DefinitionParams = {\n                textDocument: { uri: document.uri },\n                position: { line: 0, character: 2 } // Inside [Sales]\n            };\n            \n            const definition = await provideDefinition(params, document);\n            \n            expect(definition).toBeDefined();\n        });\n\n        it('should handle positions with no definitions', async () => {\n            const document = createTestDocument('SUM([Sales])');\n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params: DefinitionParams = {\n                textDocument: { uri: document.uri },\n                position: { line: 0, character: 5 } // On parenthesis\n            };\n            \n            const definition = await provideDefinition(params, document);\n            \n            // Should handle gracefully\n            expect(definition).toBeDefined();\n        });\n\n        it('should handle positions outside document bounds', async () => {\n            const document = createTestDocument('SUM([Sales])');\n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params: DefinitionParams = {\n                textDocument: { uri: document.uri },\n                position: { line: 10, character: 100 } // Way outside bounds\n            };\n            \n            const definition = await provideDefinition(params, document);\n            \n            expect(definition).toBeDefined();\n        });\n    });\n\n    describe('References Provider', () => {\n        it('should find references to functions', async () => {\n            const document = createTestDocument('SUM([Sales]) + SUM([Profit])');\n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params: ReferenceParams = {\n                textDocument: { uri: document.uri },\n                position: { line: 0, character: 1 }, // On first 'SUM'\n                context: {\n                    includeDeclaration: true\n                }\n            };\n            \n            const references = await provideReferences(params, document);\n            \n            expect(references).toBeDefined();\n            expect(Array.isArray(references)).toBe(true);\n        });\n\n        it('should find references to field names', async () => {\n            const document = createTestDocument('[Sales] + [Sales] * 2');\n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params: ReferenceParams = {\n                textDocument: { uri: document.uri },\n                position: { line: 0, character: 2 }, // Inside first [Sales]\n                context: {\n                    includeDeclaration: true\n                }\n            };\n            \n            const references = await provideReferences(params, document);\n            \n            expect(references).toBeDefined();\n            expect(Array.isArray(references)).toBe(true);\n        });\n\n        it('should handle references with includeDeclaration false', async () => {\n            const document = createTestDocument('SUM([Sales])');\n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params: ReferenceParams = {\n                textDocument: { uri: document.uri },\n                position: { line: 0, character: 1 },\n                context: {\n                    includeDeclaration: false\n                }\n            };\n            \n            const references = await provideReferences(params, document);\n            \n            expect(references).toBeDefined();\n            expect(Array.isArray(references)).toBe(true);\n        });\n\n        it('should handle positions with no references', async () => {\n            const document = createTestDocument('SUM([Sales])');\n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params: ReferenceParams = {\n                textDocument: { uri: document.uri },\n                position: { line: 0, character: 5 }, // On parenthesis\n                context: {\n                    includeDeclaration: true\n                }\n            };\n            \n            const references = await provideReferences(params, document);\n            \n            expect(references).toBeDefined();\n            expect(Array.isArray(references)).toBe(true);\n        });\n    });\n\n    describe('Error Handling', () => {\n        it('should handle malformed documents gracefully', async () => {\n            const document = createTestDocument('IF [Sales] > 100 THEN THEN ELSE');\n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const symbolParams: DocumentSymbolParams = {\n                textDocument: { uri: document.uri }\n            };\n            \n            expect(async () => {\n                const symbols = await documentSymbolProvider(symbolParams, undefined as any);\n                expect(Array.isArray(symbols)).toBe(true);\n            }).not.toThrow();\n        });\n\n        it('should handle non-existent documents', async () => {\n            const params: DocumentSymbolParams = {\n                textDocument: { uri: 'test://nonexistent.twbl' }\n            };\n            \n            const symbols = await documentSymbolProvider(params, undefined as any);\n            \n            expect(symbols).toBeDefined();\n            expect(Array.isArray(symbols)).toBe(true);\n        });\n\n        it('should handle invalid positions in definition requests', async () => {\n            const document = createTestDocument('SUM([Sales])');\n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params: DefinitionParams = {\n                textDocument: { uri: document.uri },\n                position: { line: -1, character: -1 } // Invalid position\n            };\n            \n            expect(async () => {\n                const definition = await provideDefinition(params, document);\n                expect(definition).toBeDefined();\n            }).not.toThrow();\n        });\n    });\n\n    describe('Performance', () => {\n        it('should handle large documents efficiently', async () => {\n            const largeContent = Array.from({ length: 1000 }, (_, i) => \n                `SUM([Field${i}])`\n            ).join('\\n');\n            \n            const document = createTestDocument(largeContent);\n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const params: DocumentSymbolParams = {\n                textDocument: { uri: document.uri }\n            };\n            \n            const startTime = Date.now();\n            const symbols = await documentSymbolProvider(params, undefined as any);\n            const duration = Date.now() - startTime;\n            \n            expect(symbols).toBeDefined();\n            expect(duration).toBeLessThan(1000); // Should complete within 1 second\n        });\n\n        it('should handle workspace symbol queries efficiently', async () => {\n            // Create multiple documents\n            for (let i = 0; i < 50; i++) {\n                const doc = createTestDocument(`SUM([Field${i}])`, `test://doc${i}.twbl`);\n                IncrementalParser.parseDocumentIncremental(doc);\n            }\n            \n            const params: WorkspaceSymbolParams = {\n                query: 'SUM'\n            };\n            \n            const startTime = Date.now();\n            const symbols = await workspaceSymbolProvider(params, undefined as any);\n            const duration = Date.now() - startTime;\n            \n            expect(symbols).toBeDefined();\n            expect(duration).toBeLessThan(500); // Should be fast even with many documents\n        });\n\n        it('should handle rapid reference requests efficiently', async () => {\n            const document = createTestDocument('SUM([Sales]) + AVG([Sales]) + COUNT([Sales])');\n            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);\n            \n            const positions = [\n                { line: 0, character: 6 },  // First [Sales]\n                { line: 0, character: 20 }, // Second [Sales]\n                { line: 0, character: 36 }  // Third [Sales]\n            ];\n            \n            const startTime = Date.now();\n            \n            const referencePromises = positions.map(position => \n                provideReferences({\n                    textDocument: { uri: document.uri },\n                    position,\n                    context: { includeDeclaration: true }\n                }, document)\n            );\n            \n            const results = await Promise.all(referencePromises);\n            const duration = Date.now() - startTime;\n            \n            expect(results).toHaveLength(3);\n            results.forEach(refs => expect(Array.isArray(refs)).toBe(true));\n            expect(duration).toBeLessThan(200); // Should handle multiple requests quickly\n        });\n    });\n});\n"
+// src/tests/unit/provider.test.ts
+
+import { TextDocument } from 'vscode-languageserver-textdocument';
+import { Position, DocumentSymbolParams, WorkspaceSymbolParams, CodeActionParams, DefinitionParams, ReferenceParams } from 'vscode-languageserver';
+import { documentSymbolProvider, workspaceSymbolProvider, provideCodeActions, provideDefinition, provideReferences } from '../../provider.js';
+import { parsedDocumentCache } from '../../common.js';
+import { IncrementalParser } from '../../incrementalParser.js';
+
+describe('Provider Module', () => {
+    function createTestDocument(content: string, uri: string = 'test://test.twbl'): TextDocument {
+        return TextDocument.create(uri, 'tableau', 1, content);
+    }
+
+    beforeEach(() => {
+        parsedDocumentCache.clear();
+    });
+
+    describe('Document Symbol Provider', () => {
+        it('should provide symbols for simple expressions', async () => {
+            const document = createTestDocument('SUM([Sales])');
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params: DocumentSymbolParams = {
+                textDocument: { uri: document.uri }
+            };
+            
+            const symbols = await documentSymbolProvider(params, undefined as any);
+            
+            expect(symbols).toBeDefined();
+            expect(Array.isArray(symbols)).toBe(true);
+            expect(symbols.length).toBeGreaterThan(0);
+        });
+
+        it('should provide symbols for complex IF expressions', async () => {
+            const document = createTestDocument(`
+                IF [Sales] > 100 THEN
+                    "High Sales"
+                ELSEIF [Sales] > 50 THEN
+                    "Medium Sales"
+                ELSE
+                    "Low Sales"
+                END
+            `);
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params: DocumentSymbolParams = {
+                textDocument: { uri: document.uri }
+            };
+            
+            const symbols = await documentSymbolProvider(params, undefined as any);
+            
+            expect(symbols).toBeDefined();
+            expect(symbols.length).toBeGreaterThan(0);
+            
+            // Should contain IF symbol
+            const symbolNames = symbols.map(s => s.name);
+            expect(symbolNames.some(name => name.includes('IF'))).toBe(true);
+        });
+
+        it('should provide symbols for CASE expressions', async () => {
+            const document = createTestDocument(`
+                CASE [Category]
+                    WHEN 'Furniture' THEN 'F'
+                    WHEN 'Technology' THEN 'T'
+                    ELSE 'O'
+                END
+            `);
+            
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params: DocumentSymbolParams = {
+                textDocument: { uri: document.uri }
+            };
+            
+            const symbols = await documentSymbolProvider(params, undefined as any);
+            
+            expect(symbols).toBeDefined();
+            expect(symbols.length).toBeGreaterThan(0);
+        });
+
+        it('should provide symbols for LOD expressions', async () => {
+            const document = createTestDocument('{ FIXED [Region] : SUM([Sales]) }');
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params: DocumentSymbolParams = {
+                textDocument: { uri: document.uri }
+            };
+            
+            const symbols = await documentSymbolProvider(params, undefined as any);
+            
+            expect(symbols).toBeDefined();
+            expect(symbols.length).toBeGreaterThan(0);
+        });
+
+        it('should handle empty documents', async () => {
+            const document = createTestDocument('');
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params: DocumentSymbolParams = {
+                textDocument: { uri: document.uri }
+            };
+            
+            const symbols = await documentSymbolProvider(params, undefined as any);
+            
+            expect(symbols).toBeDefined();
+            expect(Array.isArray(symbols)).toBe(true);
+        });
+    });
+
+    describe('Workspace Symbol Provider', () => {
+        it('should provide workspace symbols for query', async () => {
+            // Set up multiple documents in cache
+            const doc1 = createTestDocument('SUM([Sales])', 'test://doc1.twbl');
+            const doc2 = createTestDocument('AVG([Profit])', 'test://doc2.twbl');
+            
+            IncrementalParser.parseDocumentIncremental(doc1);
+            IncrementalParser.parseDocumentIncremental(doc2);
+            
+            const params: WorkspaceSymbolParams = {
+                query: 'SUM'
+            };
+            
+            const symbols = await workspaceSymbolProvider(params, undefined as any);
+            
+            expect(symbols).toBeDefined();
+            expect(Array.isArray(symbols)).toBe(true);
+        });
+
+        it('should filter symbols by query', async () => {
+            const document = createTestDocument('SUM([Sales]) + AVG([Profit])');
+            IncrementalParser.parseDocumentIncremental(document);
+            
+            const params: WorkspaceSymbolParams = {
+                query: 'SUM'
+            };
+            
+            const symbols = await workspaceSymbolProvider(params, undefined as any);
+            
+            expect(symbols).toBeDefined();
+            // Should filter to only SUM-related symbols
+        });
+
+        it('should handle empty query', async () => {
+            const document = createTestDocument('SUM([Sales])');
+            IncrementalParser.parseDocumentIncremental(document);
+            
+            const params: WorkspaceSymbolParams = {
+                query: ''
+            };
+            
+            const symbols = await workspaceSymbolProvider(params, undefined as any);
+            
+            expect(symbols).toBeDefined();
+            expect(Array.isArray(symbols)).toBe(true);
+        });
+    });
+
+    describe('Code Actions Provider', () => {
+        it('should provide code actions for syntax errors', async () => {
+            const document = createTestDocument('IF [Sales] > 100 THEN "High" ELSE "Low"'); // Missing END
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params: CodeActionParams = {
+                textDocument: { uri: document.uri },
+                range: {
+                    start: { line: 0, character: 0 },
+                    end: { line: 0, character: 40 }
+                },
+                context: {
+                    diagnostics: []
+                }
+            };
+            
+            const actions = await provideCodeActions(params, document);
+            
+            expect(actions).toBeDefined();
+            expect(Array.isArray(actions)).toBe(true);
+        });
+
+        it('should provide quick fixes for common issues', async () => {
+            const document = createTestDocument('SUM([Sales] +'); // Incomplete expression
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params: CodeActionParams = {
+                textDocument: { uri: document.uri },
+                range: {
+                    start: { line: 0, character: 0 },
+                    end: { line: 0, character: 14 }
+                },
+                context: {
+                    diagnostics: []
+                }
+            };
+            
+            const actions = await provideCodeActions(params, document);
+            
+            expect(actions).toBeDefined();
+            expect(Array.isArray(actions)).toBe(true);
+        });
+
+        it('should provide refactoring actions', async () => {
+            const document = createTestDocument('IF [Sales] > 100 THEN "High" ELSE "Low" END');
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params: CodeActionParams = {
+                textDocument: { uri: document.uri },
+                range: {
+                    start: { line: 0, character: 0 },
+                    end: { line: 0, character: 44 }
+                },
+                context: {
+                    diagnostics: []
+                }
+            };
+            
+            const actions = await provideCodeActions(params, document);
+            
+            expect(actions).toBeDefined();
+            expect(Array.isArray(actions)).toBe(true);
+        });
+
+        it('should handle empty range', async () => {
+            const document = createTestDocument('SUM([Sales])');
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params: CodeActionParams = {
+                textDocument: { uri: document.uri },
+                range: {
+                    start: { line: 0, character: 0 },
+                    end: { line: 0, character: 0 }
+                },
+                context: {
+                    diagnostics: []
+                }
+            };
+            
+            const actions = await provideCodeActions(params, document);
+            
+            expect(actions).toBeDefined();
+            expect(Array.isArray(actions)).toBe(true);
+        });
+    });
+
+    describe('Definition Provider', () => {
+        it('should provide definition for function calls', async () => {
+            const document = createTestDocument('SUM([Sales])');
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params: DefinitionParams = {
+                textDocument: { uri: document.uri },
+                position: { line: 0, character: 1 } // On 'SUM'
+            };
+            
+            const definition = await provideDefinition(params, document);
+            
+            expect(definition).toBeDefined();
+        });
+
+        it('should provide definition for field references', async () => {
+            const document = createTestDocument('[Sales]');
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params: DefinitionParams = {
+                textDocument: { uri: document.uri },
+                position: { line: 0, character: 2 } // Inside [Sales]
+            };
+            
+            const definition = await provideDefinition(params, document);
+            
+            expect(definition).toBeDefined();
+        });
+
+        it('should handle positions with no definitions', async () => {
+            const document = createTestDocument('SUM([Sales])');
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params: DefinitionParams = {
+                textDocument: { uri: document.uri },
+                position: { line: 0, character: 5 } // On parenthesis
+            };
+            
+            const definition = await provideDefinition(params, document);
+            
+            // Should handle gracefully
+            expect(definition).toBeDefined();
+        });
+
+        it('should handle positions outside document bounds', async () => {
+            const document = createTestDocument('SUM([Sales])');
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params: DefinitionParams = {
+                textDocument: { uri: document.uri },
+                position: { line: 10, character: 100 } // Way outside bounds
+            };
+            
+            const definition = await provideDefinition(params, document);
+            
+            expect(definition).toBeDefined();
+        });
+    });
+
+    describe('References Provider', () => {
+        it('should find references to functions', async () => {
+            const document = createTestDocument('SUM([Sales]) + SUM([Profit])');
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params: ReferenceParams = {
+                textDocument: { uri: document.uri },
+                position: { line: 0, character: 1 }, // On first 'SUM'
+                context: {
+                    includeDeclaration: true
+                }
+            };
+            
+            const references = await provideReferences(params, document);
+            
+            expect(references).toBeDefined();
+            expect(Array.isArray(references)).toBe(true);
+        });
+
+        it('should find references to field names', async () => {
+            const document = createTestDocument('[Sales] + [Sales] * 2');
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params: ReferenceParams = {
+                textDocument: { uri: document.uri },
+                position: { line: 0, character: 2 }, // Inside first [Sales]
+                context: {
+                    includeDeclaration: true
+                }
+            };
+            
+            const references = await provideReferences(params, document);
+            
+            expect(references).toBeDefined();
+            expect(Array.isArray(references)).toBe(true);
+        });
+
+        it('should handle references with includeDeclaration false', async () => {
+            const document = createTestDocument('SUM([Sales])');
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params: ReferenceParams = {
+                textDocument: { uri: document.uri },
+                position: { line: 0, character: 1 },
+                context: {
+                    includeDeclaration: false
+                }
+            };
+            
+            const references = await provideReferences(params, document);
+            
+            expect(references).toBeDefined();
+            expect(Array.isArray(references)).toBe(true);
+        });
+
+        it('should handle positions with no references', async () => {
+            const document = createTestDocument('SUM([Sales])');
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params: ReferenceParams = {
+                textDocument: { uri: document.uri },
+                position: { line: 0, character: 5 }, // On parenthesis
+                context: {
+                    includeDeclaration: true
+                }
+            };
+            
+            const references = await provideReferences(params, document);
+            
+            expect(references).toBeDefined();
+            expect(Array.isArray(references)).toBe(true);
+        });
+    });
+
+    describe('Error Handling', () => {
+        it('should handle malformed documents gracefully', async () => {
+            const document = createTestDocument('IF [Sales] > 100 THEN THEN ELSE');
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const symbolParams: DocumentSymbolParams = {
+                textDocument: { uri: document.uri }
+            };
+            
+            expect(async () => {
+                const symbols = await documentSymbolProvider(symbolParams, undefined as any);
+                expect(Array.isArray(symbols)).toBe(true);
+            }).not.toThrow();
+        });
+
+        it('should handle non-existent documents', async () => {
+            const params: DocumentSymbolParams = {
+                textDocument: { uri: 'test://nonexistent.twbl' }
+            };
+            
+            const symbols = await documentSymbolProvider(params, undefined as any);
+            
+            expect(symbols).toBeDefined();
+            expect(Array.isArray(symbols)).toBe(true);
+        });
+
+        it('should handle invalid positions in definition requests', async () => {
+            const document = createTestDocument('SUM([Sales])');
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params: DefinitionParams = {
+                textDocument: { uri: document.uri },
+                position: { line: -1, character: -1 } // Invalid position
+            };
+            
+            expect(async () => {
+                const definition = await provideDefinition(params, document);
+                expect(definition).toBeDefined();
+            }).not.toThrow();
+        });
+    });
+
+    describe('Performance', () => {
+        it('should handle large documents efficiently', async () => {
+            const largeContent = Array.from({ length: 1000 }, (_, i) => 
+                `SUM([Field${i}])`
+            ).join('\n');
+            
+            const document = createTestDocument(largeContent);
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const params: DocumentSymbolParams = {
+                textDocument: { uri: document.uri }
+            };
+            
+            const startTime = Date.now();
+            const symbols = await documentSymbolProvider(params, undefined as any);
+            const duration = Date.now() - startTime;
+            
+            expect(symbols).toBeDefined();
+            expect(duration).toBeLessThan(1000); // Should complete within 1 second
+        });
+
+        it('should handle workspace symbol queries efficiently', async () => {
+            // Create multiple documents
+            for (let i = 0; i < 50; i++) {
+                const doc = createTestDocument(`SUM([Field${i}])`, `test://doc${i}.twbl`);
+                IncrementalParser.parseDocumentIncremental(doc);
+            }
+            
+            const params: WorkspaceSymbolParams = {
+                query: 'SUM'
+            };
+            
+            const startTime = Date.now();
+            const symbols = await workspaceSymbolProvider(params, undefined as any);
+            const duration = Date.now() - startTime;
+            
+            expect(symbols).toBeDefined();
+            expect(duration).toBeLessThan(500); // Should be fast even with many documents
+        });
+
+        it('should handle rapid reference requests efficiently', async () => {
+            const document = createTestDocument('SUM([Sales]) + AVG([Sales]) + COUNT([Sales])');
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            
+            const positions = [
+                { line: 0, character: 6 },  // First [Sales]
+                { line: 0, character: 20 }, // Second [Sales]
+                { line: 0, character: 36 }  // Third [Sales]
+            ];
+            
+            const startTime = Date.now();
+            
+            const referencePromises = positions.map(position => 
+                provideReferences({
+                    textDocument: { uri: document.uri },
+                    position,
+                    context: { includeDeclaration: true }
+                }, document)
+            );
+            
+            const results = await Promise.all(referencePromises);
+            const duration = Date.now() - startTime;
+            
+            expect(results).toHaveLength(3);
+            results.forEach(refs => expect(Array.isArray(refs)).toBe(true));
+            expect(duration).toBeLessThan(200); // Should handle multiple requests quickly
+        });
+    });
+});

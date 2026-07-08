@@ -1,6 +1,7 @@
 // src/tests/performance/jest.performance.config.js
 
 module.exports = {
+  rootDir: '../../..',
   displayName: 'Performance Tests',
   testMatch: ['<rootDir>/src/tests/performance/**/*.test.ts'],
   testEnvironment: 'node',
@@ -8,24 +9,17 @@ module.exports = {
   testTimeout: 60000, // 60 seconds for performance tests
   collectCoverage: false, // Performance tests don't need coverage
   transform: {
-    '^.+\\.ts$': 'ts-jest'
+    '^.+\\.ts$': ['ts-jest', {
+      tsconfig: '<rootDir>/tsconfig.test.json',
+      diagnostics: false
+    }]
+  },
+  moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.js$': '$1'
   },
   moduleFileExtensions: ['ts', 'js', 'json'],
   roots: ['<rootDir>/src'],
-  testResultsProcessor: '<rootDir>/src/tests/performance/testResultsProcessor.js',
-  reporters: [
-    'default',
-    ['jest-html-reporters', {
-      publicPath: '<rootDir>/test-results/performance',
-      filename: 'performance-test-report.html',
-      expand: true
-    }]
-  ],
-  globals: {
-    'ts-jest': {
-      tsconfig: '<rootDir>/tsconfig.json'
-    }
-  },
+  reporters: ['default'],
   // Performance test specific settings
   maxWorkers: 1, // Run performance tests sequentially to avoid interference
   verbose: true,
@@ -34,11 +28,6 @@ module.exports = {
   // Performance monitoring
   detectOpenHandles: true,
   forceExit: true,
-  
-  // Custom performance thresholds
-  setupFilesAfterEnv: [
-    '<rootDir>/src/tests/performance/setup.ts'
-  ],
   
   // Performance test specific environment variables
   testEnvironmentOptions: {

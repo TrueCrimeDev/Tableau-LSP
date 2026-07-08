@@ -12,6 +12,7 @@ import { ParsedDocument, FUNCTION_SIGNATURES, SymbolType } from './common.js';
 import { FieldParser } from './fieldParser.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import { performance } from 'perf_hooks';
 
 /**
  * R4.1: Tableau keywords for completion
@@ -64,7 +65,11 @@ const SNIPPET_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
  * R4.5: Performance optimization configuration
  */
 const COMPLETION_PERFORMANCE_CONFIG = {
-    MAX_COMPLETION_ITEMS: 100,
+    // Must comfortably exceed the number of base completions (≈118 functions +
+    // keywords + operators + fields). With a lower cap, functions (which all match
+    // an empty query) fill every slot and squeeze out keywords and fields, so e.g.
+    // no fields are offered inside SUM(...) and no keywords at document start.
+    MAX_COMPLETION_ITEMS: 200,
     ENABLE_PERFORMANCE_LOGGING: false,
     FUZZY_MATCH_THRESHOLD: 0.3,
     CACHE_TTL_MS: 2 * 60 * 1000, // 2 minutes
@@ -445,9 +450,26 @@ function logPerformance(operation: string, startTime: number): void {
  */
 function getFunctionCompletions(prefix: string): CompletionItem[] {
     const completions: CompletionItem[] = [];
-    
+    // IF / CASE appear in FUNCTION_SIGNATURES for arg-count validation, but to the
+    // user they are control-flow keywords (IF ... THEN ... END), not callable
+    // functions. Emit them only via getKeywordCompletions so the completion item
+    // carries CompletionItemKind.Keyword.
+    const keywordNames = new Set(TABLEAU_KEYWORDS);
+
     for (const [functionName, signature] of Object.entries(FUNCTION_SIGNATURES)) {
-        if (functionName.startsWith(prefix)) {
+        if (keywordNames.has(functionName)) {
+            continue;
+        }
+        // Include exact-prefix matches AND fuzzy (subsequence) matches so that the
+        // relevance ranking in optimizeCompletions() can surface results like "SM"
+        // -> "SUM". Pre-filtering on startsWith() alone removed fuzzy candidates
+        // before scoring could ever see them, defeating the fuzzy-matching design
+        // already used for field completions.
+        const matchesPrefix = functionName.startsWith(prefix);
+        const matchesFuzzy = prefix.length > 0 &&
+            calculateFuzzyScore(prefix.toLowerCase(), functionName.toLowerCase())
+                >= COMPLETION_PERFORMANCE_CONFIG.FUZZY_MATCH_THRESHOLD;
+        if (matchesPrefix || matchesFuzzy) {
             const [minArgs, maxArgs] = signature;
             const argRange = maxArgs === Infinity ? `${minArgs}+` : 
                            minArgs === maxArgs ? `${minArgs}` : `${minArgs}-${maxArgs}`;
@@ -503,35 +525,39 @@ function getFieldCompletions(prefix: string, fieldParser: FieldParser, bracketCo
     
     // Get all available fields
     const fieldsMap = fieldParser.getAllFields();
-    
-    for (const [key, field] of fieldsMap) {
-        if (field.name.toUpperCase().includes(prefix)) {
-            const signature = `[${field.name}]: ${field.type || 'Unknown'}`;
-            const docLines: string[] = [];
-            docLines.push('```twbl');
-            docLines.push(signature);
-            docLines.push('```');
-            if (field.description) {
-                docLines.push('');
-                docLines.push(field.description);
-            }
 
-            const item: CompletionItem = {
-                label: `[${field.name}]`,
-                kind: CompletionItemKind.Field,
-                detail: `Field (${field.type || 'Unknown'})`,
-                documentation: {
-                    kind: MarkupKind.Markdown,
-                    value: docLines.join('\n')
-                },
-                insertText: bracketContext ? `${field.name}] ` : `[${field.name}]`,
-                sortText: `3_${field.name}`
-            };
-
-            completions.push(item);
+    // Return every field as a candidate; relevance ranking / fuzzy matching in
+    // optimizeCompletions() does the filtering against the typed word. Pre-filtering
+    // here with a substring check would defeat fuzzy matching (e.g. "CustNm" should
+    // still match "Customer Name").
+    for (const [, field] of fieldsMap) {
+        const signature = `[${field.name}]: ${field.type || 'Unknown'}`;
+        const docLines: string[] = [];
+        docLines.push('```twbl');
+        docLines.push(signature);
+        docLines.push('```');
+        if (field.description) {
+            docLines.push('');
+            docLines.push(field.description);
         }
+
+        const item: CompletionItem = {
+            // Label is the bare field name; the surrounding brackets are added via
+            // insertText (and the leading "[" is already present in bracket context).
+            label: field.name,
+            kind: CompletionItemKind.Field,
+            detail: `Field (${field.type || 'Unknown'})`,
+            documentation: {
+                kind: MarkupKind.Markdown,
+                value: docLines.join('\n')
+            },
+            insertText: bracketContext ? `${field.name}] ` : `[${field.name}]`,
+            sortText: `3_${field.name}`
+        };
+
+        completions.push(item);
     }
-    
+
     return completions;
 }
 
@@ -553,7 +579,15 @@ function getOperatorCompletions(prefix: string): CompletionItem[] {
 function getSnippetCompletions(prefix: string, lineText: string): CompletionItem[] {
     const snippets = loadSnippets();
     const completions: CompletionItem[] = [];
-    
+
+    // Snippets are prefix-triggered. With an empty prefix every snippet matches
+    // (".includes('')" is always true), which floods the result list and pushes
+    // functions/keywords/fields out of the MAX_COMPLETION_ITEMS cap. Require the
+    // user to have typed something before offering snippets.
+    if (prefix.length === 0) {
+        return completions;
+    }
+
     for (const [key, snippet] of snippets.entries()) {
         // Match by prefix or partial prefix
         if (snippet.prefix.toUpperCase().includes(prefix) || 
@@ -595,7 +629,6 @@ function getSnippetCompletions(prefix: string, lineText: string): CompletionItem
             });
         }
     }
-    
     return completions;
 }
 
@@ -653,7 +686,12 @@ function parseSnippetFile(
         
         const snippet = value as any;
         if (snippet.prefix && snippet.body && snippet.description) {
-            snippets.set(key, {
+            // Namespace the map key by category. Different snippet files reuse the
+            // same JSON keys (e.g. slash-commands.json and twbl.json both define
+            // "ifStatement"), so keying by the raw JSON key alone lets one file
+            // silently overwrite the other and drop snippets (the "/if" slash
+            // command was shadowing the plain "if" snippet).
+            snippets.set(`${category}:${key}`, {
                 prefix: snippet.prefix,
                 body: snippet.body,
                 description: snippet.description,
@@ -855,18 +893,22 @@ export const CompletionPerformanceAPI = {
         const times: number[] = [];
         
         for (const query of sampleQueries) {
-            const start = Date.now();
-            
+            // Use high-resolution performance.now() (fractional ms) rather than
+            // Date.now() (whole-ms granularity). Scoring a handful of mock items is
+            // sub-millisecond, so Date.now() deltas were always 0, making averageTime
+            // report 0 even though real work occurred.
+            const start = performance.now();
+
             // Simulate completion scoring
             const mockCompletions: CompletionItem[] = [
                 { label: 'SUM', kind: CompletionItemKind.Function },
                 { label: 'AVG', kind: CompletionItemKind.Function },
                 { label: 'IF', kind: CompletionItemKind.Keyword }
             ];
-            
+
             scoreCompletions(mockCompletions, query);
-            
-            const duration = Date.now() - start;
+
+            const duration = performance.now() - start;
             times.push(duration);
         }
         

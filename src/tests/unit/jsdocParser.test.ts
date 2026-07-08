@@ -1,1 +1,454 @@
-// src/tests/unit/jsdocParser.test.ts\n\nimport { parseJSDoc, extractTypeFromJSDoc, validateJSDocType } from '../../jsdocParser.js';\nimport { TextDocument } from 'vscode-languageserver-textdocument';\n\ndescribe('JSDoc Parser', () => {\n    function createTestDocument(content: string): TextDocument {\n        return TextDocument.create('test://test.twbl', 'tableau', 1, content);\n    }\n\n    describe('Basic JSDoc Parsing', () => {\n        it('should parse simple JSDoc comments', () => {\n            const comment = '/** @type {string} This is a string variable */';\n            const parsed = parseJSDoc(comment);\n            \n            expect(parsed.type).toBe('string');\n            expect(parsed.description).toBe('This is a string variable');\n            expect(parsed.tags).toHaveLength(1);\n            expect(parsed.tags[0].name).toBe('type');\n            expect(parsed.tags[0].value).toBe('string');\n        });\n\n        it('should parse JSDoc with multiple tags', () => {\n            const comment = `/**\n             * Calculate sales performance\n             * @type {number}\n             * @param {string} region - The sales region\n             * @returns {number} The calculated performance score\n             */`;\n            const parsed = parseJSDoc(comment);\n            \n            expect(parsed.type).toBe('number');\n            expect(parsed.description).toBe('Calculate sales performance');\n            expect(parsed.tags).toHaveLength(3);\n            \n            const typeTag = parsed.tags.find(t => t.name === 'type');\n            expect(typeTag?.value).toBe('number');\n            \n            const paramTag = parsed.tags.find(t => t.name === 'param');\n            expect(paramTag?.value).toBe('string');\n            expect(paramTag?.description).toBe('The sales region');\n            \n            const returnsTag = parsed.tags.find(t => t.name === 'returns');\n            expect(returnsTag?.value).toBe('number');\n            expect(returnsTag?.description).toBe('The calculated performance score');\n        });\n\n        it('should handle JSDoc without type information', () => {\n            const comment = '/** This is just a description */';\n            const parsed = parseJSDoc(comment);\n            \n            expect(parsed.type).toBeUndefined();\n            expect(parsed.description).toBe('This is just a description');\n            expect(parsed.tags).toHaveLength(0);\n        });\n\n        it('should parse inline JSDoc comments', () => {\n            const comment = '/** @type {boolean} */';\n            const parsed = parseJSDoc(comment);\n            \n            expect(parsed.type).toBe('boolean');\n            expect(parsed.description).toBe('');\n            expect(parsed.tags).toHaveLength(1);\n        });\n    });\n\n    describe('Type Extraction', () => {\n        it('should extract simple types', () => {\n            const types = [\n                'string',\n                'number',\n                'boolean',\n                'date',\n                'null',\n                'undefined'\n            ];\n            \n            types.forEach(type => {\n                const comment = `/** @type {${type}} */`;\n                const extracted = extractTypeFromJSDoc(comment);\n                expect(extracted).toBe(type);\n            });\n        });\n\n        it('should extract array types', () => {\n            const arrayTypes = [\n                'string[]',\n                'number[]',\n                'Array<string>',\n                'Array<number>'\n            ];\n            \n            arrayTypes.forEach(type => {\n                const comment = `/** @type {${type}} */`;\n                const extracted = extractTypeFromJSDoc(comment);\n                expect(extracted).toBe(type);\n            });\n        });\n\n        it('should extract union types', () => {\n            const unionTypes = [\n                'string | number',\n                'boolean | null',\n                'string | number | boolean'\n            ];\n            \n            unionTypes.forEach(type => {\n                const comment = `/** @type {${type}} */`;\n                const extracted = extractTypeFromJSDoc(comment);\n                expect(extracted).toBe(type);\n            });\n        });\n\n        it('should extract function types', () => {\n            const functionTypes = [\n                'function',\n                '() => string',\n                '(x: number) => boolean',\n                '(a: string, b: number) => void'\n            ];\n            \n            functionTypes.forEach(type => {\n                const comment = `/** @type {${type}} */`;\n                const extracted = extractTypeFromJSDoc(comment);\n                expect(extracted).toBe(type);\n            });\n        });\n\n        it('should extract object types', () => {\n            const objectTypes = [\n                'object',\n                '{name: string}',\n                '{name: string, age: number}',\n                '{[key: string]: any}'\n            ];\n            \n            objectTypes.forEach(type => {\n                const comment = `/** @type {${type}} */`;\n                const extracted = extractTypeFromJSDoc(comment);\n                expect(extracted).toBe(type);\n            });\n        });\n\n        it('should handle nested generic types', () => {\n            const nestedTypes = [\n                'Array<Array<string>>',\n                'Promise<string>',\n                'Map<string, number>',\n                'Record<string, boolean>'\n            ];\n            \n            nestedTypes.forEach(type => {\n                const comment = `/** @type {${type}} */`;\n                const extracted = extractTypeFromJSDoc(comment);\n                expect(extracted).toBe(type);\n            });\n        });\n    });\n\n    describe('Type Validation', () => {\n        it('should validate basic Tableau types', () => {\n            const validTypes = [\n                'string',\n                'number',\n                'boolean',\n                'date',\n                'field',\n                'dimension',\n                'measure'\n            ];\n            \n            validTypes.forEach(type => {\n                const validation = validateJSDocType(type);\n                expect(validation.isValid).toBe(true);\n                expect(validation.errors).toHaveLength(0);\n            });\n        });\n\n        it('should validate array types', () => {\n            const validArrayTypes = [\n                'string[]',\n                'number[]',\n                'field[]',\n                'Array<string>',\n                'Array<number>'\n            ];\n            \n            validArrayTypes.forEach(type => {\n                const validation = validateJSDocType(type);\n                expect(validation.isValid).toBe(true);\n                expect(validation.errors).toHaveLength(0);\n            });\n        });\n\n        it('should validate union types', () => {\n            const validUnionTypes = [\n                'string | number',\n                'boolean | null',\n                'field | string',\n                'number | undefined'\n            ];\n            \n            validUnionTypes.forEach(type => {\n                const validation = validateJSDocType(type);\n                expect(validation.isValid).toBe(true);\n                expect(validation.errors).toHaveLength(0);\n            });\n        });\n\n        it('should detect invalid types', () => {\n            const invalidTypes = [\n                'invalidtype',\n                'String', // Wrong case\n                'NUMBER', // Wrong case\n                'unknown_type',\n                'custom_type'\n            ];\n            \n            invalidTypes.forEach(type => {\n                const validation = validateJSDocType(type);\n                expect(validation.isValid).toBe(false);\n                expect(validation.errors.length).toBeGreaterThan(0);\n                expect(validation.errors[0].message).toContain('Invalid type');\n            });\n        });\n\n        it('should detect malformed array types', () => {\n            const malformedArrayTypes = [\n                'string[',\n                'number]',\n                'Array<',\n                'Array>',\n                'Array<string',\n                'Array string>'\n            ];\n            \n            malformedArrayTypes.forEach(type => {\n                const validation = validateJSDocType(type);\n                expect(validation.isValid).toBe(false);\n                expect(validation.errors.length).toBeGreaterThan(0);\n            });\n        });\n\n        it('should detect malformed union types', () => {\n            const malformedUnionTypes = [\n                'string |',\n                '| number',\n                'string | | boolean',\n                'string number', // Missing |\n                'string & number' // Wrong operator\n            ];\n            \n            malformedUnionTypes.forEach(type => {\n                const validation = validateJSDocType(type);\n                expect(validation.isValid).toBe(false);\n                expect(validation.errors.length).toBeGreaterThan(0);\n            });\n        });\n    });\n\n    describe('Tableau-Specific Types', () => {\n        it('should recognize Tableau field types', () => {\n            const tableauTypes = [\n                'field',\n                'dimension',\n                'measure',\n                'calculated_field',\n                'parameter',\n                'set',\n                'group'\n            ];\n            \n            tableauTypes.forEach(type => {\n                const validation = validateJSDocType(type);\n                expect(validation.isValid).toBe(true);\n                expect(validation.errors).toHaveLength(0);\n            });\n        });\n\n        it('should recognize Tableau function return types', () => {\n            const functionReturnTypes = [\n                'aggregate',\n                'table_calc',\n                'lod_expression',\n                'string_function',\n                'date_function',\n                'math_function'\n            ];\n            \n            functionReturnTypes.forEach(type => {\n                const validation = validateJSDocType(type);\n                expect(validation.isValid).toBe(true);\n                expect(validation.errors).toHaveLength(0);\n            });\n        });\n\n        it('should validate complex Tableau types', () => {\n            const complexTypes = [\n                'field | parameter',\n                'dimension[]',\n                'Array<measure>',\n                'calculated_field | field',\n                'lod_expression | aggregate'\n            ];\n            \n            complexTypes.forEach(type => {\n                const validation = validateJSDocType(type);\n                expect(validation.isValid).toBe(true);\n                expect(validation.errors).toHaveLength(0);\n            });\n        });\n    });\n\n    describe('Error Messages and Suggestions', () => {\n        it('should provide helpful error messages for invalid types', () => {\n            const validation = validateJSDocType('invalidtype');\n            \n            expect(validation.isValid).toBe(false);\n            expect(validation.errors[0].message).toContain('Invalid type');\n            expect(validation.errors[0].suggestion).toBeDefined();\n        });\n\n        it('should suggest corrections for common mistakes', () => {\n            const commonMistakes = [\n                { input: 'String', suggestion: 'string' },\n                { input: 'Number', suggestion: 'number' },\n                { input: 'Boolean', suggestion: 'boolean' },\n                { input: 'Date', suggestion: 'date' }\n            ];\n            \n            commonMistakes.forEach(({ input, suggestion }) => {\n                const validation = validateJSDocType(input);\n                expect(validation.isValid).toBe(false);\n                expect(validation.errors[0].suggestion).toContain(suggestion);\n            });\n        });\n\n        it('should provide context-aware suggestions', () => {\n            const validation = validateJSDocType('field_reference');\n            \n            expect(validation.isValid).toBe(false);\n            expect(validation.errors[0].suggestion).toContain('field');\n        });\n    });\n\n    describe('Integration with Document Context', () => {\n        it('should parse JSDoc from document comments', () => {\n            const document = createTestDocument(`\n                /** @type {number} Sales performance metric */\n                SUM([Sales])\n            `);\n            \n            const comment = '/** @type {number} Sales performance metric */';\n            const parsed = parseJSDoc(comment);\n            \n            expect(parsed.type).toBe('number');\n            expect(parsed.description).toBe('Sales performance metric');\n        });\n\n        it('should handle multi-line JSDoc in documents', () => {\n            const document = createTestDocument(`\n                /**\n                 * Calculate regional sales performance\n                 * @type {aggregate}\n                 * @param {dimension} region - Sales region\n                 * @returns {number} Performance score\n                 */\n                SUM([Sales]) / COUNT([Orders])\n            `);\n            \n            const comment = `/**\n                 * Calculate regional sales performance\n                 * @type {aggregate}\n                 * @param {dimension} region - Sales region\n                 * @returns {number} Performance score\n                 */`;\n            const parsed = parseJSDoc(comment);\n            \n            expect(parsed.type).toBe('aggregate');\n            expect(parsed.description).toBe('Calculate regional sales performance');\n            expect(parsed.tags).toHaveLength(3);\n        });\n\n        it('should extract type information for variables', () => {\n            const document = createTestDocument(`\n                /** @type {string} */\n                [Customer Name]\n            `);\n            \n            const typeInfo = extractTypeFromJSDoc('/** @type {string} */');\n            expect(typeInfo).toBe('string');\n        });\n    });\n\n    describe('Performance and Edge Cases', () => {\n        it('should handle very long JSDoc comments efficiently', () => {\n            const longDescription = 'A'.repeat(10000);\n            const comment = `/** @type {string} ${longDescription} */`;\n            \n            const startTime = Date.now();\n            const parsed = parseJSDoc(comment);\n            const duration = Date.now() - startTime;\n            \n            expect(duration).toBeLessThan(100); // Should be very fast\n            expect(parsed.type).toBe('string');\n            expect(parsed.description).toBe(longDescription);\n        });\n\n        it('should handle malformed JSDoc gracefully', () => {\n            const malformedComments = [\n                '/** @type */',\n                '/** @type { */',\n                '/** @type } */',\n                '/** @type {string */',\n                '/** @type string} */',\n                '/** @ type {string} */',\n                '/**/'\n            ];\n            \n            malformedComments.forEach(comment => {\n                expect(() => {\n                    const parsed = parseJSDoc(comment);\n                    // Should not crash, but may have undefined or empty values\n                }).not.toThrow();\n            });\n        });\n\n        it('should handle empty or null input', () => {\n            expect(() => {\n                const parsed = parseJSDoc('');\n                expect(parsed.type).toBeUndefined();\n                expect(parsed.description).toBe('');\n                expect(parsed.tags).toHaveLength(0);\n            }).not.toThrow();\n            \n            expect(() => {\n                const parsed = parseJSDoc(null as any);\n                expect(parsed.type).toBeUndefined();\n            }).not.toThrow();\n        });\n\n        it('should handle complex nested type structures', () => {\n            const complexType = 'Array<{name: string, values: Array<number | string>}>';\n            const comment = `/** @type {${complexType}} */`;\n            \n            const extracted = extractTypeFromJSDoc(comment);\n            expect(extracted).toBe(complexType);\n            \n            const validation = validateJSDocType(complexType);\n            // Complex types might not be fully supported, but shouldn't crash\n            expect(typeof validation.isValid).toBe('boolean');\n        });\n    });\n});\n"
+// src/tests/unit/jsdocParser.test.ts
+
+import { parseJSDoc, extractTypeFromJSDoc, validateJSDocType } from '../../jsdocParser.js';
+import { TextDocument } from 'vscode-languageserver-textdocument';
+
+describe('JSDoc Parser', () => {
+    function createTestDocument(content: string): TextDocument {
+        return TextDocument.create('test://test.twbl', 'tableau', 1, content);
+    }
+
+    describe('Basic JSDoc Parsing', () => {
+        it('should parse simple JSDoc comments', () => {
+            const comment = '/** @type {string} This is a string variable */';
+            const parsed = parseJSDoc(comment);
+            
+            expect(parsed.type).toBe('string');
+            expect(parsed.description).toBe('This is a string variable');
+            expect(parsed.tags).toHaveLength(1);
+            expect(parsed.tags[0].name).toBe('type');
+            expect(parsed.tags[0].value).toBe('string');
+        });
+
+        it('should parse JSDoc with multiple tags', () => {
+            const comment = `/**
+             * Calculate sales performance
+             * @type {number}
+             * @param {string} region - The sales region
+             * @returns {number} The calculated performance score
+             */`;
+            const parsed = parseJSDoc(comment);
+            
+            expect(parsed.type).toBe('number');
+            expect(parsed.description).toBe('Calculate sales performance');
+            expect(parsed.tags).toHaveLength(3);
+            
+            const typeTag = parsed.tags.find(t => t.name === 'type');
+            expect(typeTag?.value).toBe('number');
+            
+            const paramTag = parsed.tags.find(t => t.name === 'param');
+            expect(paramTag?.value).toBe('string');
+            expect(paramTag?.description).toBe('The sales region');
+            
+            const returnsTag = parsed.tags.find(t => t.name === 'returns');
+            expect(returnsTag?.value).toBe('number');
+            expect(returnsTag?.description).toBe('The calculated performance score');
+        });
+
+        it('should handle JSDoc without type information', () => {
+            const comment = '/** This is just a description */';
+            const parsed = parseJSDoc(comment);
+            
+            expect(parsed.type).toBeUndefined();
+            expect(parsed.description).toBe('This is just a description');
+            expect(parsed.tags).toHaveLength(0);
+        });
+
+        it('should parse inline JSDoc comments', () => {
+            const comment = '/** @type {boolean} */';
+            const parsed = parseJSDoc(comment);
+            
+            expect(parsed.type).toBe('boolean');
+            expect(parsed.description).toBe('');
+            expect(parsed.tags).toHaveLength(1);
+        });
+    });
+
+    describe('Type Extraction', () => {
+        it('should extract simple types', () => {
+            const types = [
+                'string',
+                'number',
+                'boolean',
+                'date',
+                'null',
+                'undefined'
+            ];
+            
+            types.forEach(type => {
+                const comment = `/** @type {${type}} */`;
+                const extracted = extractTypeFromJSDoc(comment);
+                expect(extracted).toBe(type);
+            });
+        });
+
+        it('should extract array types', () => {
+            const arrayTypes = [
+                'string[]',
+                'number[]',
+                'Array<string>',
+                'Array<number>'
+            ];
+            
+            arrayTypes.forEach(type => {
+                const comment = `/** @type {${type}} */`;
+                const extracted = extractTypeFromJSDoc(comment);
+                expect(extracted).toBe(type);
+            });
+        });
+
+        it('should extract union types', () => {
+            const unionTypes = [
+                'string | number',
+                'boolean | null',
+                'string | number | boolean'
+            ];
+            
+            unionTypes.forEach(type => {
+                const comment = `/** @type {${type}} */`;
+                const extracted = extractTypeFromJSDoc(comment);
+                expect(extracted).toBe(type);
+            });
+        });
+
+        it('should extract function types', () => {
+            const functionTypes = [
+                'function',
+                '() => string',
+                '(x: number) => boolean',
+                '(a: string, b: number) => void'
+            ];
+            
+            functionTypes.forEach(type => {
+                const comment = `/** @type {${type}} */`;
+                const extracted = extractTypeFromJSDoc(comment);
+                expect(extracted).toBe(type);
+            });
+        });
+
+        it('should extract object types', () => {
+            const objectTypes = [
+                'object',
+                '{name: string}',
+                '{name: string, age: number}',
+                '{[key: string]: any}'
+            ];
+            
+            objectTypes.forEach(type => {
+                const comment = `/** @type {${type}} */`;
+                const extracted = extractTypeFromJSDoc(comment);
+                expect(extracted).toBe(type);
+            });
+        });
+
+        it('should handle nested generic types', () => {
+            const nestedTypes = [
+                'Array<Array<string>>',
+                'Promise<string>',
+                'Map<string, number>',
+                'Record<string, boolean>'
+            ];
+            
+            nestedTypes.forEach(type => {
+                const comment = `/** @type {${type}} */`;
+                const extracted = extractTypeFromJSDoc(comment);
+                expect(extracted).toBe(type);
+            });
+        });
+    });
+
+    describe('Type Validation', () => {
+        it('should validate basic Tableau types', () => {
+            const validTypes = [
+                'string',
+                'number',
+                'boolean',
+                'date',
+                'field',
+                'dimension',
+                'measure'
+            ];
+            
+            validTypes.forEach(type => {
+                const validation = validateJSDocType(type);
+                expect(validation.isValid).toBe(true);
+                expect(validation.errors).toHaveLength(0);
+            });
+        });
+
+        it('should validate array types', () => {
+            const validArrayTypes = [
+                'string[]',
+                'number[]',
+                'field[]',
+                'Array<string>',
+                'Array<number>'
+            ];
+            
+            validArrayTypes.forEach(type => {
+                const validation = validateJSDocType(type);
+                expect(validation.isValid).toBe(true);
+                expect(validation.errors).toHaveLength(0);
+            });
+        });
+
+        it('should validate union types', () => {
+            const validUnionTypes = [
+                'string | number',
+                'boolean | null',
+                'field | string',
+                'number | undefined'
+            ];
+            
+            validUnionTypes.forEach(type => {
+                const validation = validateJSDocType(type);
+                expect(validation.isValid).toBe(true);
+                expect(validation.errors).toHaveLength(0);
+            });
+        });
+
+        it('should detect invalid types', () => {
+            const invalidTypes = [
+                'invalidtype',
+                'String', // Wrong case
+                'NUMBER', // Wrong case
+                'unknown_type',
+                'custom_type'
+            ];
+            
+            invalidTypes.forEach(type => {
+                const validation = validateJSDocType(type);
+                expect(validation.isValid).toBe(false);
+                expect(validation.errors.length).toBeGreaterThan(0);
+                expect(validation.errors[0].message).toContain('Invalid type');
+            });
+        });
+
+        it('should detect malformed array types', () => {
+            const malformedArrayTypes = [
+                'string[',
+                'number]',
+                'Array<',
+                'Array>',
+                'Array<string',
+                'Array string>'
+            ];
+            
+            malformedArrayTypes.forEach(type => {
+                const validation = validateJSDocType(type);
+                expect(validation.isValid).toBe(false);
+                expect(validation.errors.length).toBeGreaterThan(0);
+            });
+        });
+
+        it('should detect malformed union types', () => {
+            const malformedUnionTypes = [
+                'string |',
+                '| number',
+                'string | | boolean',
+                'string number', // Missing |
+                'string & number' // Wrong operator
+            ];
+            
+            malformedUnionTypes.forEach(type => {
+                const validation = validateJSDocType(type);
+                expect(validation.isValid).toBe(false);
+                expect(validation.errors.length).toBeGreaterThan(0);
+            });
+        });
+    });
+
+    describe('Tableau-Specific Types', () => {
+        it('should recognize Tableau field types', () => {
+            const tableauTypes = [
+                'field',
+                'dimension',
+                'measure',
+                'calculated_field',
+                'parameter',
+                'set',
+                'group'
+            ];
+            
+            tableauTypes.forEach(type => {
+                const validation = validateJSDocType(type);
+                expect(validation.isValid).toBe(true);
+                expect(validation.errors).toHaveLength(0);
+            });
+        });
+
+        it('should recognize Tableau function return types', () => {
+            const functionReturnTypes = [
+                'aggregate',
+                'table_calc',
+                'lod_expression',
+                'string_function',
+                'date_function',
+                'math_function'
+            ];
+            
+            functionReturnTypes.forEach(type => {
+                const validation = validateJSDocType(type);
+                expect(validation.isValid).toBe(true);
+                expect(validation.errors).toHaveLength(0);
+            });
+        });
+
+        it('should validate complex Tableau types', () => {
+            const complexTypes = [
+                'field | parameter',
+                'dimension[]',
+                'Array<measure>',
+                'calculated_field | field',
+                'lod_expression | aggregate'
+            ];
+            
+            complexTypes.forEach(type => {
+                const validation = validateJSDocType(type);
+                expect(validation.isValid).toBe(true);
+                expect(validation.errors).toHaveLength(0);
+            });
+        });
+    });
+
+    describe('Error Messages and Suggestions', () => {
+        it('should provide helpful error messages for invalid types', () => {
+            const validation = validateJSDocType('invalidtype');
+            
+            expect(validation.isValid).toBe(false);
+            expect(validation.errors[0].message).toContain('Invalid type');
+            expect(validation.errors[0].suggestion).toBeDefined();
+        });
+
+        it('should suggest corrections for common mistakes', () => {
+            const commonMistakes = [
+                { input: 'String', suggestion: 'string' },
+                { input: 'Number', suggestion: 'number' },
+                { input: 'Boolean', suggestion: 'boolean' },
+                { input: 'Date', suggestion: 'date' }
+            ];
+            
+            commonMistakes.forEach(({ input, suggestion }) => {
+                const validation = validateJSDocType(input);
+                expect(validation.isValid).toBe(false);
+                expect(validation.errors[0].suggestion).toContain(suggestion);
+            });
+        });
+
+        it('should provide context-aware suggestions', () => {
+            const validation = validateJSDocType('field_reference');
+            
+            expect(validation.isValid).toBe(false);
+            expect(validation.errors[0].suggestion).toContain('field');
+        });
+    });
+
+    describe('Integration with Document Context', () => {
+        it('should parse JSDoc from document comments', () => {
+            const document = createTestDocument(`
+                /** @type {number} Sales performance metric */
+                SUM([Sales])
+            `);
+            
+            const comment = '/** @type {number} Sales performance metric */';
+            const parsed = parseJSDoc(comment);
+            
+            expect(parsed.type).toBe('number');
+            expect(parsed.description).toBe('Sales performance metric');
+        });
+
+        it('should handle multi-line JSDoc in documents', () => {
+            const document = createTestDocument(`
+                /**
+                 * Calculate regional sales performance
+                 * @type {aggregate}
+                 * @param {dimension} region - Sales region
+                 * @returns {number} Performance score
+                 */
+                SUM([Sales]) / COUNT([Orders])
+            `);
+            
+            const comment = `/**
+                 * Calculate regional sales performance
+                 * @type {aggregate}
+                 * @param {dimension} region - Sales region
+                 * @returns {number} Performance score
+                 */`;
+            const parsed = parseJSDoc(comment);
+            
+            expect(parsed.type).toBe('aggregate');
+            expect(parsed.description).toBe('Calculate regional sales performance');
+            expect(parsed.tags).toHaveLength(3);
+        });
+
+        it('should extract type information for variables', () => {
+            const document = createTestDocument(`
+                /** @type {string} */
+                [Customer Name]
+            `);
+            
+            const typeInfo = extractTypeFromJSDoc('/** @type {string} */');
+            expect(typeInfo).toBe('string');
+        });
+    });
+
+    describe('Performance and Edge Cases', () => {
+        it('should handle very long JSDoc comments efficiently', () => {
+            const longDescription = 'A'.repeat(10000);
+            const comment = `/** @type {string} ${longDescription} */`;
+            
+            const startTime = Date.now();
+            const parsed = parseJSDoc(comment);
+            const duration = Date.now() - startTime;
+            
+            expect(duration).toBeLessThan(100); // Should be very fast
+            expect(parsed.type).toBe('string');
+            expect(parsed.description).toBe(longDescription);
+        });
+
+        it('should handle malformed JSDoc gracefully', () => {
+            const malformedComments = [
+                '/** @type */',
+                '/** @type { */',
+                '/** @type } */',
+                '/** @type {string */',
+                '/** @type string} */',
+                '/** @ type {string} */',
+                '/**/'
+            ];
+            
+            malformedComments.forEach(comment => {
+                expect(() => {
+                    const parsed = parseJSDoc(comment);
+                    // Should not crash, but may have undefined or empty values
+                }).not.toThrow();
+            });
+        });
+
+        it('should handle empty or null input', () => {
+            expect(() => {
+                const parsed = parseJSDoc('');
+                expect(parsed.type).toBeUndefined();
+                expect(parsed.description).toBe('');
+                expect(parsed.tags).toHaveLength(0);
+            }).not.toThrow();
+            
+            expect(() => {
+                const parsed = parseJSDoc(null as any);
+                expect(parsed.type).toBeUndefined();
+            }).not.toThrow();
+        });
+
+        it('should handle complex nested type structures', () => {
+            const complexType = 'Array<{name: string, values: Array<number | string>}>';
+            const comment = `/** @type {${complexType}} */`;
+            
+            const extracted = extractTypeFromJSDoc(comment);
+            expect(extracted).toBe(complexType);
+            
+            const validation = validateJSDocType(complexType);
+            // Complex types might not be fully supported, but shouldn't crash
+            expect(typeof validation.isValid).toBe('boolean');
+        });
+    });
+});

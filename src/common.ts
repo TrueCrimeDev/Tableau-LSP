@@ -121,7 +121,32 @@ export const FUNCTION_SIGNATURES: Record<string, [number, number]> = {
     
     // Type Conversion Functions
     'BOOL': [1, 1], 'DATE': [1, 1], 'DATETIME': [1, 1], 'FLOAT': [1, 1], 'INT': [1, 1], 'STR': [1, 1],
-    
+    'DATEPARSE': [2, 2],
+
+    // Additional Date Functions
+    'ISOYEAR': [1, 1], 'ISOQUARTER': [1, 1], 'ISOWEEK': [1, 1], 'ISOWEEKDAY': [1, 1],
+
+    // Additional String Functions
+    'SPACE': [1, 1], 'REGEXP_EXTRACT_NTH': [3, 3],
+
+    // Additional Aggregate / Statistical Functions
+    'CORR': [2, 2], 'COVAR': [2, 2], 'COVARP': [2, 2], 'COLLECT': [1, 1],
+    'WINDOW_MEDIAN': [1, 3], 'WINDOW_STDEV': [1, 3], 'WINDOW_STDEVP': [1, 3],
+    'WINDOW_VAR': [1, 3], 'WINDOW_VARP': [1, 3], 'WINDOW_PERCENTILE': [2, 4],
+    'WINDOW_CORR': [2, 4], 'WINDOW_COVAR': [2, 4],
+    'RANK_MODIFIED': [1, 2], 'RANK_PERCENTILE': [1, 2],
+
+    // User Functions
+    'USERNAME': [0, 0], 'FULLNAME': [0, 0], 'USERDOMAIN': [0, 0],
+    'ISMEMBEROF': [1, 1], 'ISFULLNAME': [1, 1], 'ISUSERNAME': [1, 1],
+
+    // Predictive Functions (variadic — permissive max to avoid false arg-count errors)
+    'MODEL_PERCENTILE': [2, Infinity], 'MODEL_QUANTILE': [3, Infinity],
+
+    // Spatial Functions
+    'MAKEPOINT': [2, Infinity], 'MAKELINE': [2, 2], 'DISTANCE': [3, 3],
+    'BUFFER': [3, 3], 'AREA': [2, 2], 'LENGTH': [2, 2],
+
     // LOD Keywords (not functions, but good to have here)
     'FIXED': [1, Infinity], 'INCLUDE': [1, Infinity], 'EXCLUDE': [1, Infinity]
 };

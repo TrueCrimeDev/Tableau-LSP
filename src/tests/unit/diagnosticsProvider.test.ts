@@ -8,12 +8,13 @@ import { parseDocument } from '../../documentModel.js';
 describe('Diagnostics Provider', () => {
   describe('getDiagnostics', () => {
     it('should detect syntax errors', () => {
-      const document = createTestDocument('IF [Sales] > 100 THEN "High" END');
+      // Missing THEN is a genuine syntax error (ELSE, by contrast, is optional in Tableau).
+      const document = createTestDocument('IF [Sales] > 100 "High" ELSE "Low" END');
       const parsedDocument = parseDocument(document);
       const diagnostics = getDiagnostics(document, parsedDocument);
-      
+
       expect(diagnostics.length).toBeGreaterThan(0);
-      expect(diagnostics.some(d => d.message.includes('ELSE'))).toBe(true);
+      expect(diagnostics.some(d => d.message.includes('THEN'))).toBe(true);
     });
     
     it('should detect unclosed blocks', () => {
@@ -31,7 +32,7 @@ describe('Diagnostics Provider', () => {
       const diagnostics = getDiagnostics(document, parsedDocument);
       
       expect(diagnostics.length).toBeGreaterThan(0);
-      expect(diagnostics.some(d => d.message.includes('parameter'))).toBe(true);
+      expect(diagnostics.some(d => d.message.includes('argument'))).toBe(true);
     });
     
     it('should detect unknown fields', () => {

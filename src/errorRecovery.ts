@@ -3,6 +3,54 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { ParsedDocument, Symbol, SymbolType } from './common.js';
 
 /**
+ * Replace the CONTENTS of string literals and line/block comments with spaces,
+ * preserving every quote/brace position, line break, and the overall length. Delimiter
+ * counting and brace scanning run against this masked text so a '(' or '{' that lives
+ * inside a string or comment is never mistaken for a real, unbalanced delimiter.
+ */
+function maskStringsAndComments(text: string): string {
+    const out: string[] = [];
+    let state: 'code' | 'line' | 'block' | 'str' | 'field' = 'code';
+    let quote = '';
+    let i = 0;
+    while (i < text.length) {
+        const c = text[i];
+        const c2 = text[i + 1];
+        if (state === 'code') {
+            if (c === '/' && c2 === '/') { out.push('  '); i += 2; state = 'line'; continue; }
+            if (c === '/' && c2 === '*') { out.push('  '); i += 2; state = 'block'; continue; }
+            if (c === '"' || c === "'") { quote = c; out.push(c); i++; state = 'str'; continue; }
+            // Enter a [field reference]; its contents (which may contain quotes, parens or
+            // braces, e.g. [Customer's Type], [Profit (USD)]) must not be interpreted.
+            if (c === '[') { out.push('['); i++; state = 'field'; continue; }
+            out.push(c); i++; continue;
+        }
+        if (state === 'line') {
+            if (c === '\n') { out.push('\n'); i++; state = 'code'; continue; }
+            out.push(' '); i++; continue;
+        }
+        if (state === 'block') {
+            if (c === '*' && c2 === '/') { out.push('  '); i += 2; state = 'code'; continue; }
+            out.push(c === '\n' ? '\n' : ' '); i++; continue;
+        }
+        if (state === 'field') {
+            if (c === ']') {
+                if (c2 === ']') { out.push('  '); i += 2; continue; } // doubled ]] = literal ] in the name
+                out.push(']'); i++; state = 'code'; continue;
+            }
+            out.push(c === '\n' ? '\n' : ' '); i++; continue;
+        }
+        // state === 'str'
+        if (c === quote) {
+            if (c2 === quote) { out.push(quote, quote); i += 2; continue; } // doubled-quote escape
+            out.push(quote); i++; state = 'code'; continue;
+        }
+        out.push(c === '\n' ? '\n' : ' '); i++; continue;
+    }
+    return out.join('');
+}
+
+/**
  * TableauDiagnosticCategory for advanced error recovery
  */
 export enum AdvancedErrorRecoveryCategory {
@@ -36,6 +84,10 @@ export class AdvancedErrorRecovery {
 
             // Process partial expressions with enhanced detection
             this.processPartialExpressions(document, parsedDocument);
+
+            // Text-based LOD validation for brace blocks the parser does not surface
+            // as LODExpression symbols (e.g. those missing a FIXED/INCLUDE/EXCLUDE type).
+            this.processLODBraceScan(document);
 
             return this.diagnostics;
         } catch (error) {
@@ -118,10 +170,26 @@ export class AdvancedErrorRecovery {
     /**
      * R2.5: Add boundary guidance for complex nested expressions
      */
-    private addBoundaryGuidance(symbol: Symbol, document: TextDocument): void {
+    private addBoundaryGuidance(symbol: Symbol, _document: TextDocument): void {
+        // The parser records only the keyword's own (single-line) range on IF/CASE
+        // symbols, so document.getText(symbol.range) never contains a newline -- even
+        // for expressions that clearly span many lines. Derive the true span from the
+        // symbol's subtree instead of from its (single-line) range.
+        let startLine = symbol.range.start.line;
+        let endLine = symbol.range.end.line;
+        const visit = (s: Symbol): void => {
+            startLine = Math.min(startLine, s.range.start.line);
+            endLine = Math.max(endLine, s.range.end.line);
+            if (s.children) {
+                for (const child of s.children) {
+                    visit(child);
+                }
+            }
+        };
+        visit(symbol);
+
         // Only add guidance for expressions that span multiple lines
-        const text = document.getText(symbol.range);
-        if (text.includes('\n')) {
+        if (endLine > startLine) {
             this.addDiagnostic(
                 symbol.range,
                 `Complex nested expression detected. Consider using comments or line breaks to clarify expression boundaries.`,
@@ -213,34 +281,90 @@ export class AdvancedErrorRecovery {
     }
     
     /**
+     * R2.5: Text-based LOD validation independent of the parser's symbol table.
+     *
+     * The parser only emits an LODExpression symbol when an aggregation TYPE keyword
+     * (FIXED / INCLUDE / EXCLUDE) is present, so a brace block that omits the type --
+     * e.g. `{ : SUM([Sales]) }` -- never reaches processLODExpression(). Scan the raw
+     * text for balanced top-level brace blocks and flag any that lack a type keyword.
+     */
+    private processLODBraceScan(document: TextDocument): void {
+        // Scan a string/comment-masked copy so a { } inside a string literal or comment
+        // (e.g. "{draft}") is not mistaken for an LOD expression. Positions are preserved.
+        const text = maskStringsAndComments(document.getText());
+        let depth = 0;
+        let blockStart = -1;
+
+        for (let i = 0; i < text.length; i++) {
+            const ch = text[i];
+            if (ch === '{') {
+                if (depth === 0) {
+                    blockStart = i;
+                }
+                depth++;
+            } else if (ch === '}' && depth > 0) {
+                depth--;
+                if (depth === 0 && blockStart >= 0) {
+                    const block = text.slice(blockStart, i + 1);
+                    // Only flag when the aggregation type is missing -- blocks that DO
+                    // carry FIXED/INCLUDE/EXCLUDE are surfaced as LODExpression symbols
+                    // and validated by processLODExpression(), so flagging here too
+                    // would double-report.
+                    if (!/\b(FIXED|INCLUDE|EXCLUDE)\b/i.test(block)) {
+                        const range = Range.create(
+                            document.positionAt(blockStart),
+                            document.positionAt(i + 1)
+                        );
+                        this.addDiagnostic(
+                            range,
+                            `Incomplete LOD expression. Specify an aggregation type: FIXED, INCLUDE, or EXCLUDE.`,
+                            DiagnosticSeverity.Information,
+                            { category: AdvancedErrorRecoveryCategory.INCOMPLETE_LOD }
+                        );
+                    }
+                    blockStart = -1;
+                }
+            }
+        }
+    }
+
+    /**
      * R2.5: Process partial expressions during editing
      * Requirement 6.11: Provide graceful error recovery for partial expressions
      */
     private processPartialExpressions(document: TextDocument, parsedDocument: ParsedDocument): void {
-        const text = document.getText();
-        const lines = text.split('\n');
+        // Work on a string/comment-masked copy so delimiters inside strings or comments
+        // are not counted, and lines that are entirely comment/string collapse to blank.
+        const lines = maskStringsAndComments(document.getText()).split('\n');
 
-        // Pre-compute the total paren balance for each contiguous calculation block.
-        // A "block" is a run of non-empty, non-comment lines. Within a balanced block,
-        // individual lines that open more parens than they close are continuation lines
-        // of a multi-line nested call — not partial expressions.
-        const lineBlockBalance: number[] = new Array(lines.length).fill(0);
+        // Pre-compute, per contiguous calculation block, the balance of (), [] and {}.
+        // A "block" is a run of non-blank lines. Within a balanced block, a line that
+        // opens more than it closes is a continuation of a multi-line construct — not a
+        // partial expression — so we only flag a delimiter as partial when its BLOCK is
+        // genuinely imbalanced for that delimiter kind.
+        const parenBal: number[] = new Array(lines.length).fill(0);
+        const bracketBal: number[] = new Array(lines.length).fill(0);
+        const braceBal: number[] = new Array(lines.length).fill(0);
         let blockStart = -1;
+
+        const countOf = (s: string, ch: string): number => s.split(ch).length - 1;
 
         const flushBlock = (end: number) => {
             if (blockStart < 0) { return; }
-            let balance = 0;
+            let p = 0, b = 0, c = 0;
             for (let j = blockStart; j < end; j++) {
-                balance += (lines[j].match(/\(/g) || []).length - (lines[j].match(/\)/g) || []).length;
+                p += countOf(lines[j], '(') - countOf(lines[j], ')');
+                b += countOf(lines[j], '[') - countOf(lines[j], ']');
+                c += countOf(lines[j], '{') - countOf(lines[j], '}');
             }
             for (let j = blockStart; j < end; j++) {
-                lineBlockBalance[j] = balance;
+                parenBal[j] = p; bracketBal[j] = b; braceBal[j] = c;
             }
             blockStart = -1;
         };
 
         for (let i = 0; i <= lines.length; i++) {
-            const isEmpty = i === lines.length || lines[i].trim() === '' || lines[i].trim().startsWith('//');
+            const isEmpty = i === lines.length || lines[i].trim() === '';
             if (isEmpty) {
                 flushBlock(i);
             } else if (blockStart < 0) {
@@ -252,8 +376,8 @@ export class AdvancedErrorRecovery {
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
 
-            // Skip empty lines or comments
-            if (line === '' || line.startsWith('//')) {
+            // Skip blank lines (this includes lines that were entirely comment/string).
+            if (line === '') {
                 continue;
             }
 
@@ -261,7 +385,18 @@ export class AdvancedErrorRecovery {
             if (this.isLikelyPartialExpression(line)) {
                 // Check if this line is already part of a valid expression
                 if (!this.isLinePartOfValidExpression(i, parsedDocument)) {
-                    this.handlePartialExpression(line, i, document, lineBlockBalance[i] === 0);
+                    // A trailing comma/operator is a normal continuation when ANY later
+                    // content line exists (Tableau ignores blank lines within an
+                    // expression) — only a truly dangling final line is incomplete.
+                    let hasFollowingContentLine = false;
+                    for (let k = i + 1; k < lines.length; k++) {
+                        if (lines[k].trim() !== '') { hasFollowingContentLine = true; break; }
+                    }
+                    this.handlePartialExpression(
+                        line, i, document,
+                        { paren: parenBal[i], bracket: bracketBal[i], brace: braceBal[i] },
+                        hasFollowingContentLine
+                    );
                 }
             }
         }
@@ -314,30 +449,44 @@ export class AdvancedErrorRecovery {
      * R2.5: Check if a line is part of a valid expression
      */
     private isLinePartOfValidExpression(lineIndex: number, parsedDocument: ParsedDocument): boolean {
-        // Check if this line is covered by any valid symbol
-        if (parsedDocument.lineSymbols) {
-            const lineSymbols = parsedDocument.lineSymbols.get(lineIndex) || [];
-            
-            // If we have any valid symbols on this line, it's part of a valid expression
-            return lineSymbols.length > 0;
-        }
-        
-        // If we don't have line symbols, check all symbols
+        // A line should only be treated as "already valid" (and thus exempt from
+        // partial-expression hints) when it is the INTERIOR of a genuine multi-line
+        // construct. A symbol confined to this single line does NOT prove the line is
+        // complete: the parser still extracts partial sub-symbols (e.g. the IF keyword
+        // or a field reference) from an incomplete line. The previous check returned
+        // true whenever any symbol overlapped the line, which suppressed essentially
+        // all partial-expression detection.
+        const spansAcross = (symbol: Symbol): boolean => {
+            const { start, end } = symbol.range;
+            if ((start.line < lineIndex && end.line >= lineIndex) ||
+                (start.line <= lineIndex && end.line > lineIndex)) {
+                return true;
+            }
+            if (symbol.children) {
+                for (const child of symbol.children) {
+                    if (spansAcross(child)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+
         for (const symbol of parsedDocument.symbols) {
-            if (symbol.range.start.line <= lineIndex && symbol.range.end.line >= lineIndex) {
+            if (spansAcross(symbol)) {
                 return true;
             }
         }
-        
+
         return false;
     }
     
     /**
      * R2.5: Handle partial expressions during editing
      */
-    private handlePartialExpression(line: string, lineIndex: number, document: TextDocument, blockIsBalanced: boolean = false): void {
+    private handlePartialExpression(line: string, lineIndex: number, document: TextDocument, blockBalance: { paren: number; bracket: number; brace: number } = { paren: 0, bracket: 0, brace: 0 }, hasFollowingContentLine: boolean = false): void {
         const range = Range.create(lineIndex, 0, lineIndex, line.length);
-        
+
         // Determine the type of partial expression
         // Use word-boundary check so IIF(...) is not confused with the IF keyword
         if (/\bIF\b/.test(line) && !/\bIIF\b/.test(line) && !line.includes('THEN')) {
@@ -354,14 +503,26 @@ export class AdvancedErrorRecovery {
                 DiagnosticSeverity.Information,
                 { category: AdvancedErrorRecoveryCategory.PARTIAL_EXPRESSION }
             );
-        } else if (line.includes('{') && !line.includes('}')) {
+        } else if (blockBalance.brace !== 0 && line.includes('{') && !line.includes('}')) {
+            // Only when the BLOCK has unmatched braces — a multi-line LOD whose braces
+            // balance across lines is valid, not partial.
             this.addDiagnostic(
                 range,
                 `Partial LOD expression detected. Complete with aggregation type, dimensions, and aggregation.`,
                 DiagnosticSeverity.Information,
                 { category: AdvancedErrorRecoveryCategory.PARTIAL_EXPRESSION }
             );
-        } else if (!blockIsBalanced && (line.match(/\(/g) || []).length > (line.match(/\)/g) || []).length) {
+        } else if (blockBalance.bracket !== 0 && (line.match(/\[/g) || []).length !== (line.match(/\]/g) || []).length) {
+            // Only when the BLOCK has unmatched brackets. Check brackets before parens:
+            // a line like `SUM([Sales` is unbalanced in both, but the field-reference hint
+            // is the more specific and useful one.
+            this.addDiagnostic(
+                range,
+                `Partial field reference detected. Ensure brackets are balanced.`,
+                DiagnosticSeverity.Information,
+                { category: AdvancedErrorRecoveryCategory.PARTIAL_EXPRESSION }
+            );
+        } else if (blockBalance.paren !== 0 && (line.match(/\(/g) || []).length > (line.match(/\)/g) || []).length) {
             // Only flag when the entire block is unbalanced AND this line opens more than
             // it closes. Lines within a balanced multi-line nested call are not partial.
             this.addDiagnostic(
@@ -370,14 +531,7 @@ export class AdvancedErrorRecovery {
                 DiagnosticSeverity.Information,
                 { category: AdvancedErrorRecoveryCategory.PARTIAL_EXPRESSION }
             );
-        } else if ((line.match(/\[/g) || []).length !== (line.match(/\]/g) || []).length) {
-            this.addDiagnostic(
-                range,
-                `Partial field reference detected. Ensure brackets are balanced.`,
-                DiagnosticSeverity.Information,
-                { category: AdvancedErrorRecoveryCategory.PARTIAL_EXPRESSION }
-            );
-        } else if (/[+\-*\/=<>!&|,]$/.test(line)) {
+        } else if (!hasFollowingContentLine && /[+\-*\/=<>!&|,]$/.test(line)) {
             this.addDiagnostic(
                 range,
                 `Expression appears to continue on the next line. Complete the expression.`,

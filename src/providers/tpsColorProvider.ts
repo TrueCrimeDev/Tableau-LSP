@@ -5,11 +5,8 @@ import * as vscode from 'vscode';
  * Enables inline color picker for hex color values in XML color palette definitions
  */
 export class TpsColorProvider implements vscode.DocumentColorProvider {
-    /**
-     * Regex to match hex colors in <color>#RRGGBB</color> tags
-     * Captures the hex value without the # symbol
-     */
-    private readonly colorRegex = /<color>(#[0-9A-Fa-f]{6})<\/color>/g;
+    private readonly colorInTagRegex = /<color>\s*(#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}))\s*<\/color>/gi;
+    private readonly colorInValueAttrRegex = /\bvalue\s*=\s*(["'])(#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}))\1/gi;
 
     /**
      * Provide color information for all hex colors in the document
@@ -20,28 +17,40 @@ export class TpsColorProvider implements vscode.DocumentColorProvider {
         const colors: vscode.ColorInformation[] = [];
         const text = document.getText();
 
-        // Reset regex lastIndex
-        this.colorRegex.lastIndex = 0;
+        this.collectColorsFromRegex(text, document, colors, this.colorInTagRegex, 1);
+        this.collectColorsFromRegex(text, document, colors, this.colorInValueAttrRegex, 2);
 
+        return colors;
+    }
+
+    private collectColorsFromRegex(
+        text: string,
+        document: vscode.TextDocument,
+        colors: vscode.ColorInformation[],
+        regex: RegExp,
+        hexGroupIndex: number
+    ): void {
+        regex.lastIndex = 0;
         let match: RegExpExecArray | null;
-        while ((match = this.colorRegex.exec(text)) !== null) {
-            const hexColor = match[1]; // e.g., "#1F6E8C"
+        while ((match = regex.exec(text)) !== null) {
+            const hexColor = match[hexGroupIndex];
+            if (!hexColor) {
+                continue;
+            }
             const matchStart = match.index + match[0].indexOf(hexColor);
             const matchEnd = matchStart + hexColor.length;
 
-            // Parse hex color to RGBA
             const color = this.parseHexColor(hexColor);
-            if (color) {
-                const range = new vscode.Range(
-                    document.positionAt(matchStart),
-                    document.positionAt(matchEnd)
-                );
-
-                colors.push(new vscode.ColorInformation(range, color));
+            if (!color) {
+                continue;
             }
-        }
 
-        return colors;
+            const range = new vscode.Range(
+                document.positionAt(matchStart),
+                document.positionAt(matchEnd)
+            );
+            colors.push(new vscode.ColorInformation(range, color));
+        }
     }
 
     /**
@@ -64,14 +73,18 @@ export class TpsColorProvider implements vscode.DocumentColorProvider {
         // Remove # prefix
         const cleanHex = hex.replace('#', '');
 
-        if (cleanHex.length !== 6) {
+        const normalizedHex = cleanHex.length === 3
+            ? cleanHex.split('').map(char => char + char).join('')
+            : cleanHex;
+
+        if (normalizedHex.length !== 6) {
             return null;
         }
 
         try {
-            const r = parseInt(cleanHex.substring(0, 2), 16) / 255;
-            const g = parseInt(cleanHex.substring(2, 4), 16) / 255;
-            const b = parseInt(cleanHex.substring(4, 6), 16) / 255;
+            const r = parseInt(normalizedHex.substring(0, 2), 16) / 255;
+            const g = parseInt(normalizedHex.substring(2, 4), 16) / 255;
+            const b = parseInt(normalizedHex.substring(4, 6), 16) / 255;
 
             return new vscode.Color(r, g, b, 1);
         } catch {
@@ -104,10 +117,12 @@ export class TpsColorProvider implements vscode.DocumentColorProvider {
 export function registerTpsColorProvider(context: vscode.ExtensionContext): void {
     const provider = new TpsColorProvider();
 
-    // Register for .tps files
+    // Register for Tableau preference/workbook documents
     const selector: vscode.DocumentSelector = [
         { scheme: 'file', language: 'xml', pattern: '**/*.tps' },
-        { scheme: 'file', pattern: '**/*.tps' }
+        { scheme: 'file', language: 'twb', pattern: '**/*.twb' },
+        { scheme: 'file', pattern: '**/*.tps' },
+        { scheme: 'file', pattern: '**/*.twb' }
     ];
 
     const disposable = vscode.languages.registerColorProvider(selector, provider);

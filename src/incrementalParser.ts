@@ -91,8 +91,13 @@ export class IncrementalParser {
             return cachedDoc;
         }
         
-        // If too many lines changed or changes affect parsing context, fall back to full parse
-        if (changedLines.size > document.lineCount * 0.3 || isContextualChange(document, changedLines)) {
+        // If too many lines changed or changes affect parsing context, fall back to full parse.
+        // Block comments (/* */) span lines and carry state a sub-range reparse cannot
+        // reconstruct (a region beginning mid-comment would mis-tokenize its lines), so any
+        // document containing a block comment is always parsed in full.
+        if (changedLines.size > document.lineCount * 0.3 ||
+            document.getText().includes('/*') ||
+            isContextualChange(document, changedLines)) {
             PerformanceMonitor.startTiming('fallbackToFullParse').end();
             return this.performFullParse(document);
         }

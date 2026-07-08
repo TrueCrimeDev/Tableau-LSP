@@ -1,1 +1,410 @@
-// src/tests/unit/lexer.test.ts\n\nimport { tokenize, TokenType } from '../../lexer.js';\n\ndescribe('Lexer', () => {\n    describe('Basic Tokenization', () => {\n        it('should tokenize simple function calls', () => {\n            const tokens = tokenize('SUM([Sales])');\n            \n            expect(tokens).toBeDefined();\n            expect(tokens.length).toBeGreaterThan(0);\n            \n            // Should have function name, parentheses, field reference\n            const tokenTypes = tokens.map(t => t.type);\n            expect(tokenTypes).toContain(TokenType.Identifier); // SUM\n            expect(tokenTypes).toContain(TokenType.LParen);     // (\n            expect(tokenTypes).toContain(TokenType.LBracket);   // [\n            expect(tokenTypes).toContain(TokenType.RBracket);   // ]\n            expect(tokenTypes).toContain(TokenType.RParen);     // )\n        });\n        \n        it('should tokenize field references', () => {\n            const tokens = tokenize('[Sales]');\n            \n            expect(tokens.length).toBeGreaterThanOrEqual(3); // [, Sales, ]\n            expect(tokens[0].type).toBe(TokenType.LBracket);\n            expect(tokens[1].type).toBe(TokenType.Identifier);\n            expect(tokens[1].value).toBe('Sales');\n            expect(tokens[2].type).toBe(TokenType.RBracket);\n        });\n        \n        it('should tokenize field references with spaces', () => {\n            const tokens = tokenize('[Customer Name]');\n            \n            expect(tokens.length).toBeGreaterThanOrEqual(3);\n            expect(tokens[0].type).toBe(TokenType.LBracket);\n            expect(tokens[tokens.length - 2].value).toContain('Customer');\n            expect(tokens[tokens.length - 1].type).toBe(TokenType.RBracket);\n        });\n        \n        it('should tokenize string literals', () => {\n            const tokens = tokenize('\"Hello World\"');\n            \n            expect(tokens.length).toBeGreaterThanOrEqual(1);\n            const stringToken = tokens.find(t => t.type === TokenType.String);\n            expect(stringToken).toBeDefined();\n            expect(stringToken?.value).toBe('\"Hello World\"');\n        });\n        \n        it('should tokenize single-quoted strings', () => {\n            const tokens = tokenize('\\'Hello World\\'');\n            \n            expect(tokens.length).toBeGreaterThanOrEqual(1);\n            const stringToken = tokens.find(t => t.type === TokenType.String);\n            expect(stringToken).toBeDefined();\n            expect(stringToken?.value).toBe('\\'Hello World\\'');\n        });\n        \n        it('should tokenize numeric literals', () => {\n            const tokens = tokenize('123.45');\n            \n            expect(tokens.length).toBeGreaterThanOrEqual(1);\n            const numberToken = tokens.find(t => t.type === TokenType.Number);\n            expect(numberToken).toBeDefined();\n            expect(numberToken?.value).toBe('123.45');\n        });\n        \n        it('should tokenize integer literals', () => {\n            const tokens = tokenize('42');\n            \n            expect(tokens.length).toBeGreaterThanOrEqual(1);\n            const numberToken = tokens.find(t => t.type === TokenType.Number);\n            expect(numberToken).toBeDefined();\n            expect(numberToken?.value).toBe('42');\n        });\n    });\n    \n    describe('Operator Tokenization', () => {\n        it('should tokenize arithmetic operators', () => {\n            const tokens = tokenize('+ - * / %');\n            \n            const operatorTokens = tokens.filter(t => \n                t.type === TokenType.Plus ||\n                t.type === TokenType.Minus ||\n                t.type === TokenType.Multiply ||\n                t.type === TokenType.Divide ||\n                t.type === TokenType.Modulo\n            );\n            \n            expect(operatorTokens.length).toBe(5);\n        });\n        \n        it('should tokenize comparison operators', () => {\n            const tokens = tokenize('> < >= <= = <>');\n            \n            const comparisonTokens = tokens.filter(t => \n                t.type === TokenType.Greater ||\n                t.type === TokenType.Less ||\n                t.type === TokenType.GreaterEqual ||\n                t.type === TokenType.LessEqual ||\n                t.type === TokenType.Equal ||\n                t.type === TokenType.NotEqual\n            );\n            \n            expect(comparisonTokens.length).toBe(6);\n        });\n        \n        it('should tokenize logical operators', () => {\n            const tokens = tokenize('AND OR NOT');\n            \n            const logicalTokens = tokens.filter(t => \n                t.type === TokenType.And ||\n                t.type === TokenType.Or ||\n                t.type === TokenType.Not\n            );\n            \n            expect(logicalTokens.length).toBe(3);\n        });\n    });\n    \n    describe('Keyword Tokenization', () => {\n        it('should tokenize IF/THEN/ELSE/END keywords', () => {\n            const tokens = tokenize('IF THEN ELSE ELSEIF END');\n            \n            const keywordTokens = tokens.filter(t => \n                t.type === TokenType.If ||\n                t.type === TokenType.Then ||\n                t.type === TokenType.Else ||\n                t.type === TokenType.ElseIf ||\n                t.type === TokenType.End\n            );\n            \n            expect(keywordTokens.length).toBe(5);\n        });\n        \n        it('should tokenize CASE/WHEN keywords', () => {\n            const tokens = tokenize('CASE WHEN');\n            \n            const caseTokens = tokens.filter(t => \n                t.type === TokenType.Case ||\n                t.type === TokenType.When\n            );\n            \n            expect(caseTokens.length).toBe(2);\n        });\n        \n        it('should tokenize LOD keywords', () => {\n            const tokens = tokenize('FIXED INCLUDE EXCLUDE');\n            \n            const lodTokens = tokens.filter(t => \n                t.type === TokenType.Fixed ||\n                t.type === TokenType.Include ||\n                t.type === TokenType.Exclude\n            );\n            \n            expect(lodTokens.length).toBe(3);\n        });\n    });\n    \n    describe('Delimiter Tokenization', () => {\n        it('should tokenize parentheses', () => {\n            const tokens = tokenize('()');\n            \n            expect(tokens.some(t => t.type === TokenType.LParen)).toBe(true);\n            expect(tokens.some(t => t.type === TokenType.RParen)).toBe(true);\n        });\n        \n        it('should tokenize brackets', () => {\n            const tokens = tokenize('[]');\n            \n            expect(tokens.some(t => t.type === TokenType.LBracket)).toBe(true);\n            expect(tokens.some(t => t.type === TokenType.RBracket)).toBe(true);\n        });\n        \n        it('should tokenize braces', () => {\n            const tokens = tokenize('{}');\n            \n            expect(tokens.some(t => t.type === TokenType.LBrace)).toBe(true);\n            expect(tokens.some(t => t.type === TokenType.RBrace)).toBe(true);\n        });\n        \n        it('should tokenize commas and semicolons', () => {\n            const tokens = tokenize(',;');\n            \n            expect(tokens.some(t => t.type === TokenType.Comma)).toBe(true);\n            expect(tokens.some(t => t.type === TokenType.Semicolon)).toBe(true);\n        });\n    });\n    \n    describe('Complex Expression Tokenization', () => {\n        it('should tokenize IF expressions', () => {\n            const tokens = tokenize('IF [Sales] > 100 THEN \"High\" ELSE \"Low\" END');\n            \n            expect(tokens.length).toBeGreaterThan(10);\n            \n            // Should contain all expected token types\n            const tokenTypes = tokens.map(t => t.type);\n            expect(tokenTypes).toContain(TokenType.If);\n            expect(tokenTypes).toContain(TokenType.Then);\n            expect(tokenTypes).toContain(TokenType.Else);\n            expect(tokenTypes).toContain(TokenType.End);\n            expect(tokenTypes).toContain(TokenType.Greater);\n        });\n        \n        it('should tokenize CASE expressions', () => {\n            const tokens = tokenize('CASE [Category] WHEN \"Furniture\" THEN 1 ELSE 0 END');\n            \n            const tokenTypes = tokens.map(t => t.type);\n            expect(tokenTypes).toContain(TokenType.Case);\n            expect(tokenTypes).toContain(TokenType.When);\n            expect(tokenTypes).toContain(TokenType.Then);\n            expect(tokenTypes).toContain(TokenType.Else);\n            expect(tokenTypes).toContain(TokenType.End);\n        });\n        \n        it('should tokenize LOD expressions', () => {\n            const tokens = tokenize('{ FIXED [Region] : SUM([Sales]) }');\n            \n            const tokenTypes = tokens.map(t => t.type);\n            expect(tokenTypes).toContain(TokenType.LBrace);\n            expect(tokenTypes).toContain(TokenType.Fixed);\n            expect(tokenTypes).toContain(TokenType.Colon);\n            expect(tokenTypes).toContain(TokenType.RBrace);\n        });\n        \n        it('should tokenize nested function calls', () => {\n            const tokens = tokenize('SUM(AVG([Sales]))');\n            \n            const identifiers = tokens.filter(t => t.type === TokenType.Identifier);\n            expect(identifiers.length).toBeGreaterThanOrEqual(3); // SUM, AVG, Sales\n            \n            const parens = tokens.filter(t => \n                t.type === TokenType.LParen || t.type === TokenType.RParen\n            );\n            expect(parens.length).toBe(4); // Two opening, two closing\n        });\n    });\n    \n    describe('Whitespace and Comments', () => {\n        it('should handle whitespace correctly', () => {\n            const tokens = tokenize('SUM ( [Sales] )');\n            \n            // Whitespace should be handled but not necessarily tokenized\n            const nonWhitespaceTokens = tokens.filter(t => t.type !== TokenType.Whitespace);\n            expect(nonWhitespaceTokens.length).toBeGreaterThan(0);\n        });\n        \n        it('should tokenize single-line comments', () => {\n            const tokens = tokenize('SUM([Sales]) // This is a comment');\n            \n            const commentToken = tokens.find(t => t.type === TokenType.Comment);\n            expect(commentToken).toBeDefined();\n            expect(commentToken?.value).toContain('This is a comment');\n        });\n        \n        it('should tokenize multi-line comments', () => {\n            const tokens = tokenize('SUM([Sales]) /* Multi\\nline\\ncomment */');\n            \n            const commentToken = tokens.find(t => t.type === TokenType.Comment);\n            expect(commentToken).toBeDefined();\n            expect(commentToken?.value).toContain('Multi');\n        });\n    });\n    \n    describe('Position Information', () => {\n        it('should provide accurate line and column information', () => {\n            const tokens = tokenize('SUM([Sales])');\n            \n            tokens.forEach(token => {\n                expect(token.line).toBeGreaterThanOrEqual(0);\n                expect(token.column).toBeGreaterThanOrEqual(0);\n            });\n            \n            // First token should be at line 0, column 0\n            expect(tokens[0].line).toBe(0);\n            expect(tokens[0].column).toBe(0);\n        });\n        \n        it('should handle multi-line input correctly', () => {\n            const tokens = tokenize('SUM([Sales])\\nAVG([Profit])');\n            \n            const secondLineTokens = tokens.filter(t => t.line === 1);\n            expect(secondLineTokens.length).toBeGreaterThan(0);\n            \n            // First token on second line should be at column 0\n            const firstSecondLineToken = secondLineTokens[0];\n            expect(firstSecondLineToken.column).toBe(0);\n        });\n    });\n    \n    describe('Error Handling', () => {\n        it('should handle empty input', () => {\n            const tokens = tokenize('');\n            \n            expect(tokens).toBeDefined();\n            expect(Array.isArray(tokens)).toBe(true);\n            // Should have at least EOF token\n            expect(tokens.length).toBeGreaterThanOrEqual(1);\n            expect(tokens[tokens.length - 1].type).toBe(TokenType.EOF);\n        });\n        \n        it('should handle whitespace-only input', () => {\n            const tokens = tokenize('   \\n  \\t  ');\n            \n            expect(tokens).toBeDefined();\n            expect(Array.isArray(tokens)).toBe(true);\n        });\n        \n        it('should handle invalid characters gracefully', () => {\n            const tokens = tokenize('SUM([Sales]) @#$');\n            \n            expect(tokens).toBeDefined();\n            expect(Array.isArray(tokens)).toBe(true);\n            \n            // Should still tokenize the valid parts\n            const identifiers = tokens.filter(t => t.type === TokenType.Identifier);\n            expect(identifiers.some(t => t.value === 'SUM')).toBe(true);\n            expect(identifiers.some(t => t.value === 'Sales')).toBe(true);\n        });\n        \n        it('should handle unclosed strings', () => {\n            const tokens = tokenize('\"Unclosed string');\n            \n            expect(tokens).toBeDefined();\n            expect(Array.isArray(tokens)).toBe(true);\n            \n            // Should handle gracefully, possibly with error token\n            const stringTokens = tokens.filter(t => \n                t.type === TokenType.String || t.type === TokenType.Error\n            );\n            expect(stringTokens.length).toBeGreaterThan(0);\n        });\n        \n        it('should handle unmatched delimiters', () => {\n            const tokens = tokenize('SUM([Sales]');\n            \n            expect(tokens).toBeDefined();\n            expect(Array.isArray(tokens)).toBe(true);\n            \n            // Should still tokenize what it can\n            const identifiers = tokens.filter(t => t.type === TokenType.Identifier);\n            expect(identifiers.some(t => t.value === 'SUM')).toBe(true);\n        });\n    });\n    \n    describe('Performance', () => {\n        it('should tokenize quickly for normal input', () => {\n            const input = 'IF [Sales] > 100 THEN SUM([Profit]) ELSE AVG([Discount]) END';\n            \n            const startTime = Date.now();\n            const tokens = tokenize(input);\n            const duration = Date.now() - startTime;\n            \n            expect(tokens).toBeDefined();\n            expect(duration).toBeLessThan(50); // Should be very fast\n        });\n        \n        it('should handle large input efficiently', () => {\n            const largeInput = Array.from({ length: 1000 }, (_, i) => \n                `SUM([Field${i}])`\n            ).join(' + ');\n            \n            const startTime = Date.now();\n            const tokens = tokenize(largeInput);\n            const duration = Date.now() - startTime;\n            \n            expect(tokens).toBeDefined();\n            expect(duration).toBeLessThan(500); // Should handle large input\n        });\n    });\n    \n    describe('Token Properties', () => {\n        it('should provide complete token information', () => {\n            const tokens = tokenize('SUM([Sales])');\n            \n            tokens.forEach(token => {\n                expect(token).toHaveProperty('type');\n                expect(token).toHaveProperty('value');\n                expect(token).toHaveProperty('line');\n                expect(token).toHaveProperty('column');\n                \n                expect(typeof token.type).toBe('number');\n                expect(typeof token.value).toBe('string');\n                expect(typeof token.line).toBe('number');\n                expect(typeof token.column).toBe('number');\n            });\n        });\n        \n        it('should have EOF token at the end', () => {\n            const tokens = tokenize('SUM([Sales])');\n            \n            expect(tokens.length).toBeGreaterThan(0);\n            expect(tokens[tokens.length - 1].type).toBe(TokenType.EOF);\n        });\n        \n        it('should maintain token order', () => {\n            const tokens = tokenize('SUM([Sales])');\n            \n            // Tokens should be in order of appearance\n            let lastPosition = -1;\n            tokens.forEach(token => {\n                const position = token.line * 1000 + token.column;\n                expect(position).toBeGreaterThanOrEqual(lastPosition);\n                lastPosition = position;\n            });\n        });\n    });\n});\n"
+// src/tests/unit/lexer.test.ts
+
+import { tokenize, TokenType } from '../../lexer.js';
+
+describe('Lexer', () => {
+    describe('Basic Tokenization', () => {
+        it('should tokenize simple function calls', () => {
+            const tokens = tokenize('SUM([Sales])');
+            
+            expect(tokens).toBeDefined();
+            expect(tokens.length).toBeGreaterThan(0);
+            
+            // Should have function name, parentheses, field reference.
+            // In Tableau, [Sales] is a single FieldReference token (not split brackets).
+            const tokenTypes = tokens.map(t => t.type);
+            expect(tokenTypes).toContain(TokenType.Identifier);     // SUM
+            expect(tokenTypes).toContain(TokenType.LParen);         // (
+            expect(tokenTypes).toContain(TokenType.FieldReference); // [Sales]
+            expect(tokenTypes).toContain(TokenType.RParen);         // )
+        });
+        
+        it('should tokenize field references', () => {
+            const tokens = tokenize('[Sales]');
+
+            // [Sales] is one FieldReference token whose value keeps the brackets.
+            expect(tokens.length).toBeGreaterThanOrEqual(2); // [Sales], EOF
+            expect(tokens[0].type).toBe(TokenType.FieldReference);
+            expect(tokens[0].value).toBe('[Sales]');
+        });
+
+        it('should tokenize field references with spaces', () => {
+            const tokens = tokenize('[Customer Name]');
+
+            // Spaces are preserved inside the single FieldReference token.
+            expect(tokens.length).toBeGreaterThanOrEqual(2);
+            expect(tokens[0].type).toBe(TokenType.FieldReference);
+            expect(tokens[0].value).toContain('Customer');
+        });
+        
+        it('should tokenize string literals', () => {
+            const tokens = tokenize('"Hello World"');
+            
+            expect(tokens.length).toBeGreaterThanOrEqual(1);
+            const stringToken = tokens.find(t => t.type === TokenType.String);
+            expect(stringToken).toBeDefined();
+            expect(stringToken?.value).toBe('"Hello World"');
+        });
+        
+        it('should tokenize single-quoted strings', () => {
+            const tokens = tokenize('\'Hello World\'');
+            
+            expect(tokens.length).toBeGreaterThanOrEqual(1);
+            const stringToken = tokens.find(t => t.type === TokenType.String);
+            expect(stringToken).toBeDefined();
+            expect(stringToken?.value).toBe('\'Hello World\'');
+        });
+        
+        it('should tokenize numeric literals', () => {
+            const tokens = tokenize('123.45');
+            
+            expect(tokens.length).toBeGreaterThanOrEqual(1);
+            const numberToken = tokens.find(t => t.type === TokenType.Number);
+            expect(numberToken).toBeDefined();
+            expect(numberToken?.value).toBe('123.45');
+        });
+        
+        it('should tokenize integer literals', () => {
+            const tokens = tokenize('42');
+            
+            expect(tokens.length).toBeGreaterThanOrEqual(1);
+            const numberToken = tokens.find(t => t.type === TokenType.Number);
+            expect(numberToken).toBeDefined();
+            expect(numberToken?.value).toBe('42');
+        });
+    });
+    
+    describe('Operator Tokenization', () => {
+        it('should tokenize arithmetic operators', () => {
+            const tokens = tokenize('+ - * / %');
+            
+            const operatorTokens = tokens.filter(t => 
+                t.type === TokenType.Plus ||
+                t.type === TokenType.Minus ||
+                t.type === TokenType.Multiply ||
+                t.type === TokenType.Divide ||
+                t.type === TokenType.Modulo
+            );
+            
+            expect(operatorTokens.length).toBe(5);
+        });
+        
+        it('should tokenize comparison operators', () => {
+            const tokens = tokenize('> < >= <= = <>');
+            
+            const comparisonTokens = tokens.filter(t => 
+                t.type === TokenType.Greater ||
+                t.type === TokenType.Less ||
+                t.type === TokenType.GreaterEqual ||
+                t.type === TokenType.LessEqual ||
+                t.type === TokenType.Equal ||
+                t.type === TokenType.NotEqual
+            );
+            
+            expect(comparisonTokens.length).toBe(6);
+        });
+        
+        it('should tokenize logical operators', () => {
+            const tokens = tokenize('AND OR NOT');
+            
+            const logicalTokens = tokens.filter(t => 
+                t.type === TokenType.And ||
+                t.type === TokenType.Or ||
+                t.type === TokenType.Not
+            );
+            
+            expect(logicalTokens.length).toBe(3);
+        });
+    });
+    
+    describe('Keyword Tokenization', () => {
+        it('should tokenize IF/THEN/ELSE/END keywords', () => {
+            const tokens = tokenize('IF THEN ELSE ELSEIF END');
+            
+            const keywordTokens = tokens.filter(t => 
+                t.type === TokenType.If ||
+                t.type === TokenType.Then ||
+                t.type === TokenType.Else ||
+                t.type === TokenType.ElseIf ||
+                t.type === TokenType.End
+            );
+            
+            expect(keywordTokens.length).toBe(5);
+        });
+        
+        it('should tokenize CASE/WHEN keywords', () => {
+            const tokens = tokenize('CASE WHEN');
+            
+            const caseTokens = tokens.filter(t => 
+                t.type === TokenType.Case ||
+                t.type === TokenType.When
+            );
+            
+            expect(caseTokens.length).toBe(2);
+        });
+        
+        it('should tokenize LOD keywords', () => {
+            const tokens = tokenize('FIXED INCLUDE EXCLUDE');
+            
+            const lodTokens = tokens.filter(t => 
+                t.type === TokenType.Fixed ||
+                t.type === TokenType.Include ||
+                t.type === TokenType.Exclude
+            );
+            
+            expect(lodTokens.length).toBe(3);
+        });
+    });
+    
+    describe('Delimiter Tokenization', () => {
+        it('should tokenize parentheses', () => {
+            const tokens = tokenize('()');
+            
+            expect(tokens.some(t => t.type === TokenType.LParen)).toBe(true);
+            expect(tokens.some(t => t.type === TokenType.RParen)).toBe(true);
+        });
+        
+        it('should tokenize brackets', () => {
+            const tokens = tokenize('[]');
+
+            // [...] is lexed as a single FieldReference token in Tableau.
+            expect(tokens.some(t => t.type === TokenType.FieldReference)).toBe(true);
+        });
+        
+        it('should tokenize braces', () => {
+            const tokens = tokenize('{}');
+            
+            expect(tokens.some(t => t.type === TokenType.LBrace)).toBe(true);
+            expect(tokens.some(t => t.type === TokenType.RBrace)).toBe(true);
+        });
+        
+        it('should tokenize commas and semicolons', () => {
+            const tokens = tokenize(',;');
+            
+            expect(tokens.some(t => t.type === TokenType.Comma)).toBe(true);
+            expect(tokens.some(t => t.type === TokenType.Semicolon)).toBe(true);
+        });
+    });
+    
+    describe('Complex Expression Tokenization', () => {
+        it('should tokenize IF expressions', () => {
+            const tokens = tokenize('IF [Sales] > 100 THEN "High" ELSE "Low" END');
+
+            // [Sales] is a single token, so the stream is 10 tokens incl. EOF.
+            expect(tokens.length).toBeGreaterThanOrEqual(10);
+            
+            // Should contain all expected token types
+            const tokenTypes = tokens.map(t => t.type);
+            expect(tokenTypes).toContain(TokenType.If);
+            expect(tokenTypes).toContain(TokenType.Then);
+            expect(tokenTypes).toContain(TokenType.Else);
+            expect(tokenTypes).toContain(TokenType.End);
+            expect(tokenTypes).toContain(TokenType.Greater);
+        });
+        
+        it('should tokenize CASE expressions', () => {
+            const tokens = tokenize('CASE [Category] WHEN "Furniture" THEN 1 ELSE 0 END');
+            
+            const tokenTypes = tokens.map(t => t.type);
+            expect(tokenTypes).toContain(TokenType.Case);
+            expect(tokenTypes).toContain(TokenType.When);
+            expect(tokenTypes).toContain(TokenType.Then);
+            expect(tokenTypes).toContain(TokenType.Else);
+            expect(tokenTypes).toContain(TokenType.End);
+        });
+        
+        it('should tokenize LOD expressions', () => {
+            const tokens = tokenize('{ FIXED [Region] : SUM([Sales]) }');
+            
+            const tokenTypes = tokens.map(t => t.type);
+            expect(tokenTypes).toContain(TokenType.LBrace);
+            expect(tokenTypes).toContain(TokenType.Fixed);
+            expect(tokenTypes).toContain(TokenType.Colon);
+            expect(tokenTypes).toContain(TokenType.RBrace);
+        });
+        
+        it('should tokenize nested function calls', () => {
+            const tokens = tokenize('SUM(AVG([Sales]))');
+            
+            const identifiers = tokens.filter(t => t.type === TokenType.Identifier);
+            // SUM and AVG are identifiers; Sales lives inside the FieldReference token.
+            expect(identifiers.length).toBeGreaterThanOrEqual(2);
+            
+            const parens = tokens.filter(t => 
+                t.type === TokenType.LParen || t.type === TokenType.RParen
+            );
+            expect(parens.length).toBe(4); // Two opening, two closing
+        });
+    });
+    
+    describe('Whitespace and Comments', () => {
+        it('should handle whitespace correctly', () => {
+            const tokens = tokenize('SUM ( [Sales] )');
+            
+            // Whitespace should be handled but not necessarily tokenized
+            const nonWhitespaceTokens = tokens.filter(t => t.type !== TokenType.Whitespace);
+            expect(nonWhitespaceTokens.length).toBeGreaterThan(0);
+        });
+        
+        it('should tokenize single-line comments', () => {
+            const tokens = tokenize('SUM([Sales]) // This is a comment');
+            
+            const commentToken = tokens.find(t => t.type === TokenType.Comment);
+            expect(commentToken).toBeDefined();
+            expect(commentToken?.value).toContain('This is a comment');
+        });
+        
+        it('should tokenize multi-line comments', () => {
+            const tokens = tokenize('SUM([Sales]) /* Multi\nline\ncomment */');
+            
+            const commentToken = tokens.find(t => t.type === TokenType.Comment);
+            expect(commentToken).toBeDefined();
+            expect(commentToken?.value).toContain('Multi');
+        });
+    });
+    
+    describe('Position Information', () => {
+        it('should provide accurate line and column information', () => {
+            const tokens = tokenize('SUM([Sales])');
+            
+            tokens.forEach(token => {
+                expect(token.line).toBeGreaterThanOrEqual(0);
+                expect(token.column).toBeGreaterThanOrEqual(0);
+            });
+            
+            // First token should be at line 0, column 0
+            expect(tokens[0].line).toBe(0);
+            expect(tokens[0].column).toBe(0);
+        });
+        
+        it('should handle multi-line input correctly', () => {
+            const tokens = tokenize('SUM([Sales])\nAVG([Profit])');
+            
+            const secondLineTokens = tokens.filter(t => t.line === 1);
+            expect(secondLineTokens.length).toBeGreaterThan(0);
+            
+            // First token on second line should be at column 0
+            const firstSecondLineToken = secondLineTokens[0];
+            expect(firstSecondLineToken.column).toBe(0);
+        });
+    });
+    
+    describe('Error Handling', () => {
+        it('should handle empty input', () => {
+            const tokens = tokenize('');
+            
+            expect(tokens).toBeDefined();
+            expect(Array.isArray(tokens)).toBe(true);
+            // Should have at least EOF token
+            expect(tokens.length).toBeGreaterThanOrEqual(1);
+            expect(tokens[tokens.length - 1].type).toBe(TokenType.EOF);
+        });
+        
+        it('should handle whitespace-only input', () => {
+            const tokens = tokenize('   \n  \t  ');
+            
+            expect(tokens).toBeDefined();
+            expect(Array.isArray(tokens)).toBe(true);
+        });
+        
+        it('should handle invalid characters gracefully', () => {
+            const tokens = tokenize('SUM([Sales]) @#$');
+            
+            expect(tokens).toBeDefined();
+            expect(Array.isArray(tokens)).toBe(true);
+            
+            // Should still tokenize the valid parts
+            const identifiers = tokens.filter(t => t.type === TokenType.Identifier);
+            expect(identifiers.some(t => t.value === 'SUM')).toBe(true);
+            // Sales is captured inside the FieldReference token, not as an identifier.
+            expect(tokens.some(t => t.type === TokenType.FieldReference && t.value.includes('Sales'))).toBe(true);
+        });
+        
+        it('should handle unclosed strings', () => {
+            const tokens = tokenize('"Unclosed string');
+            
+            expect(tokens).toBeDefined();
+            expect(Array.isArray(tokens)).toBe(true);
+            
+            // Should handle gracefully, possibly with error token
+            const stringTokens = tokens.filter(t => 
+                t.type === TokenType.String || t.type === TokenType.Error
+            );
+            expect(stringTokens.length).toBeGreaterThan(0);
+        });
+        
+        it('should handle unmatched delimiters', () => {
+            const tokens = tokenize('SUM([Sales]');
+            
+            expect(tokens).toBeDefined();
+            expect(Array.isArray(tokens)).toBe(true);
+            
+            // Should still tokenize what it can
+            const identifiers = tokens.filter(t => t.type === TokenType.Identifier);
+            expect(identifiers.some(t => t.value === 'SUM')).toBe(true);
+        });
+    });
+    
+    describe('Performance', () => {
+        it('should tokenize quickly for normal input', () => {
+            const input = 'IF [Sales] > 100 THEN SUM([Profit]) ELSE AVG([Discount]) END';
+            
+            const startTime = Date.now();
+            const tokens = tokenize(input);
+            const duration = Date.now() - startTime;
+            
+            expect(tokens).toBeDefined();
+            expect(duration).toBeLessThan(50); // Should be very fast
+        });
+        
+        it('should handle large input efficiently', () => {
+            const largeInput = Array.from({ length: 1000 }, (_, i) => 
+                `SUM([Field${i}])`
+            ).join(' + ');
+            
+            const startTime = Date.now();
+            const tokens = tokenize(largeInput);
+            const duration = Date.now() - startTime;
+            
+            expect(tokens).toBeDefined();
+            expect(duration).toBeLessThan(500); // Should handle large input
+        });
+    });
+    
+    describe('Token Properties', () => {
+        it('should provide complete token information', () => {
+            const tokens = tokenize('SUM([Sales])');
+            
+            tokens.forEach(token => {
+                expect(token).toHaveProperty('type');
+                expect(token).toHaveProperty('value');
+                expect(token).toHaveProperty('line');
+                expect(token).toHaveProperty('column');
+                
+                expect(typeof token.type).toBe('number');
+                expect(typeof token.value).toBe('string');
+                expect(typeof token.line).toBe('number');
+                expect(typeof token.column).toBe('number');
+            });
+        });
+        
+        it('should have EOF token at the end', () => {
+            const tokens = tokenize('SUM([Sales])');
+            
+            expect(tokens.length).toBeGreaterThan(0);
+            expect(tokens[tokens.length - 1].type).toBe(TokenType.EOF);
+        });
+        
+        it('should maintain token order', () => {
+            const tokens = tokenize('SUM([Sales])');
+            
+            // Tokens should be in order of appearance
+            let lastPosition = -1;
+            tokens.forEach(token => {
+                const position = token.line * 1000 + token.column;
+                expect(position).toBeGreaterThanOrEqual(lastPosition);
+                lastPosition = position;
+            });
+        });
+    });
+});

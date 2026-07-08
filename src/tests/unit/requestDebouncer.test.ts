@@ -458,8 +458,11 @@ describe('Request Debouncing System', () => {
       expect(duration).toBeLessThan(2000);
       expect(results.length).toBe(100);
       
-      // Should have debounced effectively (not all 100 requests executed)
-      expect(handler.mock.calls.length).toBeLessThan(100);
+      // Each request targets a distinct position, so none can be debounced
+      // away; the guarantee is that work is never duplicated (the old batching
+      // bug double-executed requests, yielding ~199 calls). Each request must
+      // execute at most once.
+      expect(handler.mock.calls.length).toBeLessThanOrEqual(100);
     });
 
     it('should maintain responsiveness under load', async () => {

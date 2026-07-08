@@ -272,8 +272,10 @@ describe('Snippet Completion', () => {
         item.label === 'if' && item.kind === CompletionItemKind.Snippet
       );
       
-      // Snippets should have highest priority (sortText starting with '0_')
-      expect(ifSnippet?.sortText).toMatch(/^0_/);
+      // optimizeCompletions() rewrites sortText to a rank-based "NNN_label" form
+      // (final index zero-padded to 3 digits). A prioritized snippet therefore lands
+      // at rank 0 -> "000_if", i.e. it sorts ahead of every other completion type.
+      expect(ifSnippet?.sortText).toMatch(/^000_/);
     });
 
     it('should filter snippets based on prefix matching', () => {
@@ -313,5 +315,4 @@ function createTestDocument(
   uri: string = 'test://test.twbl'
 ): TextDocument {
   return TextDocument.create(uri, 'tableau', version, content);
-}
-</text>
+}

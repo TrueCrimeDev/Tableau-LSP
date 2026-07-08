@@ -1,1 +1,410 @@
-// src/tests/integration/debouncedServer.test.ts\n\nimport { TextDocument } from 'vscode-languageserver-textdocument';\nimport { Position, CompletionParams, HoverParams } from 'vscode-languageserver';\nimport { globalDebouncer, RequestType } from '../../requestDebouncer.js';\n\ndescribe('Debounced Server Integration', () => {\n  beforeEach(() => {\n    // Reset debouncer state\n    globalDebouncer.flushAllRequests();\n  });\n\n  afterEach(async () => {\n    await globalDebouncer.flushAllRequests();\n  });\n\n  describe('Rapid Typing Scenarios', () => {\n    it('should handle rapid completion requests efficiently', async () => {\n      const document = createTestDocument(`\n        IF [Sales] > 100 THEN\n          SUM(\n      `);\n\n      const mockCompletionHandler = jest.fn().mockResolvedValue({\n        items: [\n          { label: 'SUM', kind: 3 },\n          { label: 'AVG', kind: 3 },\n          { label: 'COUNT', kind: 3 }\n        ]\n      });\n\n      // Simulate rapid typing by making multiple completion requests\n      const positions = [\n        { line: 2, character: 14 }, // After 'SUM('\n        { line: 2, character: 15 },\n        { line: 2, character: 16 },\n        { line: 2, character: 17 },\n        { line: 2, character: 18 }\n      ];\n\n      const startTime = Date.now();\n      const promises = positions.map(position => \n        globalDebouncer.debounceRequest(\n          RequestType.COMPLETION,\n          { document, position },\n          mockCompletionHandler,\n          document.uri,\n          position\n        )\n      );\n\n      const results = await Promise.all(promises);\n      const duration = Date.now() - startTime;\n\n      // Should complete within reasonable time\n      expect(duration).toBeLessThan(1000);\n      \n      // Should have debounced effectively (not all requests executed)\n      expect(mockCompletionHandler.mock.calls.length).toBeLessThan(positions.length);\n      \n      // All promises should resolve to the same result\n      results.forEach(result => {\n        expect(result.items).toHaveLength(3);\n      });\n    });\n\n    it('should prioritize hover requests over completion requests', async () => {\n      const document = createTestDocument('SUM([Sales])');\n      \n      const completionHandler = jest.fn().mockImplementation(() => \n        new Promise(resolve => setTimeout(() => resolve({ items: [] }), 200))\n      );\n      const hoverHandler = jest.fn().mockResolvedValue({\n        contents: 'SUM function documentation'\n      });\n\n      const completionPosition: Position = { line: 0, character: 4 };\n      const hoverPosition: Position = { line: 0, character: 0 };\n\n      // Start completion request first (lower priority)\n      const completionPromise = globalDebouncer.debounceRequest(\n        RequestType.COMPLETION,\n        { document, position: completionPosition },\n        completionHandler,\n        document.uri,\n        completionPosition\n      );\n\n      // Start hover request shortly after (higher priority)\n      await new Promise(resolve => setTimeout(resolve, 50));\n      const hoverPromise = globalDebouncer.debounceRequest(\n        RequestType.HOVER,\n        { document, position: hoverPosition },\n        hoverHandler,\n        document.uri,\n        hoverPosition\n      );\n\n      const startTime = Date.now();\n      const hoverResult = await hoverPromise;\n      const hoverDuration = Date.now() - startTime;\n\n      expect(hoverResult.contents).toBe('SUM function documentation');\n      expect(hoverDuration).toBeLessThan(150); // Hover should complete quickly\n\n      // Complete the completion request\n      await completionPromise;\n    });\n\n    it('should handle mixed request types during rapid editing', async () => {\n      const document = createTestDocument(`\n        IF [Sales] > 100 THEN\n          \"High Sales\"\n        ELSE\n          \"Low Sales\"\n        END\n      `);\n\n      const handlers = {\n        completion: jest.fn().mockResolvedValue({ items: [] }),\n        hover: jest.fn().mockResolvedValue({ contents: 'Hover info' }),\n        signatureHelp: jest.fn().mockResolvedValue({ signatures: [] }),\n        diagnostics: jest.fn().mockResolvedValue([])\n      };\n\n      // Simulate rapid editing with mixed request types\n      const requests = [\n        { type: RequestType.COMPLETION, position: { line: 1, character: 10 } },\n        { type: RequestType.HOVER, position: { line: 1, character: 11 } },\n        { type: RequestType.COMPLETION, position: { line: 1, character: 12 } },\n        { type: RequestType.SIGNATURE_HELP, position: { line: 1, character: 13 } },\n        { type: RequestType.DIAGNOSTICS, position: undefined },\n        { type: RequestType.HOVER, position: { line: 1, character: 14 } }\n      ];\n\n      const promises = requests.map(req => {\n        const handler = req.type === RequestType.COMPLETION ? handlers.completion :\n                       req.type === RequestType.HOVER ? handlers.hover :\n                       req.type === RequestType.SIGNATURE_HELP ? handlers.signatureHelp :\n                       handlers.diagnostics;\n\n        return globalDebouncer.debounceRequest(\n          req.type,\n          { document, position: req.position },\n          handler,\n          document.uri,\n          req.position\n        );\n      });\n\n      const results = await Promise.all(promises);\n\n      // All requests should complete\n      expect(results).toHaveLength(6);\n      \n      // Diagnostics should execute immediately (critical priority)\n      expect(handlers.diagnostics).toHaveBeenCalled();\n      \n      // Other handlers should be called but potentially debounced\n      expect(handlers.hover).toHaveBeenCalled();\n      expect(handlers.completion).toHaveBeenCalled();\n      expect(handlers.signatureHelp).toHaveBeenCalled();\n    });\n  });\n\n  describe('Document Lifecycle Integration', () => {\n    it('should clear requests when document is closed', async () => {\n      const document = createTestDocument('SUM([Sales])');\n      \n      const handler = jest.fn().mockImplementation(() => \n        new Promise(resolve => setTimeout(() => resolve('result'), 500))\n      );\n\n      // Start a long-running request\n      const requestPromise = globalDebouncer.debounceRequest(\n        RequestType.FORMATTING,\n        { document },\n        handler,\n        document.uri\n      );\n\n      // Simulate document close\n      globalDebouncer.clearDocumentRequests(document.uri);\n\n      // The request should be cancelled (won't resolve)\n      const stats = globalDebouncer.getDebounceStats();\n      expect(stats.pendingRequests).toBe(0);\n    });\n\n    it('should handle multiple documents independently', async () => {\n      const document1 = createTestDocument('SUM([Sales])', 1, 'test://doc1.twbl');\n      const document2 = createTestDocument('AVG([Profit])', 1, 'test://doc2.twbl');\n      \n      const handler1 = jest.fn().mockResolvedValue('doc1-result');\n      const handler2 = jest.fn().mockResolvedValue('doc2-result');\n\n      const [result1, result2] = await Promise.all([\n        globalDebouncer.debounceRequest(\n          RequestType.HOVER,\n          { document: document1 },\n          handler1,\n          document1.uri,\n          { line: 0, character: 0 }\n        ),\n        globalDebouncer.debounceRequest(\n          RequestType.HOVER,\n          { document: document2 },\n          handler2,\n          document2.uri,\n          { line: 0, character: 0 }\n        )\n      ]);\n\n      expect(result1).toBe('doc1-result');\n      expect(result2).toBe('doc2-result');\n      expect(handler1).toHaveBeenCalledTimes(1);\n      expect(handler2).toHaveBeenCalledTimes(1);\n    });\n  });\n\n  describe('Performance Under Load', () => {\n    it('should maintain responsiveness with many concurrent requests', async () => {\n      const documents = Array.from({ length: 10 }, (_, i) => \n        createTestDocument(`SUM([Sales${i}])`, 1, `test://doc${i}.twbl`)\n      );\n\n      const handler = jest.fn().mockResolvedValue('load-test-result');\n\n      const startTime = Date.now();\n      \n      // Create many concurrent requests across different documents\n      const promises = documents.flatMap(doc => \n        Array.from({ length: 5 }, (_, i) => \n          globalDebouncer.debounceRequest(\n            RequestType.COMPLETION,\n            { document: doc, query: `test${i}` },\n            handler,\n            doc.uri,\n            { line: 0, character: i }\n          )\n        )\n      );\n\n      const results = await Promise.all(promises);\n      const duration = Date.now() - startTime;\n\n      expect(results).toHaveLength(50);\n      expect(duration).toBeLessThan(3000); // Should complete within 3 seconds\n      \n      // Should have debounced effectively\n      expect(handler.mock.calls.length).toBeLessThan(50);\n    });\n\n    it('should handle error recovery during high load', async () => {\n      const document = createTestDocument('SUM([Sales])');\n      \n      const errorHandler = jest.fn().mockRejectedValue(new Error('Handler error'));\n      const successHandler = jest.fn().mockResolvedValue('success');\n\n      // Mix error and success requests\n      const promises = [\n        ...Array.from({ length: 5 }, (_, i) => \n          globalDebouncer.debounceRequest(\n            RequestType.COMPLETION,\n            { document, query: `error${i}` },\n            errorHandler,\n            document.uri,\n            { line: 0, character: i }\n          ).catch(err => ({ error: err.message }))\n        ),\n        ...Array.from({ length: 5 }, (_, i) => \n          globalDebouncer.debounceRequest(\n            RequestType.HOVER,\n            { document, query: `success${i}` },\n            successHandler,\n            document.uri,\n            { line: 0, character: i + 10 }\n          )\n        )\n      ];\n\n      const results = await Promise.all(promises);\n\n      // Should have both error and success results\n      const errors = results.filter(r => r && typeof r === 'object' && 'error' in r);\n      const successes = results.filter(r => r === 'success');\n\n      expect(errors.length).toBeGreaterThan(0);\n      expect(successes.length).toBeGreaterThan(0);\n    });\n  });\n\n  describe('Statistics and Monitoring', () => {\n    it('should provide accurate statistics during operation', async () => {\n      const document = createTestDocument('SUM([Sales])');\n      const handler = jest.fn().mockResolvedValue('stats-result');\n\n      // Start multiple requests\n      const promises = [\n        globalDebouncer.debounceRequest(\n          RequestType.HOVER,\n          { document },\n          handler,\n          document.uri,\n          { line: 0, character: 0 }\n        ),\n        globalDebouncer.debounceRequest(\n          RequestType.COMPLETION,\n          { document },\n          handler,\n          document.uri,\n          { line: 0, character: 1 }\n        ),\n        globalDebouncer.debounceRequest(\n          RequestType.COMPLETION,\n          { document },\n          handler,\n          document.uri,\n          { line: 0, character: 2 }\n        )\n      ];\n\n      // Check stats while requests are pending\n      const statsDuringExecution = globalDebouncer.getDebounceStats();\n      expect(statsDuringExecution.pendingRequests).toBeGreaterThan(0);\n\n      await Promise.all(promises);\n\n      // Check final stats\n      const finalStats = globalDebouncer.getDebounceStats();\n      expect(finalStats.requestCounts[RequestType.HOVER]).toBeGreaterThan(0);\n      expect(finalStats.requestCounts[RequestType.COMPLETION]).toBeGreaterThan(0);\n    });\n\n    it('should track queue sizes accurately', async () => {\n      // Configure completion to batch at size 3\n      globalDebouncer.configureDebouncing(RequestType.COMPLETION, {\n        enableBatching: true,\n        batchSize: 3\n      });\n\n      const document = createTestDocument('SUM([Sales])');\n      const handler = jest.fn().mockImplementation(() => \n        new Promise(resolve => setTimeout(() => resolve('batch-result'), 100))\n      );\n\n      // Start requests that will be queued\n      const promises = Array.from({ length: 5 }, (_, i) => \n        globalDebouncer.debounceRequest(\n          RequestType.COMPLETION,\n          { document, query: `batch${i}` },\n          handler,\n          document.uri,\n          { line: 0, character: i }\n        )\n      );\n\n      // Check queue size\n      const stats = globalDebouncer.getDebounceStats();\n      expect(stats.queueSizes[RequestType.COMPLETION]).toBeGreaterThan(0);\n\n      await Promise.all(promises);\n    });\n  });\n\n  describe('Configuration Integration', () => {\n    it('should respect runtime configuration changes', async () => {\n      const document = createTestDocument('SUM([Sales])');\n      const handler = jest.fn().mockResolvedValue('config-result');\n\n      // Configure very short delay for testing\n      globalDebouncer.configureDebouncing(RequestType.HOVER, {\n        delay: 10,\n        maxDelay: 50\n      });\n\n      const startTime = Date.now();\n      const result = await globalDebouncer.debounceRequest(\n        RequestType.HOVER,\n        { document },\n        handler,\n        document.uri,\n        { line: 0, character: 0 }\n      );\n      const duration = Date.now() - startTime;\n\n      expect(result).toBe('config-result');\n      expect(duration).toBeLessThan(100); // Should respect short delay\n    });\n\n    it('should handle debouncing decisions based on load', () => {\n      const shouldDebounceHover = globalDebouncer.shouldDebounce(RequestType.HOVER);\n      const shouldDebounceCompletion = globalDebouncer.shouldDebounce(RequestType.COMPLETION);\n\n      expect(typeof shouldDebounceHover).toBe('boolean');\n      expect(typeof shouldDebounceCompletion).toBe('boolean');\n    });\n  });\n});\n\n/**\n * Helper function to create test documents\n */\nfunction createTestDocument(\n  content: string, \n  version: number = 1, \n  uri: string = 'test://test.twbl'\n): TextDocument {\n  return TextDocument.create(uri, 'tableau', version, content);\n}\n"
+// src/tests/integration/debouncedServer.test.ts
+
+import { TextDocument } from 'vscode-languageserver-textdocument';
+import { Position, CompletionParams, HoverParams } from 'vscode-languageserver';
+import { globalDebouncer, RequestType } from '../../requestDebouncer.js';
+
+describe('Debounced Server Integration', () => {
+  beforeEach(() => {
+    // Reset debouncer state
+    globalDebouncer.flushAllRequests();
+  });
+
+  afterEach(async () => {
+    await globalDebouncer.flushAllRequests();
+  });
+
+  describe('Rapid Typing Scenarios', () => {
+    it('should handle rapid completion requests efficiently', async () => {
+      const document = createTestDocument(`
+        IF [Sales] > 100 THEN
+          SUM(
+      `);
+
+      const mockCompletionHandler = jest.fn().mockResolvedValue({
+        items: [
+          { label: 'SUM', kind: 3 },
+          { label: 'AVG', kind: 3 },
+          { label: 'COUNT', kind: 3 }
+        ]
+      });
+
+      // Simulate rapid typing by making multiple completion requests
+      const positions = [
+        { line: 2, character: 14 }, // After 'SUM('
+        { line: 2, character: 15 },
+        { line: 2, character: 16 },
+        { line: 2, character: 17 },
+        { line: 2, character: 18 }
+      ];
+
+      const startTime = Date.now();
+      const promises = positions.map(position => 
+        globalDebouncer.debounceRequest(
+          RequestType.COMPLETION,
+          { document, position },
+          mockCompletionHandler,
+          document.uri,
+          position
+        )
+      );
+
+      const results = await Promise.all(promises);
+      const duration = Date.now() - startTime;
+
+      // Should complete within reasonable time
+      expect(duration).toBeLessThan(1000);
+      
+      // Should have debounced effectively (not all requests executed)
+      expect(mockCompletionHandler.mock.calls.length).toBeLessThan(positions.length);
+      
+      // All promises should resolve to the same result
+      results.forEach(result => {
+        expect(result.items).toHaveLength(3);
+      });
+    });
+
+    it('should prioritize hover requests over completion requests', async () => {
+      const document = createTestDocument('SUM([Sales])');
+      
+      const completionHandler = jest.fn().mockImplementation(() => 
+        new Promise(resolve => setTimeout(() => resolve({ items: [] }), 200))
+      );
+      const hoverHandler = jest.fn().mockResolvedValue({
+        contents: 'SUM function documentation'
+      });
+
+      const completionPosition: Position = { line: 0, character: 4 };
+      const hoverPosition: Position = { line: 0, character: 0 };
+
+      // Start completion request first (lower priority)
+      const completionPromise = globalDebouncer.debounceRequest(
+        RequestType.COMPLETION,
+        { document, position: completionPosition },
+        completionHandler,
+        document.uri,
+        completionPosition
+      );
+
+      // Start hover request shortly after (higher priority)
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const hoverPromise = globalDebouncer.debounceRequest(
+        RequestType.HOVER,
+        { document, position: hoverPosition },
+        hoverHandler,
+        document.uri,
+        hoverPosition
+      );
+
+      const startTime = Date.now();
+      const hoverResult = await hoverPromise;
+      const hoverDuration = Date.now() - startTime;
+
+      expect(hoverResult.contents).toBe('SUM function documentation');
+      expect(hoverDuration).toBeLessThan(150); // Hover should complete quickly
+
+      // Complete the completion request
+      await completionPromise;
+    });
+
+    it('should handle mixed request types during rapid editing', async () => {
+      const document = createTestDocument(`
+        IF [Sales] > 100 THEN
+          "High Sales"
+        ELSE
+          "Low Sales"
+        END
+      `);
+
+      const handlers = {
+        completion: jest.fn().mockResolvedValue({ items: [] }),
+        hover: jest.fn().mockResolvedValue({ contents: 'Hover info' }),
+        signatureHelp: jest.fn().mockResolvedValue({ signatures: [] }),
+        diagnostics: jest.fn().mockResolvedValue([])
+      };
+
+      // Simulate rapid editing with mixed request types
+      const requests = [
+        { type: RequestType.COMPLETION, position: { line: 1, character: 10 } },
+        { type: RequestType.HOVER, position: { line: 1, character: 11 } },
+        { type: RequestType.COMPLETION, position: { line: 1, character: 12 } },
+        { type: RequestType.SIGNATURE_HELP, position: { line: 1, character: 13 } },
+        { type: RequestType.DIAGNOSTICS, position: undefined },
+        { type: RequestType.HOVER, position: { line: 1, character: 14 } }
+      ];
+
+      const promises = requests.map(req => {
+        const handler = req.type === RequestType.COMPLETION ? handlers.completion :
+                       req.type === RequestType.HOVER ? handlers.hover :
+                       req.type === RequestType.SIGNATURE_HELP ? handlers.signatureHelp :
+                       handlers.diagnostics;
+
+        return globalDebouncer.debounceRequest(
+          req.type,
+          { document, position: req.position },
+          handler,
+          document.uri,
+          req.position
+        );
+      });
+
+      const results = await Promise.all(promises);
+
+      // All requests should complete
+      expect(results).toHaveLength(6);
+      
+      // Diagnostics should execute immediately (critical priority)
+      expect(handlers.diagnostics).toHaveBeenCalled();
+      
+      // Other handlers should be called but potentially debounced
+      expect(handlers.hover).toHaveBeenCalled();
+      expect(handlers.completion).toHaveBeenCalled();
+      expect(handlers.signatureHelp).toHaveBeenCalled();
+    });
+  });
+
+  describe('Document Lifecycle Integration', () => {
+    it('should clear requests when document is closed', async () => {
+      const document = createTestDocument('SUM([Sales])');
+      
+      const handler = jest.fn().mockImplementation(() => 
+        new Promise(resolve => setTimeout(() => resolve('result'), 500))
+      );
+
+      // Start a long-running request
+      const requestPromise = globalDebouncer.debounceRequest(
+        RequestType.FORMATTING,
+        { document },
+        handler,
+        document.uri
+      );
+
+      // Simulate document close
+      globalDebouncer.clearDocumentRequests(document.uri);
+
+      // The request should be cancelled (won't resolve)
+      const stats = globalDebouncer.getDebounceStats();
+      expect(stats.pendingRequests).toBe(0);
+    });
+
+    it('should handle multiple documents independently', async () => {
+      const document1 = createTestDocument('SUM([Sales])', 1, 'test://doc1.twbl');
+      const document2 = createTestDocument('AVG([Profit])', 1, 'test://doc2.twbl');
+      
+      const handler1 = jest.fn().mockResolvedValue('doc1-result');
+      const handler2 = jest.fn().mockResolvedValue('doc2-result');
+
+      const [result1, result2] = await Promise.all([
+        globalDebouncer.debounceRequest(
+          RequestType.HOVER,
+          { document: document1 },
+          handler1,
+          document1.uri,
+          { line: 0, character: 0 }
+        ),
+        globalDebouncer.debounceRequest(
+          RequestType.HOVER,
+          { document: document2 },
+          handler2,
+          document2.uri,
+          { line: 0, character: 0 }
+        )
+      ]);
+
+      expect(result1).toBe('doc1-result');
+      expect(result2).toBe('doc2-result');
+      expect(handler1).toHaveBeenCalledTimes(1);
+      expect(handler2).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('Performance Under Load', () => {
+    it('should maintain responsiveness with many concurrent requests', async () => {
+      const documents = Array.from({ length: 10 }, (_, i) => 
+        createTestDocument(`SUM([Sales${i}])`, 1, `test://doc${i}.twbl`)
+      );
+
+      const handler = jest.fn().mockResolvedValue('load-test-result');
+
+      const startTime = Date.now();
+      
+      // Create many concurrent requests across different documents
+      const promises = documents.flatMap(doc => 
+        Array.from({ length: 5 }, (_, i) => 
+          globalDebouncer.debounceRequest(
+            RequestType.COMPLETION,
+            { document: doc, query: `test${i}` },
+            handler,
+            doc.uri,
+            { line: 0, character: i }
+          )
+        )
+      );
+
+      const results = await Promise.all(promises);
+      const duration = Date.now() - startTime;
+
+      expect(results).toHaveLength(50);
+      expect(duration).toBeLessThan(3000); // Should complete within 3 seconds
+      
+      // Should have debounced effectively
+      expect(handler.mock.calls.length).toBeLessThan(50);
+    });
+
+    it('should handle error recovery during high load', async () => {
+      const document = createTestDocument('SUM([Sales])');
+      
+      const errorHandler = jest.fn().mockRejectedValue(new Error('Handler error'));
+      const successHandler = jest.fn().mockResolvedValue('success');
+
+      // Mix error and success requests
+      const promises = [
+        ...Array.from({ length: 5 }, (_, i) => 
+          globalDebouncer.debounceRequest(
+            RequestType.COMPLETION,
+            { document, query: `error${i}` },
+            errorHandler,
+            document.uri,
+            { line: 0, character: i }
+          ).catch(err => ({ error: err.message }))
+        ),
+        ...Array.from({ length: 5 }, (_, i) => 
+          globalDebouncer.debounceRequest(
+            RequestType.HOVER,
+            { document, query: `success${i}` },
+            successHandler,
+            document.uri,
+            { line: 0, character: i + 10 }
+          )
+        )
+      ];
+
+      const results = await Promise.all(promises);
+
+      // Should have both error and success results
+      const errors = results.filter(r => r && typeof r === 'object' && 'error' in r);
+      const successes = results.filter(r => r === 'success');
+
+      expect(errors.length).toBeGreaterThan(0);
+      expect(successes.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Statistics and Monitoring', () => {
+    it('should provide accurate statistics during operation', async () => {
+      const document = createTestDocument('SUM([Sales])');
+      const handler = jest.fn().mockResolvedValue('stats-result');
+
+      // Start multiple requests
+      const promises = [
+        globalDebouncer.debounceRequest(
+          RequestType.HOVER,
+          { document },
+          handler,
+          document.uri,
+          { line: 0, character: 0 }
+        ),
+        globalDebouncer.debounceRequest(
+          RequestType.COMPLETION,
+          { document },
+          handler,
+          document.uri,
+          { line: 0, character: 1 }
+        ),
+        globalDebouncer.debounceRequest(
+          RequestType.COMPLETION,
+          { document },
+          handler,
+          document.uri,
+          { line: 0, character: 2 }
+        )
+      ];
+
+      // Check stats while requests are pending
+      const statsDuringExecution = globalDebouncer.getDebounceStats();
+      expect(statsDuringExecution.pendingRequests).toBeGreaterThan(0);
+
+      await Promise.all(promises);
+
+      // Check final stats
+      const finalStats = globalDebouncer.getDebounceStats();
+      expect(finalStats.requestCounts[RequestType.HOVER]).toBeGreaterThan(0);
+      expect(finalStats.requestCounts[RequestType.COMPLETION]).toBeGreaterThan(0);
+    });
+
+    it('should track queue sizes accurately', async () => {
+      // Configure completion to batch at size 3
+      globalDebouncer.configureDebouncing(RequestType.COMPLETION, {
+        enableBatching: true,
+        batchSize: 3
+      });
+
+      const document = createTestDocument('SUM([Sales])');
+      const handler = jest.fn().mockImplementation(() => 
+        new Promise(resolve => setTimeout(() => resolve('batch-result'), 100))
+      );
+
+      // Start requests that will be queued
+      const promises = Array.from({ length: 5 }, (_, i) => 
+        globalDebouncer.debounceRequest(
+          RequestType.COMPLETION,
+          { document, query: `batch${i}` },
+          handler,
+          document.uri,
+          { line: 0, character: i }
+        )
+      );
+
+      // Check queue size
+      const stats = globalDebouncer.getDebounceStats();
+      expect(stats.queueSizes[RequestType.COMPLETION]).toBeGreaterThan(0);
+
+      await Promise.all(promises);
+    });
+  });
+
+  describe('Configuration Integration', () => {
+    it('should respect runtime configuration changes', async () => {
+      const document = createTestDocument('SUM([Sales])');
+      const handler = jest.fn().mockResolvedValue('config-result');
+
+      // Configure very short delay for testing
+      globalDebouncer.configureDebouncing(RequestType.HOVER, {
+        delay: 10,
+        maxDelay: 50
+      });
+
+      const startTime = Date.now();
+      const result = await globalDebouncer.debounceRequest(
+        RequestType.HOVER,
+        { document },
+        handler,
+        document.uri,
+        { line: 0, character: 0 }
+      );
+      const duration = Date.now() - startTime;
+
+      expect(result).toBe('config-result');
+      expect(duration).toBeLessThan(100); // Should respect short delay
+    });
+
+    it('should handle debouncing decisions based on load', () => {
+      const shouldDebounceHover = globalDebouncer.shouldDebounce(RequestType.HOVER);
+      const shouldDebounceCompletion = globalDebouncer.shouldDebounce(RequestType.COMPLETION);
+
+      expect(typeof shouldDebounceHover).toBe('boolean');
+      expect(typeof shouldDebounceCompletion).toBe('boolean');
+    });
+  });
+});
+
+/**
+ * Helper function to create test documents
+ */
+function createTestDocument(
+  content: string, 
+  version: number = 1, 
+  uri: string = 'test://test.twbl'
+): TextDocument {
+  return TextDocument.create(uri, 'tableau', version, content);
+}

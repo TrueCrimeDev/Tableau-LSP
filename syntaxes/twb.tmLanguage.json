@@ -1,0 +1,138 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Tableau Workbook",
+  "scopeName": "text.xml.twb",
+  "patterns": [
+    { "include": "#xmlDeclaration" },
+    { "include": "#comments" },
+    { "include": "#cdata" },
+    { "include": "#tags" },
+    { "include": "#expressions" }
+  ],
+  "repository": {
+    "xmlDeclaration": {
+      "begin": "<\\?xml",
+      "end": "\\?>",
+      "captures": {
+        "0": { "name": "punctuation.definition.tag.xml" }
+      },
+      "name": "meta.tag.preprocessor.xml",
+      "patterns": [
+        { "include": "#attributes" }
+      ]
+    },
+    "comments": {
+      "begin": "<!--",
+      "end": "-->",
+      "name": "comment.block.xml"
+    },
+    "cdata": {
+      "begin": "<!\\[CDATA\\[",
+      "end": "\\]\\]>",
+      "name": "string.unquoted.cdata.xml"
+    },
+    "tags": {
+      "begin": "(</?)([_a-zA-Z0-9:.-]+)",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.tag.xml" },
+        "2": {
+          "patterns": [
+            {
+              "match": "^((?:_\\.fcp\\.[a-zA-Z0-9_]+\\.(?:true|false)\\.\\.\\.)+)(.*)$",
+              "captures": {
+                "1": { "name": "entity.name.type.feature-flag.twb" },
+                "2": { "name": "entity.name.tag.xml" }
+              }
+            },
+            {
+              "match": ".*",
+              "name": "entity.name.tag.xml"
+            }
+          ]
+        }
+      },
+      "end": "(/?>)",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.tag.xml" }
+      },
+      "name": "meta.tag.xml",
+      "patterns": [
+        { "include": "#attributes" }
+      ]
+    },
+    "attributes": {
+      "patterns": [
+        {
+          "match": "([_a-zA-Z0-9:.-]+)(?=\\s*=)",
+          "captures": {
+            "1": {
+              "patterns": [
+                {
+                  "match": "^((?:_\\.fcp\\.[a-zA-Z0-9_]+\\.(?:true|false)\\.\\.\\.)+)(.*)$",
+                  "captures": {
+                    "1": { "name": "entity.name.type.feature-flag.twb" },
+                    "2": { "name": "entity.other.attribute-name.xml" }
+                  }
+                },
+                {
+                  "match": ".*",
+                  "name": "entity.other.attribute-name.xml"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "begin": "'",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.xml" } },
+          "end": "'",
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.xml" } },
+          "name": "string.quoted.single.xml",
+          "patterns": [
+            { "include": "#expressions" }
+          ]
+        },
+        {
+          "begin": "\"",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.xml" } },
+          "end": "\"",
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.xml" } },
+          "name": "string.quoted.double.xml",
+          "patterns": [
+            { "include": "#expressions" }
+          ]
+        }
+      ]
+    },
+    "expressions": {
+      "patterns": [
+        {
+          "match": "\\[([^\\]]+)\\]",
+          "name": "variable.other.tableau.identifier.twb",
+          "captures": {
+            "1": {
+              "patterns": [
+                {
+                  "match": "^Calculation_[0-9]+$",
+                  "name": "entity.name.function.calculation.twb"
+                },
+                {
+                  "match": "^([a-z]+):([^:]+):([a-z]+)$",
+                  "captures": {
+                    "1": { "name": "keyword.operator.aggregation.twb" },
+                    "2": { "name": "variable.parameter.field.twb" },
+                    "3": { "name": "storage.type.modifier.twb" }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "match": "\\{([A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12})\\}",
+          "name": "constant.numeric.uuid.twb"
+        }
+      ]
+    }
+  }
+}

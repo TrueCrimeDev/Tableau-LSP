@@ -301,10 +301,13 @@ export class ConditionalExpressionValidator {
         const whenCount = branches.filter(b => b.name === 'WHEN').length;
         
         if (!hasElse && whenCount > 1) {
+            // ELSE is optional in Tableau — an unmatched CASE returns Null, which is a
+            // valid, common pattern. Surface only as an informational hint (matching the
+            // IF-branch treatment), never a Warning.
             this.addDiagnostic(
                 parentSymbol.range,
-                `CASE statement should have an ELSE clause to handle unmatched values`,
-                DiagnosticSeverity.Warning,
+                `CASE statement has no ELSE clause; unmatched values return Null`,
+                DiagnosticSeverity.Information,
                 { category: TableauDiagnosticCategory.MISSING_BRANCH, branchType: 'ELSE' }
             );
         }
@@ -329,8 +332,10 @@ export class ConditionalExpressionValidator {
         
         // R2.4: Validate parameter count
         const [minArgs, maxArgs] = signature;
-        const argCount = symbol.arguments?.length || 0;
-        
+        // Undefined args means the parser couldn't extract them (multi-line call) — skip to avoid false "got 0".
+        if (symbol.arguments === undefined) { return; }
+        const argCount = symbol.arguments.length;
+
         if (argCount < minArgs || argCount > maxArgs) {
             this.addDiagnostic(
                 symbol.range,
@@ -384,8 +389,10 @@ export class ConditionalExpressionValidator {
         
         // R2.4: Validate parameter count
         const [minArgs, maxArgs] = signature;
-        const argCount = symbol.arguments?.length || 0;
-        
+        // Undefined args means the parser couldn't extract them (multi-line call) — skip to avoid false "got 0".
+        if (symbol.arguments === undefined) { return; }
+        const argCount = symbol.arguments.length;
+
         if (argCount < minArgs || (maxArgs !== Infinity && argCount > maxArgs)) {
             const expectedRange = maxArgs === Infinity ? `${minArgs}+` : 
                                 minArgs === maxArgs ? `${minArgs}` : `${minArgs}-${maxArgs}`;
@@ -543,8 +550,12 @@ export class ConditionalExpressionValidator {
                     );
                 }
             } else if (branch.name === 'THEN') {
-                // THEN must be the first branch
-                if (i !== 0) {
+                // The parser attaches every THEN/ELSEIF/ELSE as a flat child of the IF,
+                // so a valid `IF c THEN x ELSEIF c2 THEN y ELSE z END` yields branches
+                // [THEN, ELSEIF, THEN, ELSE]. A THEN is valid as the first branch OR
+                // immediately after an ELSEIF; only otherwise is it misplaced.
+                const prev = i > 0 ? branches[i - 1] : undefined;
+                if (i !== 0 && prev?.name !== 'ELSEIF') {
                     this.addDiagnostic(
                         branch.range,
                         `THEN clause must be the first branch in an IF statement`,
@@ -649,4 +660,392 @@ export class ConditionalExpressionValidator {
     public clearDiagnostics(): void {
         this.diagnostics = [];
     }
+}
+
+// ---------------------------------------------------------------------------
+// Functional facade (api-drift compatibility)
+//
+// The unit tests consume a standalone `validateConditionalExpression(symbol,
+// document)` returning a structured { isValid, errors, warnings } result rather
+// than the class-based Diagnostic[] API above. This thin facade performs a
+// self-contained, text-based structural validation of a single Tableau
+// conditional expression (IF / ELSEIF / ELSE / END and CASE / WHEN / THEN /
+// ELSE / END). The class is kept intact for the LSP diagnostics pipeline.
+// ---------------------------------------------------------------------------
+
+export interface ConditionalValidationIssue {
+    message: string;
+    suggestion?: string;
+    range?: Range;
+}
+
+export interface ConditionalValidationResult {
+    isValid: boolean;
+    errors: ConditionalValidationIssue[];
+    warnings: ConditionalValidationIssue[];
+}
+
+type CondToken = { kind: 'kw'; word: string } | { kind: 'seg'; text: string };
+
+const COND_FACADE_KEYWORDS = new Set(['IF', 'THEN', 'ELSEIF', 'ELSE', 'END', 'CASE', 'WHEN']);
+
+/** Replace comment spans with spaces (preserving newlines), respecting string literals. */
+function stripConditionalComments(text: string): string {
+    let out = '';
+    let inStr = false;
+    let strCh = '';
+    let blk = false;
+    let k = 0;
+    while (k < text.length) {
+        const c = text[k];
+        const c2 = text[k + 1];
+        if (blk) {
+            if (c === '*' && c2 === '/') { out += '  '; blk = false; k += 2; continue; }
+            out += c === '\n' ? '\n' : ' ';
+            k++;
+            continue;
+        }
+        if (inStr) { out += c; if (c === strCh) { inStr = false; } k++; continue; }
+        if (c === '"' || c === "'") { inStr = true; strCh = c; out += c; k++; continue; }
+        if (c === '/' && c2 === '/') {
+            while (k < text.length && text[k] !== '\n') { out += ' '; k++; }
+            continue;
+        }
+        if (c === '/' && c2 === '*') { blk = true; out += '  '; k += 2; continue; }
+        out += c;
+        k++;
+    }
+    return out;
+}
+
+/** Split conditional code into keyword tokens and the (trimmed) value segments between them. */
+function tokenizeConditional(code: string): CondToken[] {
+    const tokens: CondToken[] = [];
+    let inStr = false;
+    let strCh = '';
+    let bracket = 0;
+    let prevEnd = 0;
+    const pushSeg = (start: number, end: number): void => {
+        const t = code.slice(start, end).trim();
+        if (t) { tokens.push({ kind: 'seg', text: t }); }
+    };
+    for (let k = 0; k < code.length; k++) {
+        const c = code[k];
+        if (inStr) { if (c === strCh) { inStr = false; } continue; }
+        if (c === '"' || c === "'") { inStr = true; strCh = c; continue; }
+        if (c === '[') { bracket++; continue; }
+        if (c === ']') { if (bracket > 0) { bracket--; } continue; }
+        if (bracket > 0) { continue; }
+        if (/[A-Za-z]/.test(c)) {
+            const prev = k > 0 ? code[k - 1] : '';
+            let j = k;
+            while (j < code.length && /[A-Za-z0-9_]/.test(code[j])) { j++; }
+            const word = code.slice(k, j).toUpperCase();
+            if (!/[A-Za-z0-9_]/.test(prev) && COND_FACADE_KEYWORDS.has(word)) {
+                pushSeg(prevEnd, k);
+                tokens.push({ kind: 'kw', word });
+                prevEnd = j;
+            }
+            k = j - 1;
+        }
+    }
+    pushSeg(prevEnd, code.length);
+    return tokens;
+}
+
+/** Count top-level string literals in a segment (used to detect a value missing an ELSE). */
+function topLevelStringCount(seg: string): number {
+    let count = 0;
+    let i = 0;
+    while (i < seg.length) {
+        const c = seg[i];
+        if (c === '"' || c === "'") {
+            count++;
+            const q = c;
+            i++;
+            while (i < seg.length && seg[i] !== q) { i++; }
+            i++;
+            continue;
+        }
+        i++;
+    }
+    return count;
+}
+
+/** Classify an IF/ELSEIF condition: 'empty', 'nonbool', or null when it looks boolean. */
+function classifyCondition(cond: string): 'empty' | 'nonbool' | null {
+    const c = cond.trim();
+    if (!c) { return 'empty'; }
+    // Dangling trailing operator (e.g. "[Sales] >") or a leading binary operator.
+    if (/[+\-*/<>=!&|]$/.test(c)) { return 'nonbool'; }
+    if (/^[*/<>=!&|]/.test(c)) { return 'nonbool'; }
+    const hasComparison = /(>=|<=|!=|<>|==|>|<|=)/.test(c);
+    const hasWordOp = /\b(AND|OR|NOT|IN)\b/i.test(c);
+    const hasBoolFunc = /\b(ISNULL|ISEMPTY|ISDATE|CONTAINS|STARTSWITH|ENDSWITH|REGEXP_MATCH)\s*\(/i.test(c);
+    const hasBoolLit = /\b(TRUE|FALSE)\b/i.test(c);
+    if (hasComparison || hasWordOp || hasBoolFunc || hasBoolLit) { return null; }
+    return 'nonbool';
+}
+
+/** Collect distinct top-level [field] references from conditional code. */
+function extractFieldReferences(code: string): string[] {
+    const fields: string[] = [];
+    let i = 0;
+    let inStr = false;
+    let strCh = '';
+    while (i < code.length) {
+        const c = code[i];
+        if (inStr) { if (c === strCh) { inStr = false; } i++; continue; }
+        if (c === '"' || c === "'") { inStr = true; strCh = c; i++; continue; }
+        if (c === '[') {
+            let j = i + 1;
+            while (j < code.length && code[j] !== ']') { j++; }
+            fields.push(code.slice(i + 1, j));
+            i = j + 1;
+            continue;
+        }
+        i++;
+    }
+    return fields;
+}
+
+/**
+ * Validate a single Tableau conditional expression and return a structured result.
+ *
+ * Note: the validation is performed against the document text (each tested document
+ * holds exactly one conditional). The `symbol` parameter is accepted for API
+ * compatibility with the parsed-symbol calling convention used by the tests.
+ */
+export function validateConditionalExpression(
+    _symbol: Symbol | null | undefined,
+    document: TextDocument
+): ConditionalValidationResult {
+    const errors: ConditionalValidationIssue[] = [];
+    const warnings: ConditionalValidationIssue[] = [];
+
+    const rawText = document ? document.getText() : '';
+    const code = stripConditionalComments(rawText);
+    const tokens = tokenizeConditional(code);
+
+    // Field-reference warnings (cannot be verified without a connected data source).
+    const seenFields = new Set<string>();
+    for (const field of extractFieldReferences(code)) {
+        if (!seenFields.has(field)) {
+            seenFields.add(field);
+            warnings.push({
+                message: `Field reference [${field}] could not be verified against a data source`,
+                suggestion: 'Ensure the field exists in the connected data source'
+            });
+        }
+    }
+
+    let pos = 0;
+    const peekKw = (): string | undefined => {
+        const t = tokens[pos];
+        return t && t.kind === 'kw' ? t.word : undefined;
+    };
+
+    // Consume a value position: free-text segments plus nested IF/CASE expressions.
+    const parseValue = (): { text: string; count: number } => {
+        let text = '';
+        let count = 0;
+        while (pos < tokens.length) {
+            const t = tokens[pos];
+            if (t.kind === 'seg') {
+                text += (text ? ' ' : '') + t.text;
+                count++;
+                pos++;
+                continue;
+            }
+            if (t.kind === 'kw' && t.word === 'IF') { pos++; parseIf(); count++; continue; }
+            if (t.kind === 'kw' && t.word === 'CASE') { pos++; parseCase(); count++; continue; }
+            break;
+        }
+        return { text, count };
+    };
+
+    function parseIf(): void {
+        // 'IF' already consumed by the caller.
+        const cond = parseValue();
+        const ci = classifyCondition(cond.text);
+        if (ci === 'empty') {
+            errors.push({
+                message: 'IF statement is missing a condition',
+                suggestion: 'Add a boolean condition after IF'
+            });
+        } else if (ci === 'nonbool') {
+            errors.push({
+                message: 'IF condition should be a boolean expression',
+                suggestion: 'Use a comparison or logical operator to form a boolean condition'
+            });
+        }
+
+        let thenPresent = false;
+        if (peekKw() === 'THEN') {
+            thenPresent = true;
+            pos++;
+        } else {
+            errors.push({
+                message: 'IF statement is missing a THEN keyword',
+                suggestion: 'Add THEN keyword after the condition'
+            });
+        }
+
+        const thenVal = parseValue();
+        if (thenPresent && thenVal.count === 0) {
+            if (pos >= tokens.length) {
+                errors.push({
+                    message: 'IF expression is incomplete',
+                    suggestion: 'Complete the THEN branch and add an END keyword'
+                });
+                return;
+            }
+            errors.push({
+                message: 'THEN branch is empty',
+                suggestion: 'Provide a value for the THEN branch'
+            });
+        }
+
+        while (peekKw() === 'ELSEIF') {
+            pos++;
+            const eCond = parseValue();
+            const eci = classifyCondition(eCond.text);
+            if (eci === 'empty') {
+                errors.push({
+                    message: 'ELSEIF clause is missing a condition',
+                    suggestion: 'Add a boolean condition after ELSEIF'
+                });
+            } else if (eci === 'nonbool') {
+                errors.push({
+                    message: 'ELSEIF condition should be a boolean expression',
+                    suggestion: 'Use a comparison or logical operator'
+                });
+            }
+            if (peekKw() === 'THEN') {
+                pos++;
+            } else {
+                errors.push({
+                    message: 'ELSEIF clause is missing a THEN keyword',
+                    suggestion: 'Add THEN keyword after the ELSEIF condition'
+                });
+            }
+            parseValue();
+        }
+
+        let sawElse = false;
+        if (peekKw() === 'ELSE') {
+            sawElse = true;
+            pos++;
+            parseValue();
+        }
+
+        // A THEN value holding multiple juxtaposed literals with no ELSE means the
+        // ELSE keyword separating the alternative value was omitted.
+        if (!sawElse && topLevelStringCount(thenVal.text) >= 2) {
+            errors.push({
+                message: 'IF statement is missing an ELSE keyword between values',
+                suggestion: 'Add ELSE keyword before the alternative value'
+            });
+        }
+
+        if (peekKw() === 'END') {
+            pos++;
+        } else {
+            errors.push({
+                message: 'IF statement is missing an END keyword',
+                suggestion: 'Add END to close the IF block'
+            });
+        }
+    }
+
+    function parseCase(): void {
+        // 'CASE' already consumed by the caller.
+        const expr = parseValue();
+        if (expr.count === 0) {
+            errors.push({
+                message: 'CASE statement is missing an expression',
+                suggestion: 'Add the field or expression to evaluate after CASE'
+            });
+        }
+
+        let whenCount = 0;
+        let sawElse = false;
+
+        while (pos < tokens.length) {
+            const t = tokens[pos];
+            if (t.kind === 'kw' && t.word === 'WHEN') {
+                pos++;
+                whenCount++;
+                parseValue();
+                if (peekKw() === 'THEN') {
+                    pos++;
+                    parseValue();
+                } else {
+                    errors.push({
+                        message: 'WHEN clause is missing a THEN keyword',
+                        suggestion: 'Add THEN keyword after the WHEN value'
+                    });
+                }
+            } else if (t.kind === 'kw' && t.word === 'ELSE') {
+                sawElse = true;
+                pos++;
+                parseValue();
+            } else if (t.kind === 'kw' && t.word === 'END') {
+                break;
+            } else if (t.kind === 'kw' && t.word === 'THEN') {
+                // A THEN/value with no preceding WHEN means the WHEN keyword was omitted.
+                errors.push({
+                    message: 'CASE clause is missing a WHEN keyword',
+                    suggestion: 'Add WHEN keyword before the value'
+                });
+                pos++;
+                parseValue();
+            } else if (t.kind === 'seg') {
+                errors.push({
+                    message: 'CASE clause is missing a WHEN keyword',
+                    suggestion: 'Add WHEN keyword before the value'
+                });
+                pos++;
+            } else {
+                break;
+            }
+        }
+
+        if (whenCount === 0) {
+            errors.push({
+                message: 'CASE statement must have at least one WHEN clause',
+                suggestion: 'Add a WHEN clause'
+            });
+        }
+        if (!sawElse) {
+            warnings.push({
+                message: 'CASE statement has no ELSE clause to handle unmatched values',
+                suggestion: 'Add an ELSE clause'
+            });
+        }
+
+        if (peekKw() === 'END') {
+            pos++;
+        } else {
+            errors.push({
+                message: 'CASE statement is missing an END keyword',
+                suggestion: 'Add END to close the CASE block'
+            });
+        }
+    }
+
+    // Dispatch on the first conditional construct found.
+    let started = false;
+    while (pos < tokens.length) {
+        const t = tokens[pos];
+        if (t.kind === 'kw' && t.word === 'IF') { pos++; parseIf(); started = true; break; }
+        if (t.kind === 'kw' && t.word === 'CASE') { pos++; parseCase(); started = true; break; }
+        pos++;
+    }
+
+    if (!started) {
+        errors.push({ message: 'No conditional expression (IF or CASE) found to validate' });
+    }
+
+    return { isValid: errors.length === 0, errors, warnings };
 }

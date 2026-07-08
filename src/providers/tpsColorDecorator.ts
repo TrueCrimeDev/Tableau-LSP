@@ -7,6 +7,8 @@ import * as vscode from 'vscode';
 export class TpsColorDecorator {
     private decorationType: vscode.TextEditorDecorationType;
     private timeout: NodeJS.Timeout | undefined;
+    private readonly colorInTagRegex = /<color>\s*(#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}))\s*<\/color>/gi;
+    private readonly colorInValueAttrRegex = /\bvalue\s*=\s*(["'])(#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}))\1/gi;
 
     constructor() {
         this.decorationType = vscode.window.createTextEditorDecorationType({
@@ -26,7 +28,7 @@ export class TpsColorDecorator {
     public activate(context: vscode.ExtensionContext): void {
         // Update decorations on active editor change
         vscode.window.onDidChangeActiveTextEditor(editor => {
-            if (editor && this.isTpsFile(editor.document)) {
+            if (editor && this.isSupportedDocument(editor.document)) {
                 this.updateDecorations(editor);
             }
         }, null, context.subscriptions);
@@ -34,14 +36,14 @@ export class TpsColorDecorator {
         // Update decorations on document change
         vscode.workspace.onDidChangeTextDocument(event => {
             const editor = vscode.window.activeTextEditor;
-            if (editor && event.document === editor.document && this.isTpsFile(event.document)) {
+            if (editor && event.document === editor.document && this.isSupportedDocument(event.document)) {
                 this.triggerUpdateDecorations(editor);
             }
         }, null, context.subscriptions);
 
         // Initial decoration for active editor
         const editor = vscode.window.activeTextEditor;
-        if (editor && this.isTpsFile(editor.document)) {
+        if (editor && this.isSupportedDocument(editor.document)) {
             this.updateDecorations(editor);
         }
 
@@ -51,8 +53,13 @@ export class TpsColorDecorator {
     /**
      * Check if document is a .tps file
      */
-    private isTpsFile(document: vscode.TextDocument): boolean {
-        return document.fileName.endsWith('.tps') || document.languageId === 'xml';
+    private isSupportedDocument(document: vscode.TextDocument): boolean {
+        const lowerPath = document.fileName.toLowerCase();
+        return (
+            lowerPath.endsWith('.tps') ||
+            lowerPath.endsWith('.twb') ||
+            document.languageId === 'twb'
+        );
     }
 
     /**
@@ -74,29 +81,43 @@ export class TpsColorDecorator {
         const text = editor.document.getText();
         const decorations: vscode.DecorationOptions[] = [];
 
-        // Match hex colors in <color>#RRGGBB</color> tags
-        const colorRegex = /<color>(#[0-9A-Fa-f]{6})<\/color>/g;
+        this.addDecorationsFromRegex(text, editor, decorations, this.colorInTagRegex, 1);
+        this.addDecorationsFromRegex(text, editor, decorations, this.colorInValueAttrRegex, 2);
+
+        editor.setDecorations(this.decorationType, decorations);
+    }
+
+    private addDecorationsFromRegex(
+        text: string,
+        editor: vscode.TextEditor,
+        decorations: vscode.DecorationOptions[],
+        regex: RegExp,
+        hexGroupIndex: number
+    ): void {
+        regex.lastIndex = 0;
         let match: RegExpExecArray | null;
+        while ((match = regex.exec(text)) !== null) {
+            const hexColor = match[hexGroupIndex];
+            if (!hexColor) {
+                continue;
+            }
+            const start = match.index + match[0].indexOf(hexColor);
+            const end = start + hexColor.length;
+            const range = new vscode.Range(
+                editor.document.positionAt(start),
+                editor.document.positionAt(end)
+            );
 
-        while ((match = colorRegex.exec(text)) !== null) {
-            const hexColor = match[1]; // e.g., "#1F6E8C"
-            const startPos = editor.document.positionAt(match.index + match[0].indexOf(hexColor));
-            const endPos = editor.document.positionAt(match.index + match[0].indexOf(hexColor) + hexColor.length);
-
-            const decoration: vscode.DecorationOptions = {
-                range: new vscode.Range(startPos, endPos),
+            decorations.push({
+                range,
                 renderOptions: {
                     before: {
                         backgroundColor: hexColor,
                         contentText: ''
                     }
                 }
-            };
-
-            decorations.push(decoration);
+            });
         }
-
-        editor.setDecorations(this.decorationType, decorations);
     }
 
     /**
