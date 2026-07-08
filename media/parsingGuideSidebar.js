@@ -530,6 +530,7 @@ const state = {
   },
   workbookData: null,
   calcBankCalcs: [],
+  calcPortfolioGroups: [],
 }
 
 const requiredElements = [
@@ -1124,6 +1125,24 @@ if (requiredElements.some((element) => !element)) {
           'Importing \u201c' + escapeHtml(palette.name) + '\u201d\u2026',
           'info',
         )
+      } else if (action === 'generate-field-defs') {
+        if (!data.datasources) {
+          return
+        }
+        const ds = data.datasources[idx]
+        if (!ds) {
+          return
+        }
+        vscode.postMessage({
+          type: 'generateFieldDefs',
+          datasource: ds.caption || 'Unknown',
+        })
+        setStatus(
+          'Generating field definitions for “' +
+            escapeHtml(ds.caption || 'Unknown') +
+            '”…',
+          'info',
+        )
       } else if (action === 'copy-calc') {
         // Inner buttons (copy-formula, insert-formula) carry their own data-action, so
         // closest('[data-action]') resolves to the button first — this branch is only
@@ -1222,8 +1241,32 @@ if (requiredElements.some((element) => !element)) {
     'line-visibility': ['on', 'off'],
     'line-pattern':    ['solid', 'dashed', 'dotted'],
   }
+  // Same threshold as the other sidebar lists (see joinWithShowMore below) so
+  // the Fonts group (16 elements) doesn't flood the formatting area.
+  var FMT_GROUP_LIMIT = 6
 
   let fmtState = { elements: {}, pendingEdits: {}, jsonPreview: null, importFilePath: null }
+
+  // Delegated "Show N more" toggle for formatting groups (Fonts group has 16
+  // elements) -- mirrors the workbook-sb toggle-more handler above.
+  var fmtInspectGroupsEl = document.getElementById('fmt-inspect-groups')
+  if (fmtInspectGroupsEl) {
+    fmtInspectGroupsEl.addEventListener('click', function (event) {
+      var target = event.target
+      if (!(target instanceof Element)) { return }
+      var button = target.closest('[data-action="toggle-more"]')
+      if (!button) { return }
+      var wrap = button.previousElementSibling
+      if (wrap && wrap.classList.contains('wb-more-hidden')) {
+        wrap.hidden = !wrap.hidden
+        var lbl = button.querySelector('.tree-more-label')
+        if (lbl) {
+          lbl.textContent = wrap.hidden ? 'Show ' + button.dataset.remaining + ' more' : 'Show less'
+        }
+        button.classList.toggle('expanded', !wrap.hidden)
+      }
+    })
+  }
 
   // Trigger export data fetch when Export Theme subsection is expanded
   var fmtExportSsh = document.getElementById('fmt-export-ssh')
@@ -1258,154 +1301,180 @@ if (requiredElements.some((element) => !element)) {
       hdr.className = 'fmt-group-hdr'
       hdr.textContent = groupName
       container.appendChild(hdr)
-      elements.forEach(function (element) {
-        var attrs = FMT_ATTRS[element] || []
-        var row = document.createElement('div')
-        row.className = 'fmt-elem-row'
-        row.dataset.element = element
-        var hdrEl = document.createElement('div')
-        hdrEl.className = 'fmt-elem-hdr'
-        var nameEl = document.createElement('div')
-        nameEl.className = 'fmt-elem-name'
-        nameEl.textContent = fmtElemLabel(element)
-        hdrEl.appendChild(nameEl)
-        row.appendChild(hdrEl)
 
-        attrs.forEach(function (attr) {
-          var currentVal = (fmtState.pendingEdits[element] !== undefined && fmtState.pendingEdits[element][attr] !== undefined)
-            ? fmtState.pendingEdits[element][attr]
-            : (fmtState.elements[element] && fmtState.elements[element][attr] != null ? fmtState.elements[element][attr] : null)
+      var rows = elements.map(fmtBuildElementRow)
+      if (rows.length <= FMT_GROUP_LIMIT) {
+        rows.forEach(function (r) { container.appendChild(r) })
+      } else {
+        rows.slice(0, FMT_GROUP_LIMIT).forEach(function (r) { container.appendChild(r) })
 
-          var propRow = document.createElement('div')
-          propRow.className = 'fmt-prop-row'
+        var hiddenWrap = document.createElement('div')
+        hiddenWrap.className = 'wb-more-hidden'
+        hiddenWrap.hidden = true
+        rows.slice(FMT_GROUP_LIMIT).forEach(function (r) { hiddenWrap.appendChild(r) })
+        container.appendChild(hiddenWrap)
 
-          var lbl = document.createElement('span')
-          lbl.className = 'fmt-prop-lbl'
-          lbl.textContent = FMT_ATTR_LABELS[attr] || attr
-          lbl.title = attr
-          propRow.appendChild(lbl)
-
-          var ctrl = document.createElement('div')
-          ctrl.className = 'fmt-prop-ctrl'
-
-          if (FMT_COLOR_ATTRS.has(attr)) {
-            var sw = document.createElement('div')
-            sw.className = 'fmt-swatch' + (currentVal ? ' has-val' : '')
-            if (currentVal) { sw.style.setProperty('--fmt-color', currentVal) }
-            var inp = document.createElement('input')
-            inp.type = 'text'
-            inp.value = currentVal || ''
-            inp.placeholder = '#RRGGBB'
-            ;(function (elem, a, swEl, inpEl, rowEl) {
-              inpEl.addEventListener('input', function () {
-                var v = inpEl.value.trim()
-                if (v) {
-                  swEl.classList.add('has-val')
-                  swEl.style.setProperty('--fmt-color', v)
-                } else {
-                  swEl.classList.remove('has-val')
-                  swEl.style.removeProperty('--fmt-color')
-                }
-                fmtStage(elem, a, v || null)
-                fmtDirty(rowEl, elem)
-              })
-              swEl.addEventListener('click', function () {
-                var current = inpEl.value || '#888888'
-                if (typeof window.openColorPicker === 'function') {
-                  window.openColorPicker(current).then(function (picked) {
-                    if (picked) {
-                      swEl.classList.add('has-val')
-                      swEl.style.setProperty('--fmt-color', picked)
-                      inpEl.value = picked
-                      fmtStage(elem, a, picked)
-                      fmtDirty(rowEl, elem)
-                    }
-                  })
-                } else {
-                  inpEl.focus()
-                }
-              })
-            })(element, attr, sw, inp, row)
-            ctrl.appendChild(sw)
-            ctrl.appendChild(inp)
-          } else if (FMT_NUMBER_ATTRS.has(attr)) {
-            var ninp = document.createElement('input')
-            ninp.type = 'number'
-            ninp.value = currentVal !== null ? String(currentVal) : ''
-            ninp.placeholder = '—'
-            ninp.min = '1'; ninp.max = '99'
-            ;(function (elem, a, el2, rowEl) {
-              el2.addEventListener('input', function () {
-                fmtStage(elem, a, el2.value || null)
-                fmtDirty(rowEl, elem)
-              })
-            })(element, attr, ninp, row)
-            ctrl.appendChild(ninp)
-          } else if (FMT_SELECT_ATTRS[attr]) {
-            var sel = document.createElement('select')
-            var emptyOpt = document.createElement('option')
-            emptyOpt.value = ''; emptyOpt.textContent = '—'
-            sel.appendChild(emptyOpt)
-            FMT_SELECT_ATTRS[attr].forEach(function (opt) {
-              var o = document.createElement('option')
-              o.value = opt; o.textContent = opt.charAt(0).toUpperCase() + opt.slice(1)
-              if (currentVal === opt) { o.selected = true }
-              sel.appendChild(o)
-            })
-            ;(function (elem, a, selEl, rowEl) {
-              selEl.addEventListener('change', function () {
-                fmtStage(elem, a, selEl.value || null)
-                fmtDirty(rowEl, elem)
-              })
-            })(element, attr, sel, row)
-            ctrl.appendChild(sel)
-          } else {
-            var tinp = document.createElement('input')
-            tinp.type = 'text'
-            tinp.value = currentVal || ''
-            tinp.placeholder = '—'
-            ;(function (elem, a, el3, rowEl) {
-              el3.addEventListener('input', function () {
-                fmtStage(elem, a, el3.value || null)
-                fmtDirty(rowEl, elem)
-              })
-            })(element, attr, tinp, row)
-            ctrl.appendChild(tinp)
-          }
-
-          var clrBtn = document.createElement('button')
-          clrBtn.className = 'fmt-clear' + (currentVal ? ' has-val' : '')
-          clrBtn.title = 'Clear'
-          clrBtn.textContent = '\u00d7'
-          ;(function (elem, a, rowEl) {
-            clrBtn.addEventListener('click', function () {
-              fmtStage(elem, a, null)
-              fmtDirty(rowEl, elem)
-              fmtRender()
-            })
-          })(element, attr, row)
-          ctrl.appendChild(clrBtn)
-
-          propRow.appendChild(ctrl)
-          row.appendChild(propRow)
-        })
-        var hasData = fmtState.elements[element] && Object.values(fmtState.elements[element]).some(function (v) { return v !== null })
-        var locBtn = document.createElement('button')
-        locBtn.className = 'fmt-locate-btn'
-        locBtn.title = 'Locate in .twb file'
-        locBtn.textContent = '{ }'
-        locBtn.disabled = !hasData
-        ;(function (elem) {
-          locBtn.addEventListener('click', function () {
-            vscode.postMessage({ type: 'locateElement', element: elem })
-          })
-        })(element)
-        hdrEl.appendChild(locBtn)
-
-        container.appendChild(row)
-      })
+        var remaining = rows.length - FMT_GROUP_LIMIT
+        var moreBtn = document.createElement('div')
+        moreBtn.className = 'tree-more'
+        moreBtn.dataset.action = 'toggle-more'
+        moreBtn.dataset.remaining = String(remaining)
+        moreBtn.setAttribute('role', 'button')
+        moreBtn.tabIndex = 0
+        moreBtn.innerHTML =
+          '<span class="tree-more-chev"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>' +
+          '<span class="tree-more-label">Show ' + remaining + ' more</span>'
+        container.appendChild(moreBtn)
+      }
     }
     fmtUpdateApplyBtn()
+  }
+
+  function fmtBuildElementRow(element) {
+    var attrs = FMT_ATTRS[element] || []
+    var row = document.createElement('div')
+    row.className = 'fmt-elem-row'
+    row.dataset.element = element
+    var hdrEl = document.createElement('div')
+    hdrEl.className = 'fmt-elem-hdr'
+    var nameEl = document.createElement('div')
+    nameEl.className = 'fmt-elem-name'
+    nameEl.textContent = fmtElemLabel(element)
+    hdrEl.appendChild(nameEl)
+    row.appendChild(hdrEl)
+
+    attrs.forEach(function (attr) {
+      var currentVal = (fmtState.pendingEdits[element] !== undefined && fmtState.pendingEdits[element][attr] !== undefined)
+        ? fmtState.pendingEdits[element][attr]
+        : (fmtState.elements[element] && fmtState.elements[element][attr] != null ? fmtState.elements[element][attr] : null)
+
+      var propRow = document.createElement('div')
+      propRow.className = 'fmt-prop-row'
+
+      var lbl = document.createElement('span')
+      lbl.className = 'fmt-prop-lbl'
+      lbl.textContent = FMT_ATTR_LABELS[attr] || attr
+      lbl.title = attr
+      propRow.appendChild(lbl)
+
+      var ctrl = document.createElement('div')
+      ctrl.className = 'fmt-prop-ctrl'
+
+      if (FMT_COLOR_ATTRS.has(attr)) {
+        var sw = document.createElement('div')
+        sw.className = 'fmt-swatch' + (currentVal ? ' has-val' : '')
+        if (currentVal) { sw.style.setProperty('--fmt-color', currentVal) }
+        var inp = document.createElement('input')
+        inp.type = 'text'
+        inp.value = currentVal || ''
+        inp.placeholder = '#RRGGBB'
+        ;(function (elem, a, swEl, inpEl, rowEl) {
+          inpEl.addEventListener('input', function () {
+            var v = inpEl.value.trim()
+            if (v) {
+              swEl.classList.add('has-val')
+              swEl.style.setProperty('--fmt-color', v)
+            } else {
+              swEl.classList.remove('has-val')
+              swEl.style.removeProperty('--fmt-color')
+            }
+            fmtStage(elem, a, v || null)
+            fmtDirty(rowEl, elem)
+          })
+          swEl.addEventListener('click', function () {
+            var current = inpEl.value || '#888888'
+            if (typeof window.openColorPicker === 'function') {
+              window.openColorPicker(current).then(function (picked) {
+                if (picked) {
+                  swEl.classList.add('has-val')
+                  swEl.style.setProperty('--fmt-color', picked)
+                  inpEl.value = picked
+                  fmtStage(elem, a, picked)
+                  fmtDirty(rowEl, elem)
+                }
+              })
+            } else {
+              inpEl.focus()
+            }
+          })
+        })(element, attr, sw, inp, row)
+        ctrl.appendChild(sw)
+        ctrl.appendChild(inp)
+      } else if (FMT_NUMBER_ATTRS.has(attr)) {
+        var ninp = document.createElement('input')
+        ninp.type = 'number'
+        ninp.value = currentVal !== null ? String(currentVal) : ''
+        ninp.placeholder = '—'
+        ninp.min = '1'; ninp.max = '99'
+        ;(function (elem, a, el2, rowEl) {
+          el2.addEventListener('input', function () {
+            fmtStage(elem, a, el2.value || null)
+            fmtDirty(rowEl, elem)
+          })
+        })(element, attr, ninp, row)
+        ctrl.appendChild(ninp)
+      } else if (FMT_SELECT_ATTRS[attr]) {
+        var sel = document.createElement('select')
+        var emptyOpt = document.createElement('option')
+        emptyOpt.value = ''; emptyOpt.textContent = '—'
+        sel.appendChild(emptyOpt)
+        FMT_SELECT_ATTRS[attr].forEach(function (opt) {
+          var o = document.createElement('option')
+          o.value = opt; o.textContent = opt.charAt(0).toUpperCase() + opt.slice(1)
+          if (currentVal === opt) { o.selected = true }
+          sel.appendChild(o)
+        })
+        ;(function (elem, a, selEl, rowEl) {
+          selEl.addEventListener('change', function () {
+            fmtStage(elem, a, selEl.value || null)
+            fmtDirty(rowEl, elem)
+          })
+        })(element, attr, sel, row)
+        ctrl.appendChild(sel)
+      } else {
+        var tinp = document.createElement('input')
+        tinp.type = 'text'
+        tinp.value = currentVal || ''
+        tinp.placeholder = '—'
+        ;(function (elem, a, el3, rowEl) {
+          el3.addEventListener('input', function () {
+            fmtStage(elem, a, el3.value || null)
+            fmtDirty(rowEl, elem)
+          })
+        })(element, attr, tinp, row)
+        ctrl.appendChild(tinp)
+      }
+
+      var clrBtn = document.createElement('button')
+      clrBtn.className = 'fmt-clear' + (currentVal ? ' has-val' : '')
+      clrBtn.title = 'Clear'
+      clrBtn.textContent = '\u00d7'
+      ;(function (elem, a, rowEl) {
+        clrBtn.addEventListener('click', function () {
+          fmtStage(elem, a, null)
+          fmtDirty(rowEl, elem)
+          fmtRender()
+        })
+      })(element, attr, row)
+      ctrl.appendChild(clrBtn)
+
+      propRow.appendChild(ctrl)
+      row.appendChild(propRow)
+    })
+    var hasData = fmtState.elements[element] && Object.values(fmtState.elements[element]).some(function (v) { return v !== null })
+    var locBtn = document.createElement('button')
+    locBtn.className = 'fmt-locate-btn'
+    locBtn.title = 'Locate in .twb file'
+    locBtn.textContent = '{ }'
+    locBtn.disabled = !hasData
+    ;(function (elem) {
+      locBtn.addEventListener('click', function () {
+        vscode.postMessage({ type: 'locateElement', element: elem })
+      })
+    })(element)
+    hdrEl.appendChild(locBtn)
+
+    return row
   }
 
   function fmtStage(element, attr, value) {
@@ -1618,6 +1687,40 @@ window.addEventListener('message', (event) => {
         })
         .join('')
     }
+    if (message.type === 'calcPortfolioLoaded') {
+      const plist = document.getElementById('calc-portfolio-list')
+      if (!plist) { return }
+      state.calcPortfolioGroups = message.groups || []
+      if (state.calcPortfolioGroups.length === 0) {
+        plist.innerHTML =
+          '<div style="padding:8px;font-size:11px;color:var(--vscode-descriptionForeground)">No example calculations available.</div>'
+        return
+      }
+      plist.innerHTML = state.calcPortfolioGroups
+        .map(function (g, gi) {
+          const rows = (g.calcs || [])
+            .map(function (c, ci) {
+              return (
+                '<div class="ri" data-action="insertPortfolio" data-g="' + gi + '" data-i="' + ci + '" title="' +
+                escapeHtml(c.description || '') + '">' +
+                '<svg class="ic" style="flex-shrink:0;margin-right:4px"><use href="#i-fx"/></svg>' +
+                '<span class="lb">' + escapeHtml(c.title) + '</span>' +
+                '</div>'
+              )
+            })
+            .join('')
+          const collapsed = !g.open
+          return (
+            '<div class="ssh' + (collapsed ? ' c' : '') + '" data-pcat="' + gi + '">' +
+            '<span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>' +
+            escapeHtml(g.category) +
+            '<span style="margin-left:6px;opacity:.55;font-size:10px">' + (g.calcs || []).length + '</span>' +
+            '</div>' +
+            '<div class="ssb"' + (collapsed ? ' style="display:none"' : '') + '>' + rows + '</div>'
+          )
+        })
+        .join('')
+    }
     if (typeof window._fmtHandleMessage === 'function') {
       window._fmtHandleMessage(message)
     }
@@ -1628,6 +1731,7 @@ window.addEventListener('message', (event) => {
 
 vscode.postMessage({ type: 'requestContext' })
 vscode.postMessage({ type: 'parseWorkbook' })
+vscode.postMessage({ type: 'requestCalcPortfolio' })
 
 ;(function setupCalcBank() {
   const refreshBtn = document.getElementById('calc-bank-refresh')
@@ -1647,6 +1751,7 @@ vscode.postMessage({ type: 'parseWorkbook' })
     'font-family:var(--vscode-editor-font-family,monospace);font-size:11px;line-height:1.5;' +
     'color:var(--vscode-editorHoverWidget-foreground,#cccccc);pointer-events:none;' +
     'white-space:pre-wrap;word-break:break-word;box-shadow:0 2px 8px rgba(0,0,0,0.4)'
+  tooltip.className = 'fx-hl'
   document.body.appendChild(tooltip)
 
   const calcBankSb = document.getElementById('calc-bank-sb')
@@ -1694,6 +1799,88 @@ vscode.postMessage({ type: 'parseWorkbook' })
   }
 })()
 
+;(function setupCalcPortfolio() {
+  const refreshBtn = document.getElementById('calc-portfolio-refresh')
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', function (event) {
+      event.stopPropagation()
+      vscode.postMessage({ type: 'requestCalcPortfolio' })
+    })
+  }
+
+  const list = document.getElementById('calc-portfolio-list')
+  if (!list) { return }
+
+  const tooltip = document.createElement('div')
+  tooltip.style.cssText =
+    'position:fixed;z-index:9999;display:none;max-width:320px;max-height:220px;' +
+    'overflow:auto;background:var(--vscode-editorHoverWidget-background,#252526);' +
+    'border:1px solid var(--vscode-editorHoverWidget-border,#454545);' +
+    'border-radius:4px;padding:8px 10px;' +
+    'font-family:var(--vscode-editor-font-family,monospace);font-size:11px;line-height:1.5;' +
+    'color:var(--vscode-editorHoverWidget-foreground,#cccccc);pointer-events:none;' +
+    'white-space:pre-wrap;word-break:break-word;box-shadow:0 2px 8px rgba(0,0,0,0.4)'
+  tooltip.className = 'fx-hl'
+  document.body.appendChild(tooltip)
+
+  function calcAt(row) {
+    const gi = parseInt(row.getAttribute('data-g') || '', 10)
+    const ci = parseInt(row.getAttribute('data-i') || '', 10)
+    if (isNaN(gi) || isNaN(ci)) { return null }
+    const g = state.calcPortfolioGroups[gi]
+    if (!g || !g.calcs) { return null }
+    return g.calcs[ci] || null
+  }
+
+  list.addEventListener('click', function (event) {
+    // Category header → collapse/expand (these rows are added after load, so the
+    // generic .ssh handler never bound to them).
+    const cat = event.target.closest('.ssh')
+    if (cat && list.contains(cat)) {
+      tSS(cat)
+      tooltip.style.display = 'none'
+      return
+    }
+    const row = event.target.closest('[data-action="insertPortfolio"]')
+    if (!row) { return }
+    const calc = calcAt(row)
+    if (!calc) { return }
+    const header = '// ' + calc.title + (calc.description ? ' - ' + calc.description : '')
+    vscode.postMessage({ type: 'insertFormula', formula: header + '\n' + calc.formula })
+  })
+
+  list.addEventListener('mouseover', function (event) {
+    const row = event.target.closest('[data-action="insertPortfolio"]')
+    if (!row || !(row instanceof HTMLElement)) {
+      tooltip.style.display = 'none'
+      return
+    }
+    const calc = calcAt(row)
+    if (!calc || !calc.formula) { return }
+
+    tooltip.innerHTML =
+      (calc.description
+        ? '<div style="opacity:.7;margin-bottom:5px;font-family:var(--vscode-font-family,sans-serif)">' +
+          escapeHtml(calc.description) + '</div>'
+        : '') +
+      highlightFormula(calc.formula)
+    tooltip.style.display = 'block'
+
+    const rect = row.getBoundingClientRect()
+    const tipH = Math.min(220, tooltip.scrollHeight + 20)
+    const spaceBelow = window.innerHeight - rect.bottom
+    tooltip.style.top = (spaceBelow >= tipH + 8
+      ? rect.bottom + 4
+      : Math.max(4, rect.top - tipH - 4)) + 'px'
+    tooltip.style.left = Math.max(4, rect.left) + 'px'
+    tooltip.style.width = Math.min(320, window.innerWidth - rect.left - 8) + 'px'
+  })
+
+  list.addEventListener('mouseleave', function () {
+    tooltip.style.display = 'none'
+  })
+})()
+
 ;(function setupWorkbookCalcHover() {
   const TOOLTIP_CSS =
     'position:fixed;z-index:9999;display:none;max-width:320px;max-height:220px;' +
@@ -1706,6 +1893,7 @@ vscode.postMessage({ type: 'parseWorkbook' })
 
   const tooltip = document.createElement('div')
   tooltip.style.cssText = TOOLTIP_CSS
+  tooltip.className = 'fx-hl'
   document.body.appendChild(tooltip)
 
   const workbookSb = document.getElementById('workbook-sb')
@@ -1941,45 +2129,66 @@ const CONNECTION_LABELS = {
   'generic-odbc': 'ODBC',
 }
 
+// Token sets mirror syntaxes/twbl.tmLanguage.json so the preview matches the
+// editor's syntax highlighting (Dark Modern colours, see .fx-hl / .tree-formula CSS).
+const TLSP_KEYWORDS =
+  /\b(IF|THEN|ELSE|ELSEIF|END|CASE|WHEN|AND|OR|NOT|IN|FIXED|INCLUDE|EXCLUDE|AGGREGATE|TRUE|FALSE|NULL)\b/gi
+const TLSP_FUNCTIONS = new RegExp(
+  '\\b(' +
+    // aggregate
+    'SUM|AVG|COUNT|COUNTD|MIN|MAX|MEDIAN|STDEV|STDEVP|VAR|VARP|PERCENTILE|ATTR|' +
+    // date
+    'DATEADD|DATEDIFF|DATEPART|DATETRUNC|DATENAME|DATEPARSE|TODAY|NOW|YEAR|MONTH|DAY|HOUR|MINUTE|SECOND|WEEKDAY|QUARTER|MAKEDATE|MAKEDATETIME|MAKETIME|' +
+    // string
+    'LEFT|RIGHT|MID|LEN|CONTAINS|STARTSWITH|ENDSWITH|REPLACE|SUBSTITUTE|TRIM|LTRIM|RTRIM|UPPER|LOWER|PROPER|SPLIT|FIND|FINDNTH|REGEXP_EXTRACT|REGEXP_MATCH|REGEXP_REPLACE|ASCII|CHAR|' +
+    // logical
+    'ISNULL|IFNULL|IIF|ISDATE|ISEMPTY|ZN|' +
+    // math
+    'ABS|ACOS|ASIN|ATAN|ATAN2|CEILING|COS|COT|DEGREES|EXP|FLOOR|HEXBINX|HEXBINY|LN|LOG|PI|POWER|RADIANS|ROUND|SIGN|SIN|SQRT|SQUARE|TAN|DIV|' +
+    // table calc
+    'FIRST|INDEX|LAST|LOOKUP|PREVIOUS_VALUE|RANK|RANK_DENSE|RANK_UNIQUE|RUNNING_AVG|RUNNING_COUNT|RUNNING_MAX|RUNNING_MIN|RUNNING_SUM|SIZE|TOTAL|WINDOW_AVG|WINDOW_COUNT|WINDOW_MAX|WINDOW_MIN|WINDOW_SUM|WINDOW_MEDIAN|WINDOW_STDEV|WINDOW_VAR|' +
+    // type conversion
+    'BOOL|DATE|DATETIME|FLOAT|INT|STR' +
+    ')\\b',
+  'gi',
+)
+
 function highlightFormula(formula) {
   if (!formula) {
     return ''
   }
   let result = escapeHtml(formula)
   const placeholders = []
-  function stashHighlight(type, value) {
-    const token = '@@TLSP_' + type + '_' + placeholders.length + '@@'
-    placeholders.push({
-      token,
-      html:
-        '<span class="' + (type === 'FIELD' ? 'fld' : 'str') + '">' + value + '</span>',
-    })
+  function stash(cls, value) {
+    const token = '@@TLSP_' + placeholders.length + '@@'
+    placeholders.push({ token, html: '<span class="' + cls + '">' + value + '</span>' })
     return token
   }
 
-  // Protect fields and string literals before keyword/function matching so
-  // words like CASE inside [Case Type] do not get split into mixed colors.
-  result = result.replace(/(\[[^\]]+\])/g, function (match) {
-    return stashHighlight('FIELD', match)
-  })
-  result = result.replace(/(&quot;[^<]*?&quot;|'[^'<\r\n]*')/g, function (match) {
-    return stashHighlight('STRING', match)
-  })
+  // Protect, in editor precedence, the spans whose contents must NOT be re-tokenised:
+  // block comments, line comments, string literals, then field references. (Keywords
+  // like CASE inside [Case Type] or a // comment must stay a single colour.)
+  // Match strings in their escaped form (escapeHtml has already run): "…" is &quot;…&quot;
+  // and '…' is &#39;…&#39;. Stashing them here also protects the digits inside &#39;
+  // from the numeric-literal pass below.
+  result = result.replace(/\/\*[\s\S]*?\*\//g, function (m) { return stash('cmt', m) })
+  result = result.replace(/\/\/[^\r\n]*/g, function (m) { return stash('cmt', m) })
+  result = result.replace(/&quot;[^<]*?&quot;|&#39;[^<]*?&#39;/g, function (m) { return stash('str', m) })
+  result = result.replace(/\[[^\]]+\]/g, function (m) { return stash('fld', m) })
 
-  // Control flow keywords (blue)
-  result = result.replace(
-    /\b(IF|THEN|ELSE|ELSEIF|END|CASE|WHEN|AND|OR|NOT|TRUE|FALSE|NULL)\b/gi,
-    '<span class="kw">$1</span>',
-  )
-  // Function names (yellow)
-  result = result.replace(
-    /\b(SUM|AVG|COUNT|COUNTD|MIN|MAX|ATTR|CONTAINS|STARTSWITH|ENDSWITH|LEN|LEFT|RIGHT|TRIM|REPLACE|SPLIT|MID|FIND|UPPER|LOWER|FLOOR|CEILING|ROUND|ABS|ZN|ISNULL|ISDATE|DATE|DATEPART|DATEDIFF|DATEADD|TODAY|NOW|STR|INT|FLOAT|IFNULL|IIF|LOOKUP|WINDOW_SUM|WINDOW_AVG|WINDOW_COUNT|WINDOW_MIN|WINDOW_MAX|FIRST|LAST|SIZE|INDEX|RANK|PERCENTILE|STDEV|VAR|COLLECT|FIXED|INCLUDE|EXCLUDE)\b/gi,
-    '<span class="fn">$1</span>',
-  )
+  // Keywords (blue), functions (yellow), numeric literals (green). The lookbehind keeps
+  // digits that belong to a word or an HTML entity (e.g. the 39 in &#39;) from matching.
+  result = result.replace(TLSP_KEYWORDS, '<span class="kw">$1</span>')
+  result = result.replace(TLSP_FUNCTIONS, '<span class="fn">$1</span>')
+  result = result.replace(/(?<![\w#])\d+(?:\.\d+)?\b/g, '<span class="num">$&</span>')
 
-  placeholders.forEach(function (entry) {
-    result = result.split(entry.token).join(entry.html)
-  })
+  // Expand placeholders; loop so comment/string spans that contain other tokens resolve.
+  let guard = 0
+  while (result.indexOf('@@TLSP_') !== -1 && guard++ < 100) {
+    placeholders.forEach(function (entry) {
+      result = result.split(entry.token).join(entry.html)
+    })
+  }
   return result
 }
 
@@ -2153,7 +2362,7 @@ function renderDatasources(datasources) {
     return
   }
   el.innerHTML = joinWithShowMore(
-    datasources.map((ds) => {
+    datasources.map((ds, idx) => {
       const caption = escapeHtml(ds.caption || 'Unknown')
       const cls = ds.connectionClass || 'unknown'
       const label = CONNECTION_LABELS[cls] || escapeHtml(cls)
@@ -2166,6 +2375,11 @@ function renderDatasources(datasources) {
         '<span class="ti-type">' +
         label +
         '</span>' +
+        '<div class="ti-actions">' +
+        '<button class="ib" data-action="generate-field-defs" data-index="' +
+        idx +
+        '" title="Create field definitions (fields.d.twbl)"><svg class="ic" aria-hidden="true"><use href="#i-field"/></svg></button>' +
+        '</div>' +
         '</div>'
       )
     }),

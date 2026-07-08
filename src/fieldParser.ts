@@ -9,9 +9,20 @@ export interface CustomField {
 
 export class FieldParser {
     private fieldMap = new Map<string, CustomField>();
+    private overlayPath: string | null = null;
 
     constructor(private filePath: string) {
         this.parseDefinitionFile();
+    }
+
+    /**
+     * Sets a second definition file (e.g. a workspace-level fields.d.twbl)
+     * parsed after the primary one, so its definitions win on name clashes.
+     * A missing overlay file is not an error — it is simply skipped.
+     */
+    public setOverlayPath(overlayPath: string | null): void {
+        this.overlayPath = overlayPath;
+        this.refresh();
     }
 
     /**
@@ -36,6 +47,15 @@ export class FieldParser {
         } catch (error) {
             console.error(`Failed to parse field definition file ${this.filePath}:`, error);
         }
+
+        if (this.overlayPath) {
+            try {
+                const overlayContent = readFileSync(this.overlayPath, 'utf-8');
+                this.parseFields(overlayContent);
+            } catch {
+                // Overlay is optional — absent file is fine.
+            }
+        }
     }
 
     private parseFields(content: string) {
@@ -46,6 +66,13 @@ export class FieldParser {
             const line = lines[i].trim();
 
             if (line.startsWith('/**')) {
+                // Handle single-line JSDoc: /** text */
+                const singleLineMatch = line.match(/^\/\*\*\s*(.*?)\s*\*\/\s*$/);
+                if (singleLineMatch) {
+                    currentDescription = singleLineMatch[1].trim();
+                    continue;
+                }
+
                 currentDescription = '';
                 let j = i + 1;
                 while (j < lines.length && !lines[j].trim().startsWith('*/')) {
