@@ -168,7 +168,16 @@ function ensureTableStyle(table: string, eol: string): string {
     if (styleMatch && styleMatch.index !== undefined) {
         const indent = styleMatch[1];
         const updatedBody = ensureStyleRules(styleMatch[2], indent, eol);
-        const updatedStyle = `${indent}<style>${updatedBody}${indent}</style>`;
+        if (updatedBody === styleMatch[2]) {
+            return table;
+        }
+        // Normalise the tail so the closing indent is applied exactly once,
+        // keeping repeated runs byte-identical (idempotent).
+        let normalized = updatedBody.replace(/[ \t]+$/, '');
+        if (!normalized.endsWith(eol)) {
+            normalized += eol;
+        }
+        const updatedStyle = `${indent}<style>${normalized}${indent}</style>`;
         return head.slice(0, styleMatch.index) + updatedStyle
             + head.slice(styleMatch.index + styleMatch[0].length) + tail;
     }
@@ -204,9 +213,13 @@ function ensureStyleRules(styleBody: string, styleIndent: string, eol: string): 
                     ruleBody = `${eol}${innerIndent}${fmt.node}${eol}${rest}`;
                 }
             }
-            body = body.slice(0, existing.index)
-                + `${existing[1]}<style-rule element='${rule.element}'>${ruleBody}</style-rule>`
-                + body.slice(existing.index + existing[0].length);
+            if (ruleBody !== existing[2]) {
+                // Splice into the original tag text so quoting/attributes survive.
+                const openEnd = existing[0].indexOf('>') + 1;
+                const rebuilt = existing[0].slice(0, openEnd) + ruleBody + '</style-rule>';
+                body = body.slice(0, existing.index) + rebuilt
+                    + body.slice(existing.index + existing[0].length);
+            }
         } else {
             const nodes = rule.formats
                 .map(f => `${formatIndent}${f.node}`)
@@ -232,19 +245,23 @@ export interface FormatScanResult {
 }
 
 export function scanFormattingXml(xml: string): FormatScanResult {
-    function collect(patterns: RegExp[]): FormatCategoryScan {
+    function collect(patterns: RegExp[], keep?: (value: string) => boolean): FormatCategoryScan {
         const found: string[] = [];
         for (const pat of patterns) {
             let m: RegExpExecArray | null;
             const re = new RegExp(pat.source, 'g');
             while ((m = re.exec(xml)) !== null) {
                 const val = m[1];
-                if (val !== undefined) { found.push(val); }
+                if (val !== undefined && (!keep || keep(val))) { found.push(val); }
             }
         }
         const unique = [...new Set(found)].sort();
         return { count: found.length, values: unique };
     }
+
+    // Neutral border values are exactly what the strip pass writes; counting
+    // them would show borders as strippable right after a successful strip.
+    const strippable = (value: string): boolean => value !== 'none' && value !== '0';
 
     return {
         borders: collect([
@@ -254,7 +271,7 @@ export function scanFormattingXml(xml: string): FormatScanResult {
             /attr=['"]div-level['"][^>]*value=['"]([^'"]*)['"]/,
             /attr=['"]stroke-color['"][^>]*scope=['"](?:rows|cols)['"][^>]*value=['"]([^'"]*)['"]/,
             /attr=['"]stroke-color['"][^>]*value=['"]([^'"]*)['"][^>]*scope=['"](?:rows|cols)['"]/,
-        ]),
+        ], strippable),
         bold: collect([
             /attr=['"]font-bold['"][^>]*value=['"]([^'"]*)['"]/,
         ]),

@@ -231,6 +231,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 if (p.endsWith('.twb') || p.endsWith('.twbx')) {
                     this.lastWorkbookUri = doc.uri;
                     void this.postWorkbookData();
+                    void this.scanWorkbookFormatting();
                 }
             })
         );
@@ -250,6 +251,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                         if (p.endsWith('.twb') || p.endsWith('.twbx')) {
                             this.lastWorkbookUri = uri;
                             void this.postWorkbookData();
+                            void this.scanWorkbookFormatting();
                         }
                     }
                 }
@@ -267,6 +269,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 void this.postPaletteData();
                 void this.postContextData();
                 void this.postWorkbookData();
+                void this.scanWorkbookFormatting();
             }
         });
 
@@ -1134,6 +1137,34 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         return this.lastWorkbookUri;
     }
 
+    /** Prefers the open editor buffer over disk so dirty edits are respected. */
+    private async readWorkbookXml(uri: vscode.Uri): Promise<string> {
+        const openDoc = vscode.workspace.textDocuments.find(d => d.uri.toString() === uri.toString());
+        if (openDoc) {
+            return openDoc.getText();
+        }
+        const parser = new TWBParser();
+        return (await parser.parseWorkbook(uri)).xml;
+    }
+
+    /** Writes through the open editor (undo-able, no disk/buffer conflict) when one exists. */
+    private async writeWorkbookXml(uri: vscode.Uri, xml: string): Promise<void> {
+        const openDoc = vscode.workspace.textDocuments.find(d => d.uri.toString() === uri.toString());
+        if (openDoc) {
+            const edit = new vscode.WorkspaceEdit();
+            const fullRange = new vscode.Range(openDoc.positionAt(0), openDoc.positionAt(openDoc.getText().length));
+            edit.replace(uri, fullRange, xml);
+            const applied = await vscode.workspace.applyEdit(edit);
+            if (!applied) {
+                throw new Error('Editor rejected the workbook edit.');
+            }
+            await openDoc.save();
+            return;
+        }
+        const parser = new TWBParser();
+        await parser.writeWorkbook(uri, xml);
+    }
+
     private async stripWorkbookFormatting(rawOptions: unknown): Promise<void> {
         const options = coerceStripOptions(rawOptions);
 
@@ -1148,16 +1179,15 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         }
 
         try {
-            const parser = new TWBParser();
-            const workbookDoc = await parser.parseWorkbook(workbookUri);
-            const updatedXml = stripFormattingXml(workbookDoc.xml, options);
+            const originalXml = await this.readWorkbookXml(workbookUri);
+            const updatedXml = stripFormattingXml(originalXml, options);
 
-            if (updatedXml === workbookDoc.xml) {
+            if (updatedXml === originalXml) {
                 await this.postFormatStripStatus('No matching format attributes found.', 'info');
                 return;
             }
 
-            await parser.writeWorkbook(workbookUri, updatedXml);
+            await this.writeWorkbookXml(workbookUri, updatedXml);
             await this.postFormatStripStatus('Formatting stripped successfully.', 'success');
             void this.scanWorkbookFormatting();
         } catch (error: unknown) {
@@ -1177,12 +1207,13 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         }
         const workbookUri = this.resolveStripTarget();
         if (!workbookUri || workbookUri.path.toLowerCase().endsWith('.twbx')) {
+            // Clear the labels so counts from a previous workbook don't linger.
+            await this.view.webview.postMessage({ type: 'formatStripScan', result: null });
             return;
         }
         try {
-            const parser = new TWBParser();
-            const workbookDoc = await parser.parseWorkbook(workbookUri);
-            const result = scanFormattingXml(workbookDoc.xml);
+            const xml = await this.readWorkbookXml(workbookUri);
+            const result = scanFormattingXml(xml);
             await this.view.webview.postMessage({ type: 'formatStripScan', result });
         } catch {
             // Scan is best-effort; never surface noise.

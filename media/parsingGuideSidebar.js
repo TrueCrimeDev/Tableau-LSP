@@ -2587,7 +2587,14 @@ function setFormatStripStatus(message, tone) {
 }
 
 function updateStripLabels(result) {
+  const ids = ['strip-borders-info', 'strip-bold-info', 'strip-font-size-info', 'strip-font-color-info']
   if (!result) {
+    for (const id of ids) {
+      const el = document.getElementById(id)
+      if (el) {
+        el.textContent = ''
+      }
+    }
     return
   }
   setStripLabelInfo('strip-borders-info', result.borders)

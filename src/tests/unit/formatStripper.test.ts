@@ -172,15 +172,15 @@ describe('stripFormattingXml — realistic multi-line block', () => {
 });
 
 describe('scanFormattingXml — borders', () => {
-    it('counts border-style nodes and collects unique values', () => {
+    it('counts strippable border-style nodes, ignoring neutral none values', () => {
         const xml = [
             `<format attr='border-style' value='solid' />`,
             `<format attr='border-style' value='none' />`,
             `<format attr='border-style' value='solid' />`,
         ].join('\n');
         const result = scanFormattingXml(xml);
-        expect(result.borders.count).toBe(3);
-        expect(result.borders.values).toEqual(['none', 'solid']);
+        expect(result.borders.count).toBe(2);
+        expect(result.borders.values).toEqual(['solid']);
     });
 
     it('counts border-width, border-color, div-level nodes', () => {
@@ -411,5 +411,88 @@ describe('stripFormattingXml — regex gap fixes', () => {
         const xml = `<format attr='stroke-color' value='#000000' />`;
         const result = stripFormattingXml(xml, bordersOnly);
         expect(result).toBe(xml);
+    });
+});
+
+describe('suppressInheritedBorders — idempotency and preservation', () => {
+    const bordersOnly: FormatStripOptions = { borders: true, bold: false, fontSize: false, fontColor: false };
+
+    function sheet(tableInner: string): string {
+        return `<worksheet name='S'>\n  <table>\n${tableInner}\n  </table>\n</worksheet>`;
+    }
+
+    it('is a no-op when every suppression node already exists', () => {
+        const xml = sheet([
+            `    <style>`,
+            `      <style-rule element='cell'>`,
+            `        <format attr='border-style' value='none' />`,
+            `      </style-rule>`,
+            `      <style-rule element='header'>`,
+            `        <format attr='border-style' value='none' />`,
+            `      </style-rule>`,
+            `      <style-rule element='pane'>`,
+            `        <format attr='border-style' value='none' />`,
+            `        <format attr='border-width' value='0' />`,
+            `      </style-rule>`,
+            `      <style-rule element='table-div'>`,
+            `        <format attr='div-level' scope='cols' value='0' />`,
+            `        <format attr='div-level' scope='rows' value='0' />`,
+            `      </style-rule>`,
+            `    </style>`,
+        ].join('\n'));
+        expect(suppressInheritedBorders(xml)).toBe(xml);
+    });
+
+    it('strip twice produces identical output (idempotent)', () => {
+        const once = stripFormattingXml(sheet(`    <style>\n    </style>`), bordersOnly);
+        const twice = stripFormattingXml(once, bordersOnly);
+        expect(twice).toBe(once);
+    });
+
+    it('strip twice is idempotent when the table has no style at all', () => {
+        const once = stripFormattingXml(sheet(`    <view />`), bordersOnly);
+        const twice = stripFormattingXml(once, bordersOnly);
+        expect(twice).toBe(once);
+    });
+
+    it('preserves double-quoted style-rule tags when splicing formats in', () => {
+        const xml = sheet([
+            `    <style>`,
+            `      <style-rule element="cell">`,
+            `        <format attr='width' value='66' />`,
+            `      </style-rule>`,
+            `    </style>`,
+        ].join('\n'));
+        const result = suppressInheritedBorders(xml);
+        expect(result).toContain(`<style-rule element="cell">`);
+        expect(result).toContain(`<format attr='border-style' value='none' />`);
+    });
+});
+
+describe('scanFormattingXml — neutral border values are not strippable', () => {
+    it('does not count border nodes already set to none/0', () => {
+        const xml = [
+            `<format attr='border-style' value='none' />`,
+            `<format attr='border-width' value='0' />`,
+            `<format attr='div-level' scope='rows' value='0' />`,
+            `<format attr='stroke-color' scope='cols' value='none' />`,
+        ].join('\n');
+        expect(scanFormattingXml(xml).borders.count).toBe(0);
+    });
+
+    it('still counts real border values', () => {
+        const xml = [
+            `<format attr='border-style' value='solid' />`,
+            `<format attr='border-color' value='#000000' />`,
+        ].join('\n');
+        const scan = scanFormattingXml(xml).borders;
+        expect(scan.count).toBe(2);
+        expect(scan.values).toEqual(['#000000', 'solid']);
+    });
+
+    it('reports zero strippable borders right after a strip', () => {
+        const xml = `<worksheet name='S'>\n  <table>\n    <style>\n      <style-rule element='pane'>\n        <format attr='border-style' value='solid' />\n        <format attr='border-color' value='#000000' />\n      </style-rule>\n    </style>\n  </table>\n</worksheet>`;
+        const stripped = stripFormattingXml(xml, { borders: true, bold: false, fontSize: false, fontColor: false });
+        expect(scanFormattingXml(stripped).borders.count).toBe(0);
     });
 });
