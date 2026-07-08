@@ -29,6 +29,8 @@ import {
 import { filterAndDedupe, normalize, normalizeFormula } from '../extract/normalize.js';
 import { generateNotesFile } from '../extract/outputGenerator.js';
 import { extractFromFile } from '../extract/zip.js';
+import { ExtractedField } from '../extract/types.js';
+import { generateFieldDefsSection, upsertDatasourceSection } from '../extract/fieldDefsGenerator.js';
 import { getLogger } from '../logging/logger.js';
 import {
     readThemeFromXml,
@@ -39,6 +41,7 @@ import {
     WorkbookTheme,
 } from '../parsers/formattingTheme.js';
 import { locateXmlElement } from './formattingPanel.js';
+import { CALC_PORTFOLIO } from './calcPortfolio.js';
 
 const log = getLogger();
 const LOG_CAT = 'WorkbookInspector';
@@ -51,6 +54,8 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
     private view: vscode.WebviewView | undefined;
     private lastWorkbookUri: vscode.Uri | undefined;
     private postWorkbookPending = false;
+    private lastExtractedFields: ExtractedField[] = [];
+    private lastWorkbookFileName = '';
 
     public constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -105,6 +110,11 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 case 'extractCalculations':
                     void this.extractCalculationsToFile();
                     break;
+                case 'generateFieldDefs':
+                    void this.generateFieldDefinitions(typeof (payload as { datasource?: unknown }).datasource === 'string'
+                        ? (payload as { datasource: string }).datasource
+                        : '');
+                    break;
                 case 'openFormattingPanel':
                     void vscode.commands.executeCommand('tableauLanguageSupport.openFormattingPanel');
                     break;
@@ -151,6 +161,9 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 }
                 case 'requestCalcBank':
                     void this.postCalcBankData();
+                    break;
+                case 'requestCalcPortfolio':
+                    void this.postCalcPortfolio();
                     break;
                 case 'webviewDiag': {
                     const diagMsg = (payload as { message?: string }).message ?? '(no message)';
@@ -743,6 +756,11 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
 
             log.info(LOG_CAT, `postWorkbookData: extracted ${calculations.length} calcs, ${datasourcesRaw.length} datasources, ${fields.length} fields, ${worksheets.length} worksheets, ${palettes.length} palettes`);
 
+            // Cache for the "generate field definitions" sidebar action so a
+            // datasource click doesn't have to re-parse the workbook.
+            this.lastExtractedFields = fields;
+            this.lastWorkbookFileName = fileName;
+
             const richData: RichWorkbookData = {
                 fileName,
                 filePath: uri.fsPath,
@@ -797,7 +815,11 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             await this.view.webview.postMessage({ type: 'calcBankLoaded', calcs: [], error: 'No _calc_bank.twbl found in workspace root.' });
             return;
         }
-        // Parse blocks separated by blank lines. Each block: first line = "// Title", rest = formula.
+        await this.view.webview.postMessage({ type: 'calcBankLoaded', calcs: this.parseCalcBankText(text) });
+    }
+
+    // Parse blocks separated by blank lines. Each block: first line = "// Title", rest = formula.
+    private parseCalcBankText(text: string): { title: string; formula: string }[] {
         const calcs: { title: string; formula: string }[] = [];
         const blocks = text.split(/\n\s*\n/);
         for (const block of blocks) {
@@ -809,7 +831,39 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             const formula = lines.slice(1).join('\n').trim();
             if (title) { calcs.push({ title, formula }); }
         }
-        await this.view.webview.postMessage({ type: 'calcBankLoaded', calcs });
+        return calcs;
+    }
+
+    // Best-effort read of the workspace _calc_bank.twbl (empty list if absent).
+    private async readCalcBank(): Promise<{ title: string; formula: string }[]> {
+        const folders = vscode.workspace.workspaceFolders;
+        if (!folders || folders.length === 0) { return []; }
+        const bankUri = vscode.Uri.joinPath(folders[0].uri, '_calc_bank.twbl');
+        try {
+            const bytes = await vscode.workspace.fs.readFile(bankUri);
+            return this.parseCalcBankText(new TextDecoder('utf-8').decode(bytes));
+        } catch {
+            return [];
+        }
+    }
+
+    private async postCalcPortfolio(): Promise<void> {
+        if (!this.view) { return; }
+        // The user's own _calc_bank.twbl entries are merged in as the first, expanded
+        // group, followed by the bundled stock examples.
+        const groups: Array<{ category: string; open?: boolean; calcs: Array<{ title: string; description: string; formula: string }> }> = [];
+        const userCalcs = await this.readCalcBank();
+        if (userCalcs.length > 0) {
+            groups.push({
+                category: 'My Calculations',
+                open: true,
+                calcs: userCalcs.map(c => ({ title: c.title, description: 'From _calc_bank.twbl', formula: c.formula }))
+            });
+        }
+        for (const g of CALC_PORTFOLIO) {
+            groups.push({ category: g.category, calcs: g.calcs });
+        }
+        await this.view.webview.postMessage({ type: 'calcPortfolioLoaded', groups });
     }
 
     private async extractCalculationsToFile(): Promise<void> {
@@ -843,6 +897,64 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : String(error);
             await this.postStatus(`Failed to extract calculations: ${message}`, 'error');
+        }
+    }
+
+    /**
+     * Generates FieldParser-format declarations for one datasource's fields
+     * into <workspaceRoot>/fields.d.twbl. Per-datasource sections are merged,
+     * so regenerating one datasource leaves the others intact. The language
+     * server watches this file and picks the definitions up immediately.
+     */
+    private async generateFieldDefinitions(datasource: string): Promise<void> {
+        if (!this.view) { return; }
+
+        if (!datasource) {
+            await this.postStatus('No datasource selected.', 'error');
+            return;
+        }
+        if (this.lastExtractedFields.length === 0) {
+            await this.postStatus('No workbook loaded. Open a .twb or .twbx file first.', 'error');
+            return;
+        }
+
+        const fields = this.lastExtractedFields.filter(f => f.datasource === datasource);
+        if (fields.length === 0) {
+            await this.postStatus(`No fields found for datasource "${datasource}".`, 'info');
+            return;
+        }
+
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            await this.postStatus('No workspace folder open — cannot write fields.d.twbl.', 'error');
+            return;
+        }
+
+        try {
+            const targetUri = vscode.Uri.joinPath(workspaceFolder.uri, 'fields.d.twbl');
+
+            let existing = '';
+            try {
+                const bytes = await vscode.workspace.fs.readFile(targetUri);
+                existing = new TextDecoder('utf-8').decode(bytes);
+            } catch {
+                // File doesn't exist yet — start fresh.
+            }
+
+            const section = generateFieldDefsSection(fields, datasource, this.lastWorkbookFileName);
+            const updated = upsertDatasourceSection(existing, datasource, section);
+            await vscode.workspace.fs.writeFile(targetUri, Buffer.from(updated, 'utf8'));
+
+            const doc = await vscode.workspace.openTextDocument(targetUri);
+            await vscode.window.showTextDocument(doc, { preview: false });
+
+            await this.postStatus(
+                `Wrote ${fields.length} field definition(s) for "${datasource}" to fields.d.twbl.`,
+                'success'
+            );
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            await this.postStatus(`Failed to generate field definitions: ${message}`, 'error');
         }
     }
 
@@ -1330,10 +1442,14 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
           color: var(--vscode-descriptionForeground); white-space: nowrap;
           overflow: hidden; text-overflow: ellipsis;
         }
-        .tree-formula .kw { color: #569cd6; }
-        .tree-formula .fn { color: #dcdcaa; }
-        .tree-formula .fld { color: #9cdcfe; }
-        .tree-formula .str { color: #ce9178; }
+        /* Editor-matching token colours (Dark Modern). Applied to inline formula
+           previews (.tree-formula) and to the floating hover previews (.fx-hl). */
+        .tree-formula .kw,  .fx-hl .kw  { color: #569cd6; }
+        .tree-formula .fn,  .fx-hl .fn  { color: #dcdcaa; }
+        .tree-formula .fld, .fx-hl .fld { color: #9cdcfe; }
+        .tree-formula .str, .fx-hl .str { color: #ce9178; }
+        .tree-formula .num, .fx-hl .num { color: #b5cea8; }
+        .tree-formula .cmt, .fx-hl .cmt { color: #6a9955; font-style: italic; }
 
         /* Palette empty sub-state */
         .sub-empty {
@@ -1834,6 +1950,19 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
     </div>
     <div class="sb" id="calc-bank-sb">
       <div id="calc-bank-list"><div style="padding:8px;font-size:11px;color:var(--vscode-descriptionForeground)">Click ↺ to load _calc_bank.twbl from workspace root.</div></div>
+    </div>
+
+    <!-- ====== CALCULATION PORTFOLIO ====== -->
+    <div class="sh">
+      <span class="cv"><svg class="ic" style="width:10px;height:10px"><use href="#i-chev-d"/></svg></span>
+      Calculation Portfolio
+      <div class="ha">
+        <button class="ib" id="calc-portfolio-refresh" title="Reload stock examples"><svg class="ic"><use href="#i-refresh"/></svg></button>
+      </div>
+    </div>
+    <div class="sb" id="calc-portfolio-sb">
+      <div style="padding:6px 8px 2px;font-size:11px;color:var(--vscode-descriptionForeground)">Stock examples — click to insert at the cursor, hover to preview.</div>
+      <div id="calc-portfolio-list"><div style="padding:8px;font-size:11px;color:var(--vscode-descriptionForeground)">Loading examples…</div></div>
     </div>
 
     <!-- ====== COMMANDS & REFERENCE ====== -->

@@ -77,11 +77,72 @@ try {
     console.warn('[Server] Field definition hot-reload disabled:', e);
 }
 
+/**
+ * Overlays a workspace-level fields.d.twbl (generated from the Tableau Tools
+ * sidebar) on top of the bundled definitions, and watches the workspace root
+ * so edits — or the file first appearing — are picked up without a restart.
+ */
+function setupWorkspaceFieldDefinitions(workspaceRootPath: string): void {
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        const { CompletionPerformanceAPI } = require('./completionProvider');
+        const { HoverPerformanceAPI } = require('./hoverProvider');
+
+        const overlayPath = path.join(workspaceRootPath, 'fields.d.twbl');
+
+        if (fieldParser) {
+            fieldParser.setOverlayPath(overlayPath);
+        } else if (fs.existsSync(overlayPath)) {
+            // No bundled definitions found — use the workspace file directly.
+            fieldParser = new FieldParser(overlayPath);
+        }
+
+        let reloadTimer: ReturnType<typeof setTimeout> | undefined;
+        fs.watch(workspaceRootPath, { persistent: false }, (_event: string, filename: string | null) => {
+            if (filename !== 'fields.d.twbl') {
+                return;
+            }
+            // fs.watch often fires multiple events per save — coalesce them.
+            if (reloadTimer) {
+                clearTimeout(reloadTimer);
+            }
+            reloadTimer = setTimeout(() => {
+                try {
+                    if (fieldParser) {
+                        fieldParser.refresh();
+                    } else if (fs.existsSync(overlayPath)) {
+                        fieldParser = new FieldParser(overlayPath);
+                    }
+                    CompletionPerformanceAPI.clearCache();
+                    HoverPerformanceAPI.clearCaches();
+                    connection.console.log('[Server] Reloaded workspace fields.d.twbl and cleared caches');
+                } catch (e) {
+                    connection.console.error('[Server] Failed to reload workspace fields.d.twbl: ' + e);
+                }
+            }, 100);
+        });
+    } catch (e) {
+        console.warn('[Server] Workspace field definitions disabled:', e);
+    }
+}
+
 let hasConfigurationCapability = false;
 let hasWorkspaceFolderCapability = false;
 
 connection.onInitialize((params) => {
     const capabilities = params.capabilities;
+
+    // Wire up the workspace-level fields.d.twbl overlay (first folder wins).
+    try {
+        const rootUri = params.workspaceFolders?.[0]?.uri;
+        if (rootUri && rootUri.startsWith('file:')) {
+            const { fileURLToPath } = require('url');
+            setupWorkspaceFieldDefinitions(fileURLToPath(rootUri));
+        }
+    } catch (e) {
+        console.warn('[Server] Could not resolve workspace root for field definitions:', e);
+    }
 
     hasConfigurationCapability = !!(
         capabilities.workspace && !!capabilities.workspace.configuration
