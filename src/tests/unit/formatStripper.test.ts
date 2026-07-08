@@ -1,4 +1,4 @@
-import { stripFormattingXml, scanFormattingXml, FormatStripOptions } from '../../parsers/formatStripper.js';
+import { stripFormattingXml, scanFormattingXml, suppressInheritedBorders, FormatStripOptions } from '../../parsers/formatStripper.js';
 
 const none: FormatStripOptions = { borders: false, bold: false, fontSize: false, fontColor: false };
 
@@ -289,5 +289,127 @@ describe('scanFormattingXml — mixed document', () => {
         expect(result.bold.count).toBe(1);
         expect(result.fontSize.count).toBe(1);
         expect(result.fontColor.count).toBe(1);
+    });
+});
+
+describe('suppressInheritedBorders', () => {
+    const LF = '\n';
+
+    function worksheet(tableInner: string): string {
+        return [
+            `<worksheet name='Sheet 1'>`,
+            `  <table>`,
+            tableInner,
+            `  </table>`,
+            `</worksheet>`,
+        ].join(LF);
+    }
+
+    it('inserts a full style block when the table has none', () => {
+        const xml = worksheet(`    <view />${LF}    <panes>${LF}      <pane>${LF}        <style>${LF}          <style-rule element='pane'>${LF}            <format attr='minwidth' value='-1' />${LF}          </style-rule>${LF}        </style>${LF}      </pane>${LF}    </panes>`);
+        const result = suppressInheritedBorders(xml);
+        expect(result).toContain(`<style-rule element='cell'>`);
+        expect(result).toContain(`<style-rule element='header'>`);
+        expect(result).toContain(`<style-rule element='table-div'>`);
+        expect(result).toContain(`<format attr='border-style' value='none' />`);
+        expect(result).toContain(`<format attr='border-width' value='0' />`);
+        expect(result).toContain(`<format attr='div-level' scope='cols' value='0' />`);
+        expect(result).toContain(`<format attr='div-level' scope='rows' value='0' />`);
+        // The new style block must precede <panes>, and the pane-level style is untouched
+        expect(result.indexOf(`<style-rule element='cell'>`)).toBeLessThan(result.indexOf('<panes>'));
+        expect(result).toContain(`<format attr='minwidth' value='-1' />`);
+    });
+
+    it('adds missing formats into an existing style-rule without duplicating', () => {
+        const xml = worksheet([
+            `    <style>`,
+            `      <style-rule element='cell'>`,
+            `        <format attr='width' value='66' />`,
+            `      </style-rule>`,
+            `    </style>`,
+        ].join(LF));
+        const result = suppressInheritedBorders(xml);
+        // border-style inserted into the existing cell rule
+        const cellRule = result.match(/<style-rule element='cell'>[\s\S]*?<\/style-rule>/)?.[0] ?? '';
+        expect(cellRule).toContain(`<format attr='border-style' value='none' />`);
+        expect(cellRule).toContain(`<format attr='width' value='66' />`);
+        // header/pane/table-div rules appended
+        expect(result).toContain(`<style-rule element='header'>`);
+        expect(result).toContain(`<style-rule element='pane'>`);
+        expect(result).toContain(`<style-rule element='table-div'>`);
+        // exactly one cell rule
+        expect(result.match(/<style-rule element='cell'>/g)).toHaveLength(1);
+    });
+
+    it('leaves existing explicit border values alone (strip regexes handle them)', () => {
+        const xml = worksheet([
+            `    <style>`,
+            `      <style-rule element='cell'>`,
+            `        <format attr='border-style' value='solid' />`,
+            `      </style-rule>`,
+            `    </style>`,
+        ].join(LF));
+        const result = suppressInheritedBorders(xml);
+        expect(result.match(/attr='border-style'/g)).toHaveLength(3); // cell(existing) + header + pane
+        expect(result).toContain(`<format attr='border-style' value='solid' />`);
+    });
+
+    it('processes every worksheet independently', () => {
+        const xml = [
+            worksheet(`    <style>${LF}    </style>`),
+            worksheet(`    <style>${LF}    </style>`).replace("Sheet 1", "Sheet 2"),
+        ].join(LF);
+        const result = suppressInheritedBorders(xml);
+        expect(result.match(/<style-rule element='table-div'>/g)).toHaveLength(2);
+    });
+
+    it('does not touch workbook-level style outside worksheets', () => {
+        const workbookStyle = [
+            `<style>`,
+            `  <style-rule element='cell'>`,
+            `    <format attr='background-color' value='#ffffff' />`,
+            `  </style-rule>`,
+            `</style>`,
+        ].join(LF);
+        const xml = `${workbookStyle}${LF}${worksheet(`    <style>${LF}    </style>`)}`;
+        const result = suppressInheritedBorders(xml);
+        const wbStyleAfter = result.slice(0, result.indexOf('<worksheet'));
+        expect(wbStyleAfter).not.toContain('border-style');
+    });
+
+    it('preserves CRLF line endings', () => {
+        const xml = worksheet(`    <style>${LF}    </style>`).replace(/\n/g, '\r\n');
+        const result = suppressInheritedBorders(xml);
+        expect(result).toContain(`<format attr='border-style' value='none' />\r\n`);
+        expect(result.replace(/\r\n/g, '')).not.toContain('\n');
+    });
+
+    it('runs as part of stripFormattingXml borders pass', () => {
+        const xml = worksheet(`    <style>${LF}    </style>`);
+        const result = stripFormattingXml(xml, { borders: true, bold: false, fontSize: false, fontColor: false });
+        expect(result).toContain(`<format attr='border-style' value='none' />`);
+        expect(result).toContain(`<format attr='div-level' scope='rows' value='0' />`);
+    });
+});
+
+describe('stripFormattingXml — regex gap fixes', () => {
+    const bordersOnly: FormatStripOptions = { borders: true, bold: false, fontSize: false, fontColor: false };
+
+    it('strips stroke-color when value precedes scope', () => {
+        const xml = `<format attr='stroke-color' value='#000000' scope='rows' />`;
+        const result = stripFormattingXml(xml, bordersOnly);
+        expect(result).toBe(`<format attr='stroke-color' value='none' scope='rows' />`);
+    });
+
+    it('removes non-self-closing border-color nodes', () => {
+        const xml = `  <format attr='border-color' value='#000000'></format>\nrest`;
+        const result = stripFormattingXml(xml, bordersOnly);
+        expect(result).toBe('rest');
+    });
+
+    it('still leaves unscoped stroke-color untouched', () => {
+        const xml = `<format attr='stroke-color' value='#000000' />`;
+        const result = stripFormattingXml(xml, bordersOnly);
+        expect(result).toBe(xml);
     });
 });
