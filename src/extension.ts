@@ -27,6 +27,10 @@ export async function activate(context: ExtensionContext): Promise<void> {
     // ran from the catch block below, i.e. only when activation had already failed).
     registerBasicFunctionality(context);
 
+    // Register before any awaits: chat requests must not hang behind the
+    // conflicting-extension warning or language-server startup.
+    registerTableauChatParticipant(context);
+
     try {
         await warnIfConflictingExtensionInstalled();
 
@@ -180,7 +184,6 @@ async function registerAdditionalComponents(context: ExtensionContext): Promise<
         context.subscriptions.push(extractPythonCommand);
 
         registerFormattingPanel(context);
-        registerTableauChatParticipant(context);
 
         // "Copy" CodeLens above each calculation block (copies comment header + formula).
         const calcCopyLens = new CalcCopyCodeLensProvider();

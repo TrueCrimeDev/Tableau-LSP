@@ -22,7 +22,10 @@ export function composeTableauMessages(
     command?: string
 ): { context: string; question: string } {
     const focus = command && KNOWN_FOCUS.has(command) ? (command as DigestFocus) : undefined;
-    const digest = buildWorkbookDigest(xml, focus);
+    // Workbook content is untrusted: neutralise anything that could forge the
+    // primer's instruction-boundary tag inside the digest.
+    const digest = buildWorkbookDigest(xml, focus)
+        .replace(/<(\/?)TABLEAU_AGENT_INSTRUCTION>/gi, '&lt;$1TABLEAU_AGENT_INSTRUCTION&gt;');
     const question = prompt.trim() || (command ? DEFAULT_QUESTIONS[command] : '') ||
         'Give me an overview of this workbook.';
     return {
@@ -46,18 +49,32 @@ export function describeChatError(error: unknown): string {
     return `The language model request failed: ${message}`;
 }
 
-/** Active editor first, then any open .twb tab — mirrors the sidebar's pattern. */
+/**
+ * Active editor, then the active tab of each group (active group first), then
+ * any open .twb tab. VS Code exposes no true MRU order, so the handler also
+ * names the workbook it picked in its reply.
+ */
 function resolveWorkbookUri(): vscode.Uri | undefined {
     const active = vscode.window.activeTextEditor;
     if (active && active.document.uri.path.toLowerCase().endsWith('.twb')) {
         return active.document.uri;
     }
-    for (const group of vscode.window.tabGroups.all) {
+    const twbOf = (tab: vscode.Tab | undefined): vscode.Uri | undefined => {
+        const input = tab?.input as { uri?: vscode.Uri } | null | undefined;
+        return input?.uri?.path.toLowerCase().endsWith('.twb') ? input.uri : undefined;
+    };
+    const groups = [
+        vscode.window.tabGroups.activeTabGroup,
+        ...vscode.window.tabGroups.all.filter(g => g !== vscode.window.tabGroups.activeTabGroup),
+    ];
+    for (const group of groups) {
+        const fromActive = twbOf(group.activeTab ?? undefined);
+        if (fromActive) { return fromActive; }
+    }
+    for (const group of groups) {
         for (const tab of group.tabs) {
-            const input = tab.input as { uri?: vscode.Uri } | null | undefined;
-            if (input?.uri?.path.toLowerCase().endsWith('.twb')) {
-                return input.uri;
-            }
+            const uri = twbOf(tab);
+            if (uri) { return uri; }
         }
     }
     return undefined;
@@ -96,6 +113,8 @@ async function handleRequest(
     }
 
     const { context: contextMessage, question } = composeTableauMessages(xml, request.prompt, request.command);
+    const fileName = uri.path.split('/').pop() ?? uri.path;
+    stream.markdown(`Analyzing \`${fileName}\`\n\n`);
 
     try {
         const messages = [
