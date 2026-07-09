@@ -548,7 +548,8 @@ export function extractFieldsFromXml(
 
         // metadata-records fill in fields that never got a <column> element.
         for (const record of metaRecords) {
-            if (getString(record, 'class') !== 'column') {
+            const recordClass = (getString(record, 'class') ?? '').toLowerCase();
+            if (!['column', 'measure', 'dimension'].includes(recordClass)) {
                 continue;
             }
             const localName = getTextValue(record, 'local-name');
@@ -565,9 +566,16 @@ export function extractFieldsFromXml(
                 workbook: workbookLabel,
                 datasource: datasourceLabel,
                 name: bareName,
-                caption: getTextValue(record, 'remote-name'),
+                // local-name is Tableau's field name. remote-name is the
+                // physical database/header name and must not replace it in
+                // completions, hovers or generated declarations.
+                caption: getTextValue(record, 'caption'),
                 datatype: localType,
-                role: undefined,
+                role: recordClass === 'measure'
+                    ? 'measure'
+                    : recordClass === 'dimension'
+                        ? 'dimension'
+                        : undefined,
                 isCalculation: false,
                 isParameter: false
             });

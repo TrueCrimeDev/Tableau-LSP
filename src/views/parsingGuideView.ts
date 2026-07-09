@@ -43,7 +43,6 @@ import {
 import { locateXmlElement } from './formattingPanel.js';
 import { stripFormattingXml, scanFormattingXml, FormatStripOptions } from '../parsers/formatStripper.js';
 import { CALC_PORTFOLIO } from './calcPortfolio.js';
-import { setFieldCatalog } from '../services/fieldCatalog.js';
 
 const log = getLogger();
 const LOG_CAT = 'WorkbookInspector';
@@ -55,9 +54,10 @@ export const PARSING_GUIDE_CONTAINER_ID = 'tableauLsp';
 class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
     private view: vscode.WebviewView | undefined;
     private lastWorkbookUri: vscode.Uri | undefined;
-    private postWorkbookPending = false;
+    private workbookParseGeneration = 0;
     private lastExtractedFields: ExtractedField[] = [];
-    private lastWorkbookFileName = '';
+    private lastWorkbookIdentity = '';
+    private lastExtractedWorkbookUri: string | undefined;
 
     public constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -265,8 +265,6 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         view.onDidChangeVisibility(() => {
             log.info(LOG_CAT, `onDidChangeVisibility: visible=${view.visible}`);
             if (view.visible) {
-                // Reset pending flag so debounce never suppresses this visibility-triggered refresh.
-                this.postWorkbookPending = false;
                 void this.postPaletteData();
                 void this.postContextData();
                 void this.postWorkbookData();
@@ -621,15 +619,13 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             return;
         }
 
-        // Debounce: coalesce rapid-fire calls into a single execution.
-        if (this.postWorkbookPending) {
-            log.debug(LOG_CAT, 'postWorkbookData: already pending, skipping duplicate');
+        // Debounce rapid calls while retaining the newest request. A generation
+        // token also prevents a slow TWBX read from overwriting a newer workbook.
+        const parseGeneration = ++this.workbookParseGeneration;
+        await new Promise<void>(resolve => setTimeout(resolve, 150));
+        if (parseGeneration !== this.workbookParseGeneration) {
             return;
         }
-        this.postWorkbookPending = true;
-        // Yield to allow other listeners to fire, then proceed.
-        await new Promise<void>(resolve => setTimeout(resolve, 150));
-        this.postWorkbookPending = false;
 
         // Re-check in case view was disposed or hidden during the wait.
         // postMessage silently returns false when view.visible is false, so there
@@ -700,6 +696,9 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
 
         if (!uri) {
             log.info(LOG_CAT, 'postWorkbookData: no .twb/.twbx found anywhere, sending workbookCleared');
+            this.lastExtractedFields = [];
+            this.lastExtractedWorkbookUri = undefined;
+            this.lastWorkbookIdentity = '';
             await this.view.webview.postMessage({ type: 'workbookCleared' });
             return;
         }
@@ -739,6 +738,9 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 }
             }
             log.info(LOG_CAT, `postWorkbookData: read XML, length=${xml.length}`);
+            if (parseGeneration !== this.workbookParseGeneration) {
+                return;
+            }
 
             // Parse Tableau version from raw XML before cleaning
             const versionMatch = /source-build='(\d{4}\.\d+)/.exec(xml);
@@ -751,7 +753,10 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             // Extract all data
             const calculations = extractCalcsFromXml(resolved, fileName);
             const datasourcesRaw = extractDatasourcesWithConnectionsFromXml(resolved, fileName);
-            const fields = extractFieldsFromXml(resolved, fileName);
+            // Field extraction must use the cleaned, unresolved datasource
+            // metadata. resolveNames rewrites internal names to captions and
+            // can turn one physical column into two apparent fields.
+            const fields = extractFieldsFromXml(cleaned, fileName);
             const worksheets = extractWorksheetsFromXml(resolved, fileName);
 
             // Parse custom palettes directly from the XML we already have
@@ -770,19 +775,10 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             // Cache for the "generate field definitions" sidebar action so a
             // datasource click doesn't have to re-parse the workbook.
             this.lastExtractedFields = fields;
-            this.lastWorkbookFileName = fileName;
-
-            // Feed the field-swap hover's catalog (plain fields only).
-            setFieldCatalog(fields
-                .filter(f => !f.isCalculation && !f.isParameter
-                    && !f.name.includes('__tableau_internal')
-                    && (f.datatype ?? '') !== 'table')
-                .map(f => ({
-                    name: f.caption ?? f.name,
-                    datatype: f.datatype ?? '',
-                    role: f.role ?? '',
-                    datasource: f.datasource
-                })));
+            this.lastWorkbookIdentity = vscode.workspace.getWorkspaceFolder(uri)
+                ? vscode.workspace.asRelativePath(uri, false).replace(/\\/g, '/')
+                : fileName;
+            this.lastExtractedWorkbookUri = uri.toString();
 
             const richData: RichWorkbookData = {
                 fileName,
@@ -838,7 +834,13 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             log.info(LOG_CAT, `postWorkbookData: postMessage returned ${posted}`);
             void this.view.webview.postMessage({ type: 'formattingLoaded', elements: readThemeFromXml(xml) });
         } catch (error: unknown) {
+            if (parseGeneration !== this.workbookParseGeneration) {
+                return;
+            }
             const msg = error instanceof Error ? error.message : String(error);
+            this.lastExtractedFields = [];
+            this.lastExtractedWorkbookUri = undefined;
+            this.lastWorkbookIdentity = '';
             log.warn(LOG_CAT, `postWorkbookData: ERROR during parse/send: ${msg}`);
             await this.view.webview.postMessage({ type: 'workbookError', message: msg });
         }
@@ -962,6 +964,10 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             await this.postStatus('No workbook loaded. Open a .twb or .twbx file first.', 'error');
             return;
         }
+        if (!this.lastWorkbookUri || this.lastExtractedWorkbookUri !== this.lastWorkbookUri.toString()) {
+            await this.postStatus('The selected workbook is still loading. Refresh it before generating definitions.', 'info');
+            return;
+        }
 
         const fields = this.lastExtractedFields.filter(f => f.datasource === datasource);
         if (fields.length === 0) {
@@ -969,9 +975,16 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             return;
         }
 
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        const workspaceFolder = this.lastWorkbookUri
+            ? vscode.workspace.getWorkspaceFolder(this.lastWorkbookUri)
+            : (vscode.workspace.workspaceFolders?.length === 1
+                ? vscode.workspace.workspaceFolders[0]
+                : undefined);
         if (!workspaceFolder) {
-            await this.postStatus('No workspace folder open — cannot write fields.d.twbl.', 'error');
+            await this.postStatus(
+                'The active workbook is not in an open workspace folder — cannot write fields.d.twbl.',
+                'error'
+            );
             return;
         }
 
@@ -986,7 +999,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 // File doesn't exist yet — start fresh.
             }
 
-            const section = generateFieldDefsSection(fields, datasource, this.lastWorkbookFileName);
+            const section = generateFieldDefsSection(fields, datasource, this.lastWorkbookIdentity);
             const updated = upsertDatasourceSection(existing, datasource, section);
             await vscode.workspace.fs.writeFile(targetUri, Buffer.from(updated, 'utf8'));
 
@@ -2312,4 +2325,3 @@ function sanitizePaletteType(type: string): PaletteType {
     }
     return 'regular';
 }
-

@@ -111,6 +111,24 @@ describe('Document Model', () => {
       
       expect(all(result.symbols).some(s => s.text?.includes("Men's"))).toBe(true);
     });
+
+    it('does not mistake apostrophes in bracketed field names for strings', () => {
+      const document = createTestDocument("[Customer's Name] = 'x'");
+      const symbols = all(parseDocument(document).symbols);
+
+      expect(symbols.some(s => s.type === SymbolType.FieldReference &&
+        s.name === "Customer's Name")).toBe(true);
+      expect(symbols.some(s => s.type === SymbolType.Expression && s.text === "'x'")).toBe(true);
+    });
+
+    it('keeps function arguments intact when field names contain apostrophes', () => {
+      const document = createTestDocument("CONCAT([O'Brien's Flag], [Name])");
+      const symbols = all(parseDocument(document).symbols);
+      const concat = symbols.find(s => s.name === 'CONCAT');
+
+      expect(symbols.some(s => s.name === "O'Brien's Flag")).toBe(true);
+      expect(concat?.arguments).toHaveLength(2);
+    });
   });
 });
 

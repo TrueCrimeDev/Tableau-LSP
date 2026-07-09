@@ -93,3 +93,36 @@ describe('extractFieldsFromXml — nested relation columns and metadata fallback
         expect(fields.filter(f => f.name.toLowerCase() === 'name')).toHaveLength(1);
     });
 });
+
+it('keeps Tableau local-name when metadata remote-name is a physical column name', () => {
+    const xml = `<workbook><datasources><datasource caption='DS'>
+      <metadata-records><metadata-record class='column'>
+        <remote-name>raw_db_col</remote-name>
+        <local-name>[Friendly Field]</local-name>
+        <local-type>real</local-type>
+      </metadata-record></metadata-records>
+    </datasource></datasources></workbook>`;
+
+    const fields = extractFieldsFromXml(xml, 'metadata.twb');
+    expect(fields).toHaveLength(1);
+    expect(fields[0].name).toBe('Friendly Field');
+    expect(fields[0].caption).toBeUndefined();
+});
+
+it('extracts metadata-only measures as fields with a measure role', () => {
+    const xml = `<workbook><datasources><datasource caption='DS'>
+      <metadata-records><metadata-record class='measure'>
+        <remote-name>Total Sales</remote-name>
+        <local-name>[Total Sales]</local-name>
+        <local-type>real</local-type>
+      </metadata-record></metadata-records>
+    </datasource></datasources></workbook>`;
+
+    const fields = extractFieldsFromXml(xml, 'measure.twb');
+    expect(fields).toHaveLength(1);
+    expect(fields[0]).toMatchObject({
+        name: 'Total Sales',
+        datatype: 'real',
+        role: 'measure',
+    });
+});

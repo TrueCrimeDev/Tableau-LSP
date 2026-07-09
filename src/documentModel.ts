@@ -14,7 +14,6 @@ const IIF_REGEX = /\bIIF\s*\(/gi;
 
 // Enhanced parsing constants
 const LOGICAL_OPERATORS = new Set(['AND', 'OR', 'NOT', 'IN']);
-const STRING_LITERAL_REGEX = /(['"])((?:(?!\1)[^\\]|\\.)*)(\1)/g;
 const OPERATOR_REGEX = /\b(AND|OR|NOT|IN)\b/gi;
 
 /**
@@ -135,8 +134,7 @@ export function parseDocumentLegacy(document: TextDocument): {
     const emitSegment = (segText: string, lineIndex: number, startChar: number): void => {
         if (!segText.trim()) { return; }
         const target = currentBranch ?? blockStack[blockStack.length - 1];
-        const lead = segText.length - segText.trimStart().length;
-        const delta = startChar + lead;
+        const delta = startChar;
         for (const s of parseExpression(segText, lineIndex)) {
             if (delta > 0) { s.range.start.character += delta; s.range.end.character += delta; }
             attachTo(target, s);
@@ -236,12 +234,15 @@ function parseExpression(line: string, lineNumber: number): Symbol[] {
     const trimmed = line.trim();
     
     if (!trimmed) return symbols;
+    const leadingOffset = line.indexOf(trimmed);
 
     // First, remove string literals AND bracketed field contents to avoid parsing
     // their contents. A field like [Profit (USD)] or [Profit and Loss] would otherwise
     // match the function/operator regexes below (phantom PROFIT() call, phantom AND).
     // Length is preserved so symbol column offsets stay correct.
-    const cleanedLine = removeFieldBrackets(removeStringLiterals(trimmed));
+    const stringScan = scanStringLiterals(trimmed);
+    const stringMaskedLine = stringScan.masked;
+    const cleanedLine = removeFieldBrackets(stringMaskedLine);
 
     // Check for logical operators first (to avoid misclassifying as functions)
     const operatorMatches = Array.from(cleanedLine.matchAll(OPERATOR_REGEX));
@@ -252,8 +253,8 @@ function parseExpression(line: string, lineNumber: number): Symbol[] {
                 name: operatorName,
                 type: SymbolType.Keyword, // Treat logical operators as keywords
                 range: Range.create(
-                    { line: lineNumber, character: match.index },
-                    { line: lineNumber, character: match.index + match[0].length }
+                    { line: lineNumber, character: leadingOffset + match.index },
+                    { line: lineNumber, character: leadingOffset + match.index + match[0].length }
                 ),
                 text: operatorName,
                 children: []
@@ -273,8 +274,8 @@ function parseExpression(line: string, lineNumber: number): Symbol[] {
                 continue;
             }
             
-            const startChar = match.index;
-            const endChar = match.index + match[0].length - 1; // Exclude the opening parenthesis
+            const startChar = leadingOffset + match.index;
+            const endChar = leadingOffset + match.index + match[0].length - 1; // Exclude the opening parenthesis
             
             const symbol: Symbol = {
                 name: functionName,
@@ -292,7 +293,7 @@ function parseExpression(line: string, lineNumber: number): Symbol[] {
     }
 
     // Check for field references
-    const fieldMatches = Array.from(trimmed.matchAll(FIELD_REGEX));
+    const fieldMatches = Array.from(stringMaskedLine.matchAll(FIELD_REGEX));
     for (const match of fieldMatches) {
         if (match.index !== undefined) {
             const fieldName = match[1];
@@ -300,8 +301,8 @@ function parseExpression(line: string, lineNumber: number): Symbol[] {
                 name: fieldName,
                 type: SymbolType.FieldReference,
                 range: Range.create(
-                    { line: lineNumber, character: match.index },
-                    { line: lineNumber, character: match.index + match[0].length }
+                    { line: lineNumber, character: leadingOffset + match.index },
+                    { line: lineNumber, character: leadingOffset + match.index + match[0].length }
                 ),
                 text: match[0],
                 children: []
@@ -319,8 +320,8 @@ function parseExpression(line: string, lineNumber: number): Symbol[] {
                 name: lodType,
                 type: SymbolType.LODExpression,
                 range: Range.create(
-                    { line: lineNumber, character: match.index },
-                    { line: lineNumber, character: match.index + match[0].length }
+                    { line: lineNumber, character: leadingOffset + match.index },
+                    { line: lineNumber, character: leadingOffset + match.index + match[0].length }
                 ),
                 text: match[0],
                 children: []
@@ -330,22 +331,18 @@ function parseExpression(line: string, lineNumber: number): Symbol[] {
     }
 
     // Check for string literals
-    const stringMatches = Array.from(trimmed.matchAll(STRING_LITERAL_REGEX));
-    for (const match of stringMatches) {
-        if (match.index !== undefined) {
-            const stringValue = match[0];
-            const symbol: Symbol = {
-                name: stringValue,
-                type: SymbolType.Expression,
-                range: Range.create(
-                    { line: lineNumber, character: match.index },
-                    { line: lineNumber, character: match.index + match[0].length }
-                ),
-                text: stringValue,
-                children: []
-            };
-            symbols.push(symbol);
-        }
+    for (const literal of stringScan.literals) {
+        const symbol: Symbol = {
+            name: literal.text,
+            type: SymbolType.Expression,
+            range: Range.create(
+                { line: lineNumber, character: leadingOffset + literal.index },
+                { line: lineNumber, character: leadingOffset + literal.index + literal.text.length }
+            ),
+            text: literal.text,
+            children: []
+        };
+        symbols.push(symbol);
     }
 
     // If no specific symbols found, create a general expression symbol for non-empty lines
@@ -354,7 +351,7 @@ function parseExpression(line: string, lineNumber: number): Symbol[] {
             name: trimmed,
             type: SymbolType.Expression,
             range: Range.create(
-                { line: lineNumber, character: 0 },
+                { line: lineNumber, character: leadingOffset },
                 { line: lineNumber, character: line.length }
             ),
             text: trimmed,
@@ -369,11 +366,54 @@ function parseExpression(line: string, lineNumber: number): Symbol[] {
 /**
  * Remove string literals from a line to avoid parsing their contents
  */
-function removeStringLiterals(text: string): string {
-    return text.replace(STRING_LITERAL_REGEX, (match, quote) => {
-        // Replace string content with spaces to preserve positions
-        return quote + ' '.repeat(match.length - 2) + quote;
-    });
+function scanStringLiterals(text: string): {
+    masked: string;
+    literals: Array<{ index: number; text: string }>;
+} {
+    const masked = [...text];
+    const literals: Array<{ index: number; text: string }> = [];
+    let bracketDepth = 0;
+
+    for (let index = 0; index < text.length; index++) {
+        const current = text[index];
+        if (bracketDepth > 0) {
+            if (current === '[') {
+                bracketDepth++;
+            } else if (current === ']') {
+                bracketDepth--;
+            }
+            continue;
+        }
+        if (current === '[') {
+            bracketDepth = 1;
+            continue;
+        }
+        if (current !== '"' && current !== "'") {
+            continue;
+        }
+
+        const start = index;
+        const quote = current;
+        let closed = false;
+        for (index++; index < text.length; index++) {
+            if (text[index] === '\\') {
+                index++;
+            } else if (text[index] === quote && text[index + 1] === quote) {
+                index++;
+            } else if (text[index] === quote) {
+                closed = true;
+                break;
+            }
+        }
+        const end = Math.min(text.length, index + (closed ? 1 : 0));
+        for (let maskIndex = start; maskIndex < end; maskIndex++) {
+            masked[maskIndex] = ' ';
+        }
+        if (closed) {
+            literals.push({ index: start, text: text.slice(start, end) });
+        }
+    }
+    return { literals, masked: masked.join('') };
 }
 
 /**
@@ -427,17 +467,29 @@ function extractFunctionArguments(text: string, startPos: number): Array<{text: 
     for (let i = 0; i < argsText.length; i++) {
         const char = argsText[i];
 
-        if (!inString && (char === '"' || char === "'")) {
-            inString = true;
-            stringChar = char;
+        if (inString && char === '\\') {
+            currentArg += char;
+            if (i + 1 < argsText.length) {
+                currentArg += argsText[++i];
+            }
+            continue;
+        } else if (inString && char === stringChar && argsText[i + 1] === stringChar) {
+            currentArg += char + argsText[++i];
+            continue;
         } else if (inString && char === stringChar) {
             inString = false;
             stringChar = '';
+        } else if (!inString && nestedBrackets > 0) {
+            if (char === '[') nestedBrackets++;
+            else if (char === ']') nestedBrackets--;
+        } else if (!inString && char === '[') {
+            nestedBrackets++;
+        } else if (!inString && (char === '"' || char === "'")) {
+            inString = true;
+            stringChar = char;
         } else if (!inString) {
             if (char === '(') nestedParens++;
             else if (char === ')') nestedParens--;
-            else if (char === '[') nestedBrackets++;
-            else if (char === ']') { if (nestedBrackets > 0) nestedBrackets--; }
             else if (char === '{') nestedBraces++;
             else if (char === '}') { if (nestedBraces > 0) nestedBraces--; }
             else if (char === ',' && nestedParens === 0 && nestedBrackets === 0 && nestedBraces === 0) {
@@ -476,18 +528,26 @@ function isIncompleteExpression(line: string): boolean {
     let inString = false;
     let stringChar = '';
     
-    for (const char of trimmed) {
-        if (!inString && (char === '"' || char === "'")) {
-            inString = true;
-            stringChar = char;
+    for (let index = 0; index < trimmed.length; index++) {
+        const char = trimmed[index];
+        if (inString && char === '\\') {
+            index++;
+        } else if (inString && char === stringChar && trimmed[index + 1] === stringChar) {
+            index++;
         } else if (inString && char === stringChar) {
             inString = false;
             stringChar = '';
+        } else if (!inString && bracketCount > 0) {
+            if (char === '[') bracketCount++;
+            else if (char === ']') bracketCount--;
+        } else if (!inString && char === '[') {
+            bracketCount++;
+        } else if (!inString && (char === '"' || char === "'")) {
+            inString = true;
+            stringChar = char;
         } else if (!inString) {
             if (char === '(') parenCount++;
             else if (char === ')') parenCount--;
-            else if (char === '[') bracketCount++;
-            else if (char === ']') bracketCount--;
             else if (char === '{') braceCount++;
             else if (char === '}') braceCount--;
         }
@@ -522,14 +582,33 @@ function parseExpressionTree(text: string, startLine: number, startChar: number)
         }
         return { line, character: ch };
     };
+    const skipQuoted = (start: number, hi: number): number => {
+        const quote = text[start];
+        let index = start + 1;
+        while (index < hi) {
+            if (text[index] === '\\') {
+                index += 2;
+            } else if (text[index] === quote && text[index + 1] === quote) {
+                index += 2;
+            } else if (text[index] === quote) {
+                return index;
+            } else {
+                index++;
+            }
+        }
+        return hi - 1;
+    };
     const splitArgs = (lo: number, hi: number): Array<{ text: string; range: Range }> => {
         const args: Array<{ text: string; range: Range }> = [];
-        let depth = 0, start = lo;
+        let depth = 0, bracketDepth = 0, start = lo;
         for (let i = lo; i < hi; i++) {
             const c = text[i];
-            if (c === '"' || c === "'") { const q = c; i++; while (i < hi && text[i] !== q) { i++; } }
-            else if (c === '(' || c === '[' || c === '{') { depth++; }
-            else if (c === ')' || c === ']' || c === '}') { depth--; }
+            if (c === '[') { bracketDepth++; depth++; }
+            else if (c === ']') { bracketDepth--; depth--; }
+            else if (bracketDepth > 0) { continue; }
+            else if (c === '"' || c === "'") { i = skipQuoted(i, hi); }
+            else if (c === '(' || c === '{') { depth++; }
+            else if (c === ')' || c === '}') { depth--; }
             else if (c === ',' && depth === 0) { args.push({ text: text.slice(start, i).trim(), range: Range.create(offPos(start), offPos(i)) }); start = i + 1; }
         }
         const tail = text.slice(start, hi).trim();
@@ -540,7 +619,7 @@ function parseExpressionTree(text: string, startLine: number, startChar: number)
         let i = lo;
         while (i < hi) {
             const c = text[i];
-            if (c === '"' || c === "'") { const q = c; i++; while (i < hi && text[i] !== q) { i++; } i++; continue; }
+            if (c === '"' || c === "'") { i = skipQuoted(i, hi) + 1; continue; }
             if (c === '[') {
                 const s = i; i++; while (i < hi && text[i] !== ']') { i++; } i++;
                 sink.push({ name: text.slice(s + 1, i - 1), type: SymbolType.FieldReference, range: Range.create(offPos(s), offPos(i)), text: text.slice(s, i), children: [] });
@@ -559,10 +638,13 @@ function parseExpressionTree(text: string, startLine: number, startChar: number)
                 const word = text.slice(s, i);
                 let j = i; while (j < hi && /\s/.test(text[j])) { j++; }
                 if (text[j] === '(' && !LOGICAL_OPERATORS.has(word.toUpperCase())) {
-                    let d = 0, k = j;
+                    let d = 0, bracketDepth = 0, k = j;
                     for (; k < hi; k++) {
                         const ck = text[k];
-                        if (ck === '"' || ck === "'") { const q = ck; k++; while (k < hi && text[k] !== q) { k++; } }
+                        if (ck === '[') { bracketDepth++; }
+                        else if (ck === ']') { bracketDepth--; }
+                        else if (bracketDepth > 0) { continue; }
+                        else if (ck === '"' || ck === "'") { k = skipQuoted(k, hi); }
                         else if (ck === '(') { d++; }
                         else if (ck === ')') { d--; if (d === 0) { k++; break; } }
                     }

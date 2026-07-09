@@ -41,10 +41,10 @@ describe('generateFieldDefsSection', () => {
             'Test.twb'
         );
 
-        expect(section).toContain('// === Datasource: Sales DS ===');
+        expect(section).toContain('// === Workbook: Test.twb | Datasource: Sales DS ===');
         expect(section).toContain('[Amount] = Number');
         expect(section).toContain('Amount — measure, real · Sales DS (Test.twb)');
-        expect(section).toContain('// === End: Sales DS ===');
+        expect(section).toContain('// === End Workbook: Test.twb | Datasource: Sales DS ===');
     });
 
     it('prefers caption over internal name', () => {
@@ -117,6 +117,21 @@ describe('upsertDatasourceSection', () => {
         expect(out).toContain('[A2] = Boolean');
         expect(out).not.toContain('[A] = String');
         expect(out).toContain('[B] = String');
-        expect(out.match(/=== Datasource: DS A ===/g)).toHaveLength(1);
+        expect(out.match(/^\/\/ === Workbook: Test\.twb \| Datasource: DS A ===$/gm)).toHaveLength(1);
+    });
+
+    it('keeps same-named datasources from different workbooks separate', () => {
+        const first = generateFieldDefsSection([field({ name: 'A' })], 'Shared', 'One.twb');
+        const second = generateFieldDefsSection([field({ name: 'B' })], 'Shared', 'Two.twb');
+        const out = upsertDatasourceSection(
+            upsertDatasourceSection('', 'Shared', first),
+            'Shared',
+            second
+        );
+
+        expect(out).toContain('Workbook: One.twb | Datasource: Shared');
+        expect(out).toContain('Workbook: Two.twb | Datasource: Shared');
+        expect(out).toContain('[A] = String');
+        expect(out).toContain('[B] = String');
     });
 });

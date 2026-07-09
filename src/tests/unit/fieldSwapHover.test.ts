@@ -1,4 +1,4 @@
-import { findBracketToken, orderSwapCandidates } from '../../providers/fieldSwapHover.js';
+import { findBracketToken, orderSwapCandidates, scopeSwapFields } from '../../providers/fieldSwapHover.js';
 import { parseFieldDefs, setFieldCatalog, getFieldCatalog, CatalogField } from '../../services/fieldCatalog.js';
 import { generateFieldDefsSection } from '../../extract/fieldDefsGenerator.js';
 
@@ -32,6 +32,11 @@ describe('findBracketToken', () => {
         expect(findBracketToken(line, 5)).toBeNull();
         expect(findBracketToken('no brackets here', 3)).toBeNull();
     });
+
+    it('ignores bracket-shaped text inside strings and comments', () => {
+        expect(findBracketToken('"Label [Order Date]"', 10)).toBeNull();
+        expect(findBracketToken('// [Order Date]', 5)).toBeNull();
+    });
 });
 
 describe('orderSwapCandidates', () => {
@@ -52,6 +57,29 @@ describe('orderSwapCandidates', () => {
         expect(current).toBeUndefined();
         expect(sameType).toEqual([]);
         expect(other).toHaveLength(5);
+    });
+});
+
+describe('scopeSwapFields', () => {
+    it('suppresses field swap links on a datasource qualifier', () => {
+        const line = '[Orders].[Sales]';
+        const token = findBracketToken(line, 3)!;
+
+        expect(scopeSwapFields(line, token, FIELDS)).toBeNull();
+    });
+
+    it('limits swaps for a qualified field to that datasource', () => {
+        const line = '[Orders].[Sales]';
+        const token = findBracketToken(line, 12)!;
+        const fields = [...FIELDS, {
+            name: 'Return Reason',
+            datatype: 'string',
+            role: 'dimension',
+            datasource: 'Returns',
+        }];
+
+        expect(scopeSwapFields(line, token, fields)?.map(field => field.name))
+            .not.toContain('Return Reason');
     });
 });
 

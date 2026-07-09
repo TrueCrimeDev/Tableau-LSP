@@ -11,6 +11,7 @@ import {
     SymbolKind
 } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
+import { pathToFileURL } from 'url';
 import {
     parsedDocumentCache,
     ParsedDocument,
@@ -19,6 +20,8 @@ import {
     SymbolType,
     FUNCTION_SIGNATURES
 } from './common.js';
+import { FieldParser } from './fieldParser.js';
+import { isCodeOffset, isDatasourceQualifier, precedingDatasource } from './fieldReferenceContext.js';
 
 // REGEX CONSTANTS - inspired by your tmLanguage file
 // We use the 'g' flag to find all occurrences.
@@ -57,6 +60,9 @@ function parseDocument(document: TextDocument): ParsedDocument {
 
     // 2. Find all Field and Parameter References: [Field Name]
     for (const match of text.matchAll(FIELD_REGEX)) {
+        if (!isCodeOffset(text, match.index ?? 0)) {
+            continue;
+        }
         symbols.push({
             name: match[1],
             type: SymbolType.FieldReference,
@@ -346,16 +352,38 @@ export function provideCodeActions(params: any, document: TextDocument): any[] {
 /**
  * Provide go-to-definition for a symbol at the given position.
  */
-export function provideDefinition(params: any, document: TextDocument): any | null {
-    // Get the word at the cursor
+export function provideDefinition(
+    params: any,
+    document: TextDocument,
+    fieldParser: FieldParser | null = null
+): any | null {
     const pos = params.position;
-    const text = document.getText();
-    const offset = document.offsetAt(pos);
+    if (!isCodeOffset(document.getText(), document.offsetAt(pos))) {
+        return null;
+    }
+    const fieldReference = fieldReferenceAtPosition(document, pos);
+    if (fieldReference) {
+        if (!fieldParser || fieldReference.isDatasourceQualifier) {
+            return null;
+        }
+        const field = fieldParser.getField(fieldReference.name, fieldReference.datasource);
+        if (field?.sourceUri && field.sourceLine !== undefined) {
+            const line = Math.max(0, field.sourceLine);
+            const character = Math.max(0, field.sourceCharacter ?? 0);
+            return Location.create(
+                field.sourceUri,
+                LSRange.create(
+                    Position.create(line, character),
+                    Position.create(line, character + Math.max(1, field.name.length))
+                )
+            );
+        }
+        return null;
+    }
 
-    // Find word at offset (simple word match)
-    const wordMatch = text.slice(0, offset).match(/([A-Z_][A-Z0-9_]*)$/i);
-    if (!wordMatch) return null;
-    const symbol = wordMatch[1].toUpperCase();
+    const word = identifierAtPosition(document, pos);
+    if (!word) return null;
+    const symbol = word.toUpperCase();
 
     // Try to resolve in twbl.d.twbl
     try {
@@ -370,7 +398,7 @@ export function provideDefinition(params: any, document: TextDocument): any | nu
                 const { line } = defMap.get(symbol)!;
                 // Return Location in twbl.d.twbl
                 return Location.create(
-                    twblPath.replace(/\\/g, '/'), // VS Code expects forward slashes
+                    pathToFileURL(twblPath).toString(),
                     LSRange.create(Position.create(line, 0), Position.create(line, 100))
                 );
             }
@@ -398,12 +426,55 @@ export function provideDefinition(params: any, document: TextDocument): any | nu
 export function provideReferences(params: any, document: TextDocument): any[] {
     const pos = params.position;
     const text = document.getText();
-    const offset = document.offsetAt(pos);
+    if (!isCodeOffset(text, document.offsetAt(pos))) {
+        return [];
+    }
+    const fieldReference = fieldReferenceAtPosition(document, pos);
+    if (fieldReference) {
+        if (fieldReference.isDatasourceQualifier) {
+            return [];
+        }
+        if (fieldReference.datasource) {
+            const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const qualified = new RegExp(
+                `\\[${escape(fieldReference.datasource)}\\]\\s*\\.\\s*\\[${escape(fieldReference.name)}\\]`,
+                'gi'
+            );
+            const locations = [];
+            let match: RegExpExecArray | null;
+            while ((match = qualified.exec(text)) !== null) {
+                const relativeFieldStart = match[0].lastIndexOf('[');
+                const startOffset = match.index + relativeFieldStart;
+                if (!isCodeOffset(text, match.index)) {
+                    continue;
+                }
+                locations.push(Location.create(
+                    document.uri,
+                    LSRange.create(
+                        document.positionAt(startOffset),
+                        document.positionAt(startOffset + fieldReference.name.length + 2)
+                    )
+                ));
+            }
+            return locations;
+        }
+        const needle = `[${fieldReference.name}]`.toLowerCase();
+        const lowerText = text.toLowerCase();
+        const locations = [];
+        let offset = 0;
+        while ((offset = lowerText.indexOf(needle, offset)) !== -1) {
+            if (isCodeOffset(text, offset)) {
+                const start = document.positionAt(offset);
+                const end = document.positionAt(offset + needle.length);
+                locations.push(Location.create(document.uri, LSRange.create(start, end)));
+            }
+            offset += needle.length;
+        }
+        return locations;
+    }
 
-    // Find word at offset (simple word match)
-    const wordMatch = text.slice(0, offset).match(/([A-Z_][A-Z0-9_]*)$/i);
-    if (!wordMatch) return [];
-    const symbol = wordMatch[1];
+    const symbol = identifierAtPosition(document, pos);
+    if (!symbol) return [];
 
     // Find all references in the document (case-insensitive, word boundary)
     const regex = new RegExp(`\\b${symbol}\\b`, 'gi');
@@ -415,4 +486,58 @@ export function provideReferences(params: any, document: TextDocument): any[] {
         locations.push(Location.create(document.uri, LSRange.create(start, end)));
     }
     return locations;
+}
+
+function fieldReferenceAtPosition(
+    document: TextDocument,
+    position: Position
+): {
+    name: string;
+    start: number;
+    end: number;
+    isDatasourceQualifier: boolean;
+    datasource?: string;
+} | null {
+    const lines = document.getText().split(/\r?\n/);
+    if (position.line < 0 || position.line >= lines.length) {
+        return null;
+    }
+    const line = lines[position.line];
+    const documentText = document.getText();
+    const lineOffset = document.offsetAt(Position.create(position.line, 0));
+    const regex = /\[([^\]]+)\]/g;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(line)) !== null) {
+        const start = match.index;
+        const end = start + match[0].length;
+        if (position.character >= start && position.character <= end &&
+            isCodeOffset(documentText, lineOffset + start)) {
+            return {
+                name: match[1],
+                start,
+                end,
+                isDatasourceQualifier: isDatasourceQualifier(line, end),
+                datasource: precedingDatasource(line, start),
+            };
+        }
+    }
+    return null;
+}
+
+function identifierAtPosition(document: TextDocument, position: Position): string | null {
+    const lines = document.getText().split(/\r?\n/);
+    if (position.line < 0 || position.line >= lines.length) {
+        return null;
+    }
+    const line = lines[position.line];
+    const character = Math.min(Math.max(0, position.character), line.length);
+    let start = character;
+    let end = character;
+    while (start > 0 && /[A-Z0-9_]/i.test(line[start - 1])) {
+        start--;
+    }
+    while (end < line.length && /[A-Z0-9_]/i.test(line[end])) {
+        end++;
+    }
+    return start < end ? line.slice(start, end) : null;
 }

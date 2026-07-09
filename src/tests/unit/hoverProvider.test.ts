@@ -26,6 +26,11 @@ describe('Hover Provider', () => {
                 type: 'Number',
                 description: 'Sales amount in USD'
             }),
+            getDatasource: jest.fn().mockImplementation((name: string) =>
+                name.toLowerCase() === 'orders'
+                    ? { name: 'Orders', fieldCount: 2 }
+                    : undefined
+            ),
             getAllFields: jest.fn(),
             findDefinitionFile: jest.fn()
         } as any;
@@ -184,6 +189,57 @@ describe('Hover Provider', () => {
             
             // Should still provide some hover information
             expect(hover).toBeDefined();
+        });
+
+        it('recognizes a datasource qualifier instead of calling it an undefined field', async () => {
+            const document = createTestDocument('[Orders].[Sales]');
+            const position: Position = { line: 0, character: 3 };
+            IncrementalParser.parseDocumentIncremental(document);
+
+            const hover = await provideHover(
+                { textDocument: { uri: document.uri }, position },
+                document,
+                fieldParser
+            );
+            const contents = hover?.contents as { value?: string };
+
+            expect(contents.value).toContain('Datasource');
+            expect(contents.value).toContain('2 known fields');
+            expect(contents.value).not.toContain('not defined');
+        });
+
+        it('uses datasource membership when hovering a qualified field', async () => {
+            const document = createTestDocument('[Orders].[Status]');
+            const position: Position = { line: 0, character: 12 };
+            (fieldParser?.getField as jest.Mock).mockImplementation(
+                (_name: string, datasource?: string) => datasource === 'Orders' ? undefined : {
+                    name: 'Status', type: 'String', description: ''
+                }
+            );
+            IncrementalParser.parseDocumentIncremental(document);
+
+            const hover = await provideHover(
+                { textDocument: { uri: document.uri }, position },
+                document,
+                fieldParser
+            );
+            const contents = hover?.contents as { value?: string };
+
+            expect(contents.value).toContain('not defined in datasource [Orders]');
+        });
+
+        it('does not show field hover for bracket-shaped text inside a string', async () => {
+            const document = createTestDocument('"Label [Sales]"');
+            const position: Position = { line: 0, character: 10 };
+            IncrementalParser.parseDocumentIncremental(document);
+
+            const hover = await provideHover(
+                { textDocument: { uri: document.uri }, position },
+                document,
+                fieldParser
+            );
+
+            expect(hover).toBeUndefined();
         });
     });
     

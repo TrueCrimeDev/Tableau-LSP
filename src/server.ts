@@ -13,7 +13,7 @@ import { format } from './format.js';
 import { parseDocument } from './documentModel.js';
 import { provideHover, HoverPerformanceAPI } from './hoverProvider.js';
 import { buildSignatureHelp, SignaturePerformanceAPI } from './signatureProvider.js';
-import { provideCompletion } from './completionProvider.js';
+import { provideCompletion, CompletionPerformanceAPI } from './completionProvider.js';
 import { provideSemanticTokens } from './semanticTokensProvider.js';
 import { documentSymbolProvider, workspaceSymbolProvider, provideCodeActions, provideDefinition, provideReferences } from './provider.js';
 import { parsedDocumentCache } from './common.js';
@@ -21,6 +21,10 @@ import { FieldParser } from './fieldParser.js';
 import { IncrementalParser } from './incrementalParser.js';
 import { globalDebouncer, DebounceHelpers, RequestType } from './requestDebouncer.js';
 import { globalMemoryManager, MemoryHelpers } from './memoryManager.js';
+import {
+    WORKBOOK_FIELD_CONTEXT_NOTIFICATION,
+    WorkbookFieldContextNotification,
+} from './services/fieldContextProtocol.js';
 
 const connection = createConnection(ProposedFeatures.all);
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
@@ -49,6 +53,39 @@ const fieldDefinitionPath = FieldParser.findDefinitionFile(__dirname);
 if (fieldDefinitionPath) {
     fieldParser = new FieldParser(fieldDefinitionPath);
 }
+
+connection.onNotification(
+    WORKBOOK_FIELD_CONTEXT_NOTIFICATION,
+    (context: WorkbookFieldContextNotification) => {
+        if (!fieldParser) {
+            fieldParser = new FieldParser(null);
+        }
+        fieldParser.setOverlayPath(context?.definitionPath ?? null);
+        fieldParser.setRuntimeFields(
+            Array.isArray(context?.fields) ? context.fields : [],
+            Boolean(context?.workbook),
+            Array.isArray(context?.datasourceFields)
+                ? context.datasourceFields
+                : (Array.isArray(context?.fields) ? context.fields : [])
+        );
+        CompletionPerformanceAPI.clearCache();
+        HoverPerformanceAPI.clearCaches();
+        for (const document of documents.all()) {
+            if (shouldSkipDiagnostics(document.uri)) {
+                continue;
+            }
+            const parsedDocument = IncrementalParser.parseDocumentIncremental(document);
+            connection.sendDiagnostics({
+                uri: document.uri,
+                diagnostics: getDiagnostics(document, parsedDocument, fieldParser),
+            });
+        }
+        connection.console.log(
+            `[Server] Loaded ${context?.fields?.length ?? 0} workbook field definitions` +
+            (context?.workbook ? ` from ${context.workbook}` : '')
+        );
+    }
+);
 
 // Optional: watch the field definition file for hot-reload
 try {
@@ -135,7 +172,7 @@ connection.onInitialize((params) => {
 
     // Wire up the workspace-level fields.d.twbl overlay (first folder wins).
     try {
-        const rootUri = params.workspaceFolders?.[0]?.uri;
+        const rootUri = params.workspaceFolders?.[0]?.uri ?? params.rootUri ?? undefined;
         if (rootUri && rootUri.startsWith('file:')) {
             const { fileURLToPath } = require('url');
             setupWorkspaceFieldDefinitions(fileURLToPath(rootUri));
@@ -218,7 +255,7 @@ documents.onDidChangeContent((change) => {
         async (document) => {
             // Use incremental parsing for better performance
             const parsedDocument = IncrementalParser.parseDocumentIncremental(document);
-            const diagnostics = getDiagnostics(document, parsedDocument);
+            const diagnostics = getDiagnostics(document, parsedDocument, fieldParser);
             connection.sendDiagnostics({ uri: document.uri, diagnostics });
             return diagnostics;
         },
@@ -241,7 +278,7 @@ documents.onDidOpen((event) => {
 
     // R7.2: Immediate diagnostics for document open (critical priority)
     const parsedDocument = IncrementalParser.parseDocumentIncremental(event.document);
-    const diagnostics = getDiagnostics(event.document, parsedDocument);
+    const diagnostics = getDiagnostics(event.document, parsedDocument, fieldParser);
     connection.sendDiagnostics({ uri: event.document.uri, diagnostics });
 });
 
@@ -310,7 +347,7 @@ connection.onDefinition((params, token) => {
         RequestType.DEFINITION,
         { params, document },
         async ({ params, document }) => {
-            return provideDefinition(params, document);
+            return provideDefinition(params, document, fieldParser);
         },
         document.uri,
         params.position

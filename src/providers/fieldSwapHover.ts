@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { CatalogField, getFieldCatalog, parseFieldDefs, setFieldCatalog } from '../services/fieldCatalog.js';
+import { isCodeOffset, isDatasourceQualifier, precedingDatasource } from '../fieldReferenceContext.js';
 
 export const SWAP_FIELD_COMMAND = 'tableau-language-support.swapFieldReference';
 
@@ -16,7 +17,7 @@ export function findBracketToken(
     while ((m = re.exec(line)) !== null) {
         const start = m.index;
         const end = m.index + m[0].length;
-        if (character >= start && character <= end) {
+        if (character >= start && character <= end && isCodeOffset(line, start)) {
             return { start, end, name: m[1] };
         }
         if (start > character) {
@@ -45,6 +46,25 @@ export function orderSwapCandidates(
         sameType: rest.filter(f => f.datatype === current.datatype),
         other: rest.filter(f => f.datatype !== current.datatype),
     };
+}
+
+/**
+ * Suppress datasource qualifiers and constrain qualified field swaps to the
+ * datasource named immediately before the hovered field.
+ */
+export function scopeSwapFields(
+    line: string,
+    token: { start: number; end: number },
+    fields: CatalogField[]
+): CatalogField[] | null {
+    if (isDatasourceQualifier(line, token.end)) {
+        return null;
+    }
+    const datasource = precedingDatasource(line, token.start);
+    if (!datasource) {
+        return fields;
+    }
+    return fields.filter(field => field.datasource?.toLowerCase() === datasource.toLowerCase());
 }
 
 function swapLink(
@@ -85,13 +105,18 @@ async function provideSwapHover(
     document: vscode.TextDocument,
     position: vscode.Position
 ): Promise<vscode.Hover | undefined> {
-    const token = findBracketToken(document.lineAt(position.line).text, position.character);
+    const line = document.lineAt(position.line).text;
+    const token = findBracketToken(line, position.character);
     if (!token) {
         return undefined;
     }
+    const tokenOffset = document.offsetAt(new vscode.Position(position.line, token.start));
+    if (!isCodeOffset(document.getText(), tokenOffset)) {
+        return undefined;
+    }
 
-    const fields = await catalogWithFallback();
-    if (!fields.length) {
+    const fields = scopeSwapFields(line, token, await catalogWithFallback());
+    if (!fields?.length) {
         return undefined;
     }
 

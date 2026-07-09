@@ -1,5 +1,6 @@
 import { resolveNames } from '../extract/nameResolver.js';
 import { scanFormattingXml } from '../parsers/formatStripper.js';
+import { buildWorkbookFieldContext, WorkbookDataField } from '../services/workbookFieldContext.js';
 
 export type DigestFocus = 'borders' | 'calcs' | 'fields';
 
@@ -210,54 +211,6 @@ function collectParameters(xml: string): ParamInfo[] {
     return params;
 }
 
-interface FieldInfo {
-    caption: string;
-    datatype: string;
-    role: string;
-}
-
-function collectFields(xml: string): FieldInfo[] {
-    const region = datasourcesRegion(xml);
-    const seen = new Map<string, FieldInfo>();
-
-    // 1) Explicit <column> elements. Ordinary fields are usually captionless
-    //    (<column datatype='string' name='Name' ordinal='0' />); caption only
-    //    appears when the user renamed the field.
-    const colRe = /<column\b([^>]*?)\/>|<column\b([^>]*)>([\s\S]*?)<\/column>/g;
-    let m: RegExpExecArray | null;
-    while ((m = colRe.exec(region)) !== null) {
-        const attrs = m[1] ?? m[2] ?? '';
-        const body = m[3] ?? '';
-        if (/<calculation\b/.test(body)) { continue; }
-        if (/param-domain-type=/.test(attrs)) { continue; }
-        const datatype = attrOf(attrs, 'datatype');
-        const rawName = attrOf(attrs, 'name');
-        if (!datatype || !rawName) { continue; }
-        if (datatype === 'table' || rawName.includes('__tableau_internal')) { continue; }
-        const key = stripBrackets(rawName).toLowerCase();
-        const caption = decodeEntities(attrOf(attrs, 'caption') ?? stripBrackets(rawName));
-        seen.set(key, { caption, datatype, role: attrOf(attrs, 'role') ?? '' });
-    }
-
-    // 2) metadata-records fill in fields that never got a <column> element.
-    const mrRe = /<metadata-record class=(['"])column\1>([\s\S]*?)<\/metadata-record>/g;
-    while ((m = mrRe.exec(region)) !== null) {
-        const localName = m[2].match(/<local-name>([\s\S]*?)<\/local-name>/)?.[1];
-        const localType = m[2].match(/<local-type>([\s\S]*?)<\/local-type>/)?.[1];
-        if (!localName || !localType) { continue; }
-        const key = stripBrackets(localName).toLowerCase();
-        if (seen.has(key) || localName.includes('__tableau_internal')) { continue; }
-        const remoteName = m[2].match(/<remote-name>([\s\S]*?)<\/remote-name>/)?.[1];
-        seen.set(key, {
-            caption: decodeEntities(remoteName ?? stripBrackets(localName)),
-            datatype: localType,
-            role: '',
-        });
-    }
-
-    return [...seen.values()];
-}
-
 interface ThumbnailInfo {
     name: string;
     width: string;
@@ -301,7 +254,13 @@ function capLines(lines: string[], budget: number, note: string): string[] {
     return lines;
 }
 
-export function buildWorkbookDigest(xml: string, focus?: DigestFocus): string {
+export function buildWorkbookDigest(
+    xml: string,
+    focus?: DigestFocus,
+    workbookName: string = 'Workbook.twb',
+    sourceUri?: string,
+    query: string = ''
+): string {
     const parts: string[] = ['# Workbook digest'];
     const sheets = collectWorksheets(xml);
     // Focused digests get the full 12k for their one topic; the default digest
@@ -346,13 +305,33 @@ export function buildWorkbookDigest(xml: string, focus?: DigestFocus): string {
     // list is what hits the 12k cap, and it must not push the small sections
     // past the truncation point in the default digest.
     if (!focus || focus === 'fields') {
-        const fields = collectFields(xml);
+        const fieldContext = buildWorkbookFieldContext(xml, workbookName, sourceUri);
+        const fields = fieldContext.fields.filter(field => field.kind === 'field');
         parts.push(`\n## Datasource fields (${fields.length})`);
-        for (const f of fields.slice(0, MAX_FIELDS)) {
-            parts.push(`- ${f.caption} (${f.datatype}${f.role ? `, ${f.role}` : ''})`);
+
+        // Put explicitly named fields first so a large workbook can still
+        // answer a targeted question even when the general inventory is capped.
+        const lowerQuery = query.toLowerCase();
+        const ordered = [
+            ...fields.filter(field => lowerQuery && lowerQuery.includes(field.name.toLowerCase())),
+            ...fields.filter(field => !lowerQuery || !lowerQuery.includes(field.name.toLowerCase())),
+        ];
+        const selected = ordered.slice(0, focus === 'fields' ? ordered.length : MAX_FIELDS);
+        const grouped = new Map<string, WorkbookDataField[]>();
+        for (const field of selected) {
+            const group = grouped.get(field.datasource) ?? [];
+            group.push(field);
+            grouped.set(field.datasource, group);
         }
-        if (fields.length > MAX_FIELDS) {
-            parts.push(`- [${fields.length - MAX_FIELDS} more fields omitted — ask about one by name]`);
+        for (const [datasource, datasourceFields] of grouped) {
+            const totalForDatasource = fields.filter(field => field.datasource === datasource).length;
+            parts.push(`### ${datasource} (${totalForDatasource})`);
+            for (const field of datasourceFields) {
+                parts.push(`- ${field.name} (${field.datatype || 'unknown'}${field.role ? `, ${field.role}` : ''})`);
+            }
+        }
+        if (fields.length > selected.length) {
+            parts.push(`- [${fields.length - selected.length} more fields omitted — ask about one by name or use /fields]`);
         }
 
         const params = collectParameters(xml);

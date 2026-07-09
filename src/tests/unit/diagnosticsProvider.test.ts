@@ -4,6 +4,7 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { DiagnosticSeverity } from 'vscode-languageserver';
 import { getDiagnostics } from '../../diagnosticsProvider.js';
 import { parseDocument } from '../../documentModel.js';
+import { FieldParser } from '../../fieldParser.js';
 
 describe('Diagnostics Provider', () => {
   describe('getDiagnostics', () => {
@@ -35,14 +36,119 @@ describe('Diagnostics Provider', () => {
       expect(diagnostics.some(d => d.message.includes('argument'))).toBe(true);
     });
     
-    it('should detect unknown fields', () => {
-      const document = createTestDocument('SUM([NonExistentField])');
+    it('validates fields against an authoritative workbook context', () => {
+      const document = createTestDocument('SUM([Sales]) + [NonExistentField]');
       const parsedDocument = parseDocument(document);
-      const diagnostics = getDiagnostics(document, parsedDocument);
-      
-      // This might not generate an error if field validation is not strict
-      // Just check that the function runs without errors
-      expect(diagnostics).toBeDefined();
+      const fieldParser = new FieldParser(null);
+      fieldParser.setRuntimeFields([{
+        name: 'Sales',
+        type: 'Number',
+        description: 'Orders field',
+      }]);
+      const diagnostics = getDiagnostics(document, parsedDocument, fieldParser);
+
+      const unknownFields = diagnostics.filter(d => d.code === 'UNKNOWN_FIELD');
+      expect(unknownFields).toHaveLength(1);
+      expect(unknownFields[0].message).toContain('[NonExistentField]');
+      expect(unknownFields[0].message).not.toContain('[Sales]');
+    });
+
+    it('does not treat a datasource qualifier as a missing field', () => {
+      const document = createTestDocument('    [Orders].[Sales] + [Missing]');
+      const parsedDocument = parseDocument(document);
+      const fieldParser = new FieldParser(null);
+      fieldParser.setRuntimeFields([{
+        name: 'Sales',
+        type: 'Number',
+        description: 'Orders field',
+        datasource: 'Orders',
+      }]);
+
+      const unknownFields = getDiagnostics(document, parsedDocument, fieldParser)
+        .filter(d => d.code === 'UNKNOWN_FIELD');
+      expect(unknownFields).toHaveLength(1);
+      expect(unknownFields[0].message).toContain('[Missing]');
+      expect(unknownFields[0].message).not.toContain('[Orders]');
+    });
+
+    it('keeps datasource qualifier ranges correct inside conditional segments', () => {
+      const document = createTestDocument('IF   [Orders].[Sales] > 0 THEN [Sales] ELSE 0 END');
+      const parsedDocument = parseDocument(document);
+      const fieldParser = new FieldParser(null);
+      fieldParser.setRuntimeFields([{
+        name: 'Sales',
+        type: 'Number',
+        description: 'Orders field',
+        datasource: 'Orders',
+      }]);
+
+      const unknownFields = getDiagnostics(document, parsedDocument, fieldParser)
+        .filter(d => d.code === 'UNKNOWN_FIELD');
+      expect(unknownFields).toHaveLength(0);
+    });
+
+    it('rejects a globally known field when it is not in the qualified datasource', () => {
+      const document = createTestDocument('[Orders].[Status] + [Returns].[Status]');
+      const parsedDocument = parseDocument(document);
+      const fieldParser = new FieldParser(null);
+      fieldParser.setRuntimeFields(
+        [{ name: 'Status', type: 'String', description: '', datasource: 'Returns' }],
+        true,
+        [
+          { name: 'Amount', type: 'Number', description: '', datasource: 'Orders' },
+          { name: 'Status', type: 'String', description: '', datasource: 'Returns' },
+        ]
+      );
+
+      const diagnostics = getDiagnostics(document, parsedDocument, fieldParser);
+      const unknownFields = diagnostics.filter(d => d.code === 'UNKNOWN_FIELD');
+
+      expect(unknownFields).toHaveLength(1);
+      expect(unknownFields[0].message).toContain('[Status]');
+      expect(unknownFields[0].message).toContain('[Orders]');
+      expect(diagnostics.filter(d => d.code === 'UNKNOWN_DATASOURCE')).toHaveLength(0);
+    });
+
+    it('reports an unknown datasource once without misclassifying it as a field', () => {
+      const document = createTestDocument('[Missing Source].[Status]');
+      const parsedDocument = parseDocument(document);
+      const fieldParser = new FieldParser(null);
+      fieldParser.setRuntimeFields(
+        [{ name: 'Status', type: 'String', description: '', datasource: 'Returns' }]
+      );
+
+      const diagnostics = getDiagnostics(document, parsedDocument, fieldParser);
+      expect(diagnostics.filter(d => d.code === 'UNKNOWN_DATASOURCE')).toHaveLength(1);
+      expect(diagnostics.filter(d => d.code === 'UNKNOWN_FIELD')).toHaveLength(0);
+    });
+
+    it('does not validate bracket-shaped text inside string literals as fields', () => {
+      const document = createTestDocument(
+        '"Label [Not a field]" + IF [Sales] = "[Unknown]" THEN 1 ELSE 0 END'
+      );
+      const parsedDocument = parseDocument(document);
+      const fieldParser = new FieldParser(null);
+      fieldParser.setRuntimeFields([{ name: 'Sales', type: 'Number', description: '' }]);
+
+      const diagnostics = getDiagnostics(document, parsedDocument, fieldParser);
+      expect(diagnostics.filter(d => d.code === 'UNKNOWN_FIELD')).toHaveLength(0);
+    });
+
+    it('preserves a leading hash that is part of the actual field caption', () => {
+      const document = createTestDocument('SUM([#Complaint]) + [#Ghost]');
+      const parsedDocument = parseDocument(document);
+      const fieldParser = new FieldParser(null);
+      fieldParser.setRuntimeFields([{
+        name: '#Complaint',
+        type: 'Number',
+        description: 'Complaint count',
+      }]);
+
+      const unknownFields = getDiagnostics(document, parsedDocument, fieldParser)
+        .filter(d => d.code === 'UNKNOWN_FIELD');
+      expect(unknownFields).toHaveLength(1);
+      expect(unknownFields[0].message).toContain('[#Ghost]');
+      expect(unknownFields[0].message).not.toContain('[#Complaint]');
     });
     
     it('should categorize issues by severity', () => {

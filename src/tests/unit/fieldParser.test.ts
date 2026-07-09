@@ -67,6 +67,84 @@ describe('FieldParser', () => {
         expect(parser.getField('New Field')?.type).toBe('Boolean');
     });
 
+    it('replaces bundled fallback fields with an authoritative workbook context', () => {
+        const parser = new FieldParser('test://fields.d.twbl');
+        parser.setRuntimeFields([{
+            name: 'Workbook Only',
+            type: 'Date',
+            description: 'From the active workbook',
+            datasource: 'Orders',
+            sourceUri: 'file:///workspace/Book.twb',
+            sourceLine: 12,
+        }]);
+
+        expect(parser.hasRuntimeFieldContext()).toBe(true);
+        expect(parser.getField('Sales')).toBeUndefined();
+        expect(parser.getField('Workbook Only')).toMatchObject({
+            type: 'Date',
+            datasource: 'Orders',
+            sourceLine: 12,
+        });
+    });
+
+    it('restores bundled fallbacks when workbook context is cleared', () => {
+        const parser = new FieldParser('test://fields.d.twbl');
+        parser.setRuntimeFields([{ name: 'Live', type: 'String', description: '' }]);
+        parser.setRuntimeFields([], false);
+
+        expect(parser.hasRuntimeFieldContext()).toBe(false);
+        expect(parser.getField('Live')).toBeUndefined();
+        expect(parser.getField('Sales')).toBeDefined();
+    });
+
+    it('does not mix a stale workspace overlay into a live workbook context', () => {
+        const parser = new FieldParser('test://fields.d.twbl');
+        parser.setRuntimeFields([{ name: 'Live', type: 'String', description: '' }]);
+        parser.setOverlayPath('/workspace/fields.d.twbl');
+
+        expect(parser.getAllFields().size).toBe(1);
+        expect(parser.getField('Live')).toBeDefined();
+        expect(parser.getField('Sales')).toBeUndefined();
+    });
+
+    it('preserves exact datasource membership for qualified references', () => {
+        const parser = new FieldParser('test://fields.d.twbl');
+        parser.setRuntimeFields(
+            [
+                { name: 'Amount', type: 'Number', description: '', datasource: 'Orders' },
+                { name: 'Status', type: 'String', description: '', datasource: 'Returns' },
+            ],
+            true,
+            [
+                { name: 'Amount', type: 'Number', description: '', datasource: 'Orders' },
+                { name: 'Status', type: 'String', description: '', datasource: 'Returns' },
+            ]
+        );
+
+        expect(parser.getField('Status')).toBeDefined();
+        expect(parser.getField('Status', 'Returns')).toBeDefined();
+        expect(parser.getField('Status', 'Orders')).toBeUndefined();
+        expect(parser.getFieldsForDatasource('Orders').has('AMOUNT')).toBe(true);
+        expect(parser.getFieldsForDatasource('Orders').has('STATUS')).toBe(false);
+        expect(parser.getDatasources()).toEqual([
+            { name: 'Orders', fieldCount: 1 },
+            { name: 'Returns', fieldCount: 1 },
+        ]);
+    });
+
+    it('treats a pipe as part of an exact datasource caption', () => {
+        const parser = new FieldParser(null);
+        parser.setRuntimeFields(
+            [{ name: 'Amount', type: 'Number', description: '', datasource: 'North | South' }],
+            true,
+            [{ name: 'Amount', type: 'Number', description: '', datasource: 'North | South' }]
+        );
+
+        expect(parser.getDatasources()).toEqual([{ name: 'North | South', fieldCount: 1 }]);
+        expect(parser.getField('Amount', 'North | South')).toBeDefined();
+        expect(parser.getField('Amount', 'North')).toBeUndefined();
+    });
+
     describe('findDefinitionFile', () => {
         it('returns the first matching path that exists', () => {
             const basePath = '/workspace/out';
