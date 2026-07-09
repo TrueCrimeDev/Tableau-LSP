@@ -2,6 +2,20 @@
 
 All notable changes to the "tableau-language-support" extension will be documented in this file.
 
+## [1.6.0] - 2026-07-09
+
+### Added
+
+- **@tableau Copilot chat participant** — ask Copilot Chat about the active .twb workbook (`@tableau what borders are set?`), with `/borders`, `/calcs`, and `/fields` commands. Parses the workbook into a bounded digest (worksheets, styles, resolved calculations, fields, parameters, thumbnails) and streams model answers grounded in it.
+- **Datasource field browser** — click a datasource in the Tableau Tools sidebar to expand its plain fields with datatypes; click a field to copy `[Field Name]` ready to paste into a calc, or copy all field names at once.
+- **Field-swap hover** — hover a `[Field]` reference in a .twbl calculation to see its datatype/role and click an alternative datasource field (same-datatype options first) to swap the reference in place.
+- **Format Stripper sidebar section** — strip borders, bold, font sizes, and font colors from the active workbook, with live scan counts next to each option. Border stripping now inserts explicit neutralising nodes per worksheet, so sheets on Tableau-default borders are handled too, and repeated runs are idempotent.
+
+### Changed
+
+- Field extraction now walks the whole datasource subtree (relation columns, metadata-records), so ordinary non-renamed fields are recognised everywhere fields are used.
+- Minimum VS Code version is now 1.95 (required by the Chat/Language Model APIs).
+
 ## [1.5.3-beta.0] - 2025-08-12
 
 ### Preview (Beta)
