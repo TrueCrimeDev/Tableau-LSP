@@ -517,7 +517,7 @@
     "@types/lodash-es": "^4.17.12",
     "@types/node": "^20.0.0",
     "@types/semver": "^7.5.8",
-    "@types/vscode": "^1.125.0",
+    "@types/vscode": "1.95.0",
     "@types/which": "^2.0.1",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^2.24.0",
