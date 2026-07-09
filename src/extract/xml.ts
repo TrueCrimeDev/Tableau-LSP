@@ -429,6 +429,39 @@ export function extractDatasourcesFromXml(
  * @param preprocessor - Optional preprocessor for cleaning/transforming XML
  * @returns Array of extracted fields
  */
+/**
+ * Recursively collects <column> and <metadata-record> nodes anywhere under a
+ * datasource. Ordinary fields usually live inside <connection><relation>
+ * (often FCP-mangled tag names), not as direct datasource children.
+ */
+function collectColumnNodes(node: XmlNode, columns: XmlNode[], metaRecords: XmlNode[]): void {
+    for (const key of Object.keys(node)) {
+        const value = node[key];
+        if (key === 'column') {
+            columns.push(...toNodeArray(value));
+            continue;
+        }
+        if (key === 'metadata-record') {
+            metaRecords.push(...toNodeArray(value));
+            continue;
+        }
+        if (typeof value === 'object' && value !== null) {
+            for (const child of toNodeArray(value)) {
+                collectColumnNodes(child, columns, metaRecords);
+            }
+        }
+    }
+}
+
+function getTextValue(node: XmlNode, key: string): string | undefined {
+    const direct = toStringValue(node[key]);
+    if (direct !== undefined) {
+        return direct;
+    }
+    const nested = toNode(node[key]);
+    return nested ? toStringValue(nested['#text']) : undefined;
+}
+
 export function extractFieldsFromXml(
     xml: string,
     workbookName: string,
@@ -484,23 +517,63 @@ export function extractFieldsFromXml(
             'Unknown Datasource'
         );
 
-        for (const column of getChildNodes(datasource, 'column')) {
+        const columnNodes: XmlNode[] = [];
+        const metaRecords: XmlNode[] = [];
+        collectColumnNodes(datasource, columnNodes, metaRecords);
+
+        const byKey = new Map<string, ExtractedField>();
+        for (const column of columnNodes) {
             const name = getString(column, 'name');
             const caption = getString(column, 'caption');
-            const datatype = getString(column, 'datatype');
-            const role = getString(column, 'role');
-
-            if (name || caption) {
-                fields.push({
-                    workbook: workbookLabel,
-                    datasource: datasourceLabel,
-                    name: stripBrackets(name) || caption || 'Unknown',
-                    caption: caption,
-                    datatype: datatype,
-                    role: role
-                });
+            if (!name && !caption) {
+                continue;
+            }
+            const field: ExtractedField = {
+                workbook: workbookLabel,
+                datasource: datasourceLabel,
+                name: stripBrackets(name) || caption || 'Unknown',
+                caption: caption,
+                datatype: getString(column, 'datatype'),
+                role: getString(column, 'role'),
+                isCalculation: getChildNodes(column, 'calculation').length > 0,
+                isParameter: Boolean(getString(column, 'param-domain-type'))
+            };
+            const key = field.name.toLowerCase();
+            const existing = byKey.get(key);
+            // A captioned (renamed) declaration is richer than a bare relation column.
+            if (!existing || (!existing.caption && caption)) {
+                byKey.set(key, field);
             }
         }
+
+        // metadata-records fill in fields that never got a <column> element.
+        for (const record of metaRecords) {
+            if (getString(record, 'class') !== 'column') {
+                continue;
+            }
+            const localName = getTextValue(record, 'local-name');
+            const localType = getTextValue(record, 'local-type');
+            if (!localName || !localType) {
+                continue;
+            }
+            const bareName = stripBrackets(localName) || localName;
+            const key = bareName.toLowerCase();
+            if (byKey.has(key)) {
+                continue;
+            }
+            byKey.set(key, {
+                workbook: workbookLabel,
+                datasource: datasourceLabel,
+                name: bareName,
+                caption: getTextValue(record, 'remote-name'),
+                datatype: localType,
+                role: undefined,
+                isCalculation: false,
+                isParameter: false
+            });
+        }
+
+        fields.push(...byKey.values());
     }
 
     return fields;

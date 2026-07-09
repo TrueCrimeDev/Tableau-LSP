@@ -10,6 +10,11 @@ export interface RichWorkbookData {
     datasources: Array<{
         caption: string;
         connectionClass: string;
+        fields: Array<{
+            name: string;
+            datatype: string;
+            role: string;
+        }>;
     }>;
     calculations: Array<{
         caption: string;

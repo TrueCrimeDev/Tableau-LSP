@@ -1142,6 +1142,35 @@ if (requiredElements.some((element) => !element)) {
           'Importing \u201c' + escapeHtml(palette.name) + '\u201d\u2026',
           'info',
         )
+      } else if (action === 'toggle-ds-fields') {
+        const panel = document.getElementById('ds-fields-' + idx)
+        if (panel) {
+          panel.hidden = !panel.hidden
+          button.classList.toggle('ds-open', !panel.hidden)
+        }
+      } else if (action === 'copy-ds-fields') {
+        const ds = data.datasources && data.datasources[idx]
+        if (!ds || !ds.fields || !ds.fields.length) {
+          setStatus('No plain fields to copy.', 'info')
+          return
+        }
+        const text = ds.fields.map((f) => '[' + f.name + ']').join('\n')
+        vscode.postMessage({ type: 'copyFormula', formula: text })
+        setStatus(
+          'Copied ' + ds.fields.length + ' field names from \u201c' +
+            escapeHtml(ds.caption || 'Unknown') +
+            '\u201d',
+          'success',
+        )
+      } else if (action === 'copy-field') {
+        const ds =
+          data.datasources && data.datasources[Number(button.dataset.ds)]
+        const f = ds && ds.fields && ds.fields[Number(button.dataset.field)]
+        if (!f) {
+          return
+        }
+        vscode.postMessage({ type: 'copyFormula', formula: '[' + f.name + ']' })
+        setStatus('Copied [' + escapeHtml(f.name) + ']', 'success')
       } else if (action === 'generate-field-defs') {
         if (!data.datasources) {
           return
@@ -2391,8 +2420,34 @@ function renderDatasources(datasources) {
       const caption = escapeHtml(ds.caption || 'Unknown')
       const cls = ds.connectionClass || 'unknown'
       const label = CONNECTION_LABELS[cls] || escapeHtml(cls)
+      const dsFields = ds.fields || []
+      const fieldRows = dsFields.length
+        ? dsFields
+            .map(
+              (f, fi) =>
+                '<div class="tree-item" data-action="copy-field" data-ds="' +
+                idx +
+                '" data-field="' +
+                fi +
+                '" title="Copy [' +
+                escapeHtml(f.name) +
+                ']">' +
+                '<span class="ti-icon"><svg class="ic"><use href="#i-field"/></svg></span>' +
+                '<span class="ti-label">' +
+                escapeHtml(f.name) +
+                '</span>' +
+                (f.datatype
+                  ? '<span class="ti-type">' + escapeHtml(f.datatype) + '</span>'
+                  : '') +
+                '</div>',
+            )
+            .join('')
+        : '<div class="sub-empty">No plain fields in this datasource.</div>'
       return (
-        '<div class="tree-item">' +
+        '<div class="tree-item ti-ds" data-action="toggle-ds-fields" data-index="' +
+        idx +
+        '" title="Show fields">' +
+        '<span class="ds-cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>' +
         '<span class="ti-icon"><svg class="ic"><use href="#i-db"/></svg></span>' +
         '<span class="ti-label">' +
         caption +
@@ -2401,10 +2456,18 @@ function renderDatasources(datasources) {
         label +
         '</span>' +
         '<div class="ti-actions">' +
+        '<button class="ib" data-action="copy-ds-fields" data-index="' +
+        idx +
+        '" title="Copy all field names"><svg class="ic" aria-hidden="true"><use href="#i-copy"/></svg></button>' +
         '<button class="ib" data-action="generate-field-defs" data-index="' +
         idx +
         '" title="Create field definitions (fields.d.twbl)"><svg class="ic" aria-hidden="true"><use href="#i-field"/></svg></button>' +
         '</div>' +
+        '</div>' +
+        '<div class="ds-fields" id="ds-fields-' +
+        idx +
+        '" hidden>' +
+        fieldRows +
         '</div>'
       )
     }),

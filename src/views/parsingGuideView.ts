@@ -778,10 +778,32 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 datasourceCount: datasourcesRaw.length,
                 calcCount: calculations.length,
                 sheetCount: worksheets.length,
-                datasources: datasourcesRaw.map(ds => ({
-                    caption: ds.caption ?? ds.name,
-                    connectionClass: ds.connection?.class ?? 'unknown'
-                })),
+                datasources: datasourcesRaw.map(ds => {
+                    const label = ds.caption ?? ds.name;
+                    const norm = (s: string) => s.replace(/^\[|\]$/g, '').toLowerCase();
+                    const seen = new Set<string>();
+                    const dsFields: Array<{ name: string; datatype: string; role: string }> = [];
+                    for (const f of fields) {
+                        if (norm(f.datasource) !== norm(label)) { continue; }
+                        if (f.isCalculation || f.isParameter) { continue; }
+                        if (f.name.includes('__tableau_internal')) { continue; }
+                        if ((f.datatype ?? '') === 'table') { continue; } // file/object relations, not fields
+                        const fieldName = f.caption ?? f.name;
+                        const key = fieldName.toLowerCase();
+                        if (seen.has(key)) { continue; }
+                        seen.add(key);
+                        dsFields.push({
+                            name: fieldName,
+                            datatype: f.datatype ?? '',
+                            role: f.role ?? ''
+                        });
+                    }
+                    return {
+                        caption: label,
+                        connectionClass: ds.connection?.class ?? 'unknown',
+                        fields: dsFields
+                    };
+                }),
                 calculations: calculations.map(c => ({
                     caption: c.title,
                     datatype: '',
@@ -1489,6 +1511,16 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
           display: flex; align-items: center; height: 22px;
           padding: 0 4px 0 28px; cursor: pointer;
         }
+        .tree-item.ti-ds { padding-left: 10px; }
+        .tree-item.ti-ds .ds-cv {
+          width: 14px; flex-shrink: 0; display: inline-flex; align-items: center;
+          color: var(--vscode-descriptionForeground);
+        }
+        .tree-item.ti-ds .ds-cv svg { transform: rotate(-90deg); transition: transform .12s; }
+        .tree-item.ti-ds.ds-open .ds-cv svg { transform: rotate(0deg); }
+        .ds-fields { margin-left: 18px; }
+        .ds-fields .tree-item { padding-left: 14px; }
+        .ds-fields .sub-empty { padding-left: 14px; }
         .tree-item.tree-item-calc {
           padding: 0 4px;
         }
@@ -1816,6 +1848,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
       <symbol id="i-grid" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/><line x1="2" y1="6" x2="14" y2="6" stroke="currentColor" stroke-width="1.1"/><line x1="2" y1="10" x2="14" y2="10" stroke="currentColor" stroke-width="1.1"/><line x1="6" y1="2" x2="6" y2="14" stroke="currentColor" stroke-width="1.1"/><line x1="10" y1="2" x2="10" y2="14" stroke="currentColor" stroke-width="1.1"/></symbol>
       <symbol id="i-twb" viewBox="0 0 16 16"><path d="M4 1h5l4 4v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><polyline points="9,1 9,5 13,5" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><line x1="5.5" y1="9" x2="10.5" y2="9" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><line x1="5.5" y1="11.5" x2="8.5" y2="11.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></symbol>
       <symbol id="i-field" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/><line x1="2" y1="6.5" x2="14" y2="6.5" stroke="currentColor" stroke-width="1.1"/><line x1="6" y1="3" x2="6" y2="13" stroke="currentColor" stroke-width="1.1"/></symbol>
+      <symbol id="i-copy" viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
       <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.3"/><line x1="8" y1="7" x2="8" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="4.8" r="0.7" fill="currentColor"/></symbol>
     </svg>
 
