@@ -5,6 +5,7 @@ import { ActivationManager } from './activation/activationManager.js';
 import { extractCalculationsPythonCommand } from './commands/extractCalculationsPython.js';
 import { registerFormattingPanel } from './views/formattingPanel.js';
 import { registerTableauChatParticipant } from './chat/tableauChatParticipant.js';
+import { registerFieldSwapFeature } from './providers/fieldSwapHover.js';
 import { CalcCopyCodeLensProvider, COPY_CALC_BLOCK_COMMAND } from './calcCopyLens.js';
 import { registerRunTestsCommand } from './commands/runTests.js';
 
@@ -184,6 +185,7 @@ async function registerAdditionalComponents(context: ExtensionContext): Promise<
         context.subscriptions.push(extractPythonCommand);
 
         registerFormattingPanel(context);
+        registerFieldSwapFeature(context);
 
         // "Copy" CodeLens above each calculation block (copies comment header + formula).
         const calcCopyLens = new CalcCopyCodeLensProvider();

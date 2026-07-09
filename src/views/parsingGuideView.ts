@@ -43,6 +43,7 @@ import {
 import { locateXmlElement } from './formattingPanel.js';
 import { stripFormattingXml, scanFormattingXml, FormatStripOptions } from '../parsers/formatStripper.js';
 import { CALC_PORTFOLIO } from './calcPortfolio.js';
+import { setFieldCatalog } from '../services/fieldCatalog.js';
 
 const log = getLogger();
 const LOG_CAT = 'WorkbookInspector';
@@ -770,6 +771,18 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             // datasource click doesn't have to re-parse the workbook.
             this.lastExtractedFields = fields;
             this.lastWorkbookFileName = fileName;
+
+            // Feed the field-swap hover's catalog (plain fields only).
+            setFieldCatalog(fields
+                .filter(f => !f.isCalculation && !f.isParameter
+                    && !f.name.includes('__tableau_internal')
+                    && (f.datatype ?? '') !== 'table')
+                .map(f => ({
+                    name: f.caption ?? f.name,
+                    datatype: f.datatype ?? '',
+                    role: f.role ?? '',
+                    datasource: f.datasource
+                })));
 
             const richData: RichWorkbookData = {
                 fileName,
