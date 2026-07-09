@@ -13,6 +13,10 @@ export interface ExtractedField {
     caption?: string;
     datatype?: string;
     role?: string;
+    /** Column carries a <calculation> child (calculated field). */
+    isCalculation?: boolean;
+    /** Column carries param-domain-type (parameter). */
+    isParameter?: boolean;
 }
 
 export interface ExtractedDatasource {
