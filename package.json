@@ -32,7 +32,7 @@
     "theme": "dark"
   },
   "engines": {
-    "vscode": "^1.80.0"
+    "vscode": "^1.95.0"
   },
   "categories": [
     "Programming Languages",
@@ -43,6 +43,29 @@
   ],
   "main": "./out/extension",
   "contributes": {
+    "chatParticipants": [
+      {
+        "id": "tableau-language-support.tableau",
+        "name": "tableau",
+        "fullName": "Tableau Workbook",
+        "description": "Ask about the data inside the active .twb workbook",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "borders",
+            "description": "Deep-dive the workbook's border and divider formatting"
+          },
+          {
+            "name": "calcs",
+            "description": "List and explain the workbook's calculations"
+          },
+          {
+            "name": "fields",
+            "description": "List datasource fields and datatypes"
+          }
+        ]
+      }
+    ],
     "configurationDefaults": {
       "files.associations": {
         "*.twb": "twb"
@@ -494,7 +517,7 @@
     "@types/lodash-es": "^4.17.12",
     "@types/node": "^20.0.0",
     "@types/semver": "^7.5.8",
-    "@types/vscode": "^1.80.0",
+    "@types/vscode": "^1.125.0",
     "@types/which": "^2.0.1",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^2.24.0",
