@@ -5,6 +5,8 @@ import { Position, DocumentSymbolParams, WorkspaceSymbolParams, CodeActionParams
 import { documentSymbolProvider, workspaceSymbolProvider, provideCodeActions, provideDefinition, provideReferences } from '../../provider.js';
 import { parsedDocumentCache } from '../../common.js';
 import { IncrementalParser } from '../../incrementalParser.js';
+import { FieldParser } from '../../fieldParser.js';
+import { buildWorkbookFieldContext } from '../../services/workbookFieldContext.js';
 
 describe('Provider Module', () => {
     function createTestDocument(content: string, uri: string = 'test://test.twbl'): TextDocument {
@@ -19,11 +21,11 @@ describe('Provider Module', () => {
         it('should provide symbols for simple expressions', async () => {
             const document = createTestDocument('SUM([Sales])');
             const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
-            
+
             const params: DocumentSymbolParams = {
                 textDocument: { uri: document.uri }
             };
-            
+
             const symbols = await documentSymbolProvider(params, undefined as any);
             
             expect(symbols).toBeDefined();
@@ -254,7 +256,8 @@ describe('Provider Module', () => {
             
             const definition = await provideDefinition(params, document);
             
-            expect(definition).toBeDefined();
+            expect(definition).not.toBeNull();
+            expect((definition as { uri: string }).uri).toMatch(/^file:/);
         });
 
         it('should provide definition for field references', async () => {
@@ -266,9 +269,106 @@ describe('Provider Module', () => {
                 position: { line: 0, character: 2 } // Inside [Sales]
             };
             
-            const definition = await provideDefinition(params, document);
-            
-            expect(definition).toBeDefined();
+            const fieldParser = new FieldParser(null);
+            fieldParser.setRuntimeFields([{
+                name: 'Sales',
+                type: 'Number',
+                description: 'Workbook field',
+                sourceUri: 'file:///workspace/Book.twb',
+                sourceLine: 42,
+                sourceCharacter: 8,
+            }]);
+            const definition = await provideDefinition(params, document, fieldParser);
+
+            expect(definition).toMatchObject({
+                uri: 'file:///workspace/Book.twb',
+                range: { start: { line: 42, character: 8 } },
+            });
+        });
+
+        it('resolves qualified definitions only within the named datasource', async () => {
+            const xml = `<workbook>
+  <datasources>
+    <datasource caption='Orders'>
+      <column datatype='real' name='Status' />
+      <column datatype='real' name='Amount' />
+    </datasource>
+    <datasource caption='Returns'>
+      <column datatype='string' name='Status' />
+    </datasource>
+  </datasources>
+</workbook>`;
+            const context = buildWorkbookFieldContext(xml, 'Book.twb', 'file:///workspace/Book.twb');
+            const fieldParser = new FieldParser(null);
+            fieldParser.setRuntimeFields(
+                context.definitions,
+                true,
+                context.fields
+            );
+
+            const validReturns = createTestDocument('[Returns].[Status]');
+            const validOrders = createTestDocument('[Orders].[Status]', 'test://orders.twbl');
+            const invalid = createTestDocument('[Returns].[Amount]', 'test://invalid.twbl');
+            const returnsDefinition = await provideDefinition(
+                { textDocument: { uri: validReturns.uri }, position: { line: 0, character: 13 } },
+                validReturns,
+                fieldParser
+            );
+            const ordersDefinition = await provideDefinition(
+                { textDocument: { uri: validOrders.uri }, position: { line: 0, character: 12 } },
+                validOrders,
+                fieldParser
+            );
+            const invalidDefinition = await provideDefinition(
+                { textDocument: { uri: invalid.uri }, position: { line: 0, character: 13 } },
+                invalid,
+                fieldParser
+            );
+            const qualifierDefinition = await provideDefinition(
+                { textDocument: { uri: validReturns.uri }, position: { line: 0, character: 3 } },
+                validReturns,
+                fieldParser
+            );
+
+            expect(returnsDefinition).toMatchObject({
+                uri: 'file:///workspace/Book.twb',
+                range: { start: { line: 7 } },
+            });
+            expect(ordersDefinition).toMatchObject({
+                uri: 'file:///workspace/Book.twb',
+                range: { start: { line: 3 } },
+            });
+            expect(invalidDefinition).toBeNull();
+            expect(qualifierDefinition).toBeNull();
+        });
+
+        it('does not resolve bracket-shaped text inside a string as a field', async () => {
+            const document = createTestDocument('"Label [Sales]"');
+            const fieldParser = new FieldParser(null);
+            fieldParser.setRuntimeFields([{
+                name: 'Sales',
+                type: 'Number',
+                description: '',
+                sourceUri: 'file:///workspace/Book.twb',
+                sourceLine: 10,
+            }]);
+
+            const definition = await provideDefinition(
+                { textDocument: { uri: document.uri }, position: { line: 0, character: 10 } },
+                document,
+                fieldParser
+            );
+            const references = await provideReferences(
+                {
+                    textDocument: { uri: document.uri },
+                    position: { line: 0, character: 10 },
+                    context: { includeDeclaration: true },
+                },
+                document
+            );
+
+            expect(definition).toBeNull();
+            expect(references).toEqual([]);
         });
 
         it('should handle positions with no definitions', async () => {
@@ -277,13 +377,13 @@ describe('Provider Module', () => {
             
             const params: DefinitionParams = {
                 textDocument: { uri: document.uri },
-                position: { line: 0, character: 5 } // On parenthesis
+                position: { line: 0, character: 12 } // Just after the expression
             };
             
             const definition = await provideDefinition(params, document);
             
             // Should handle gracefully
-            expect(definition).toBeDefined();
+            expect(definition).toBeNull();
         });
 
         it('should handle positions outside document bounds', async () => {
@@ -297,7 +397,7 @@ describe('Provider Module', () => {
             
             const definition = await provideDefinition(params, document);
             
-            expect(definition).toBeDefined();
+            expect(definition).toBeNull();
         });
     });
 
@@ -320,13 +420,13 @@ describe('Provider Module', () => {
             expect(Array.isArray(references)).toBe(true);
         });
 
-        it('should find references to field names', async () => {
-            const document = createTestDocument('[Sales] + [Sales] * 2');
+        it('finds every bracketed reference including field names with spaces', async () => {
+            const document = createTestDocument('[Customer Name] + [Customer Name]');
             const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
             
             const params: ReferenceParams = {
                 textDocument: { uri: document.uri },
-                position: { line: 0, character: 2 }, // Inside first [Sales]
+                position: { line: 0, character: 6 },
                 context: {
                     includeDeclaration: true
                 }
@@ -334,8 +434,26 @@ describe('Provider Module', () => {
             
             const references = await provideReferences(params, document);
             
-            expect(references).toBeDefined();
-            expect(Array.isArray(references)).toBe(true);
+            expect(references).toHaveLength(2);
+            expect(references.map(reference => document.getText(reference.range))).toEqual([
+                '[Customer Name]',
+                '[Customer Name]',
+            ]);
+        });
+
+        it('excludes bracket-shaped string content from field references', async () => {
+            const document = createTestDocument('[Sales] + "[Sales]"');
+            const references = await provideReferences(
+                {
+                    textDocument: { uri: document.uri },
+                    position: { line: 0, character: 3 },
+                    context: { includeDeclaration: true },
+                },
+                document
+            );
+
+            expect(references).toHaveLength(1);
+            expect(document.getText(references[0].range)).toBe('[Sales]');
         });
 
         it('should handle references with includeDeclaration false', async () => {

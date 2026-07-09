@@ -2,6 +2,28 @@
 
 All notable changes to the "tableau-language-support" extension will be documented in this file.
 
+## [1.7.0] - 2026-07-09
+
+### Added
+
+- **Automatic workbook field context** — opening or selecting a `.twb` or `.twbx` now indexes its datasource fields and synchronizes one authoritative schema across the extension host and language server without requiring a generated definitions file.
+- **Datasource-aware IntelliSense** — completion, hover, diagnostics, references, field swapping, and go-to-definition understand `[Datasource].[Field]`, preserve duplicate captions across datasources, and navigate to the correct workbook declaration.
+- **Shared chat field model** — `@tableau` now consumes the same canonical workbook field extraction as the LSP, including packaged workbooks, datatype/role metadata, and datasource-grouped field inventories.
+
+### Changed
+
+- Live workbook fields replace bundled sample declarations while a workbook is active; `fields.d.twbl` remains a workspace-scoped fallback for calculation-only projects.
+- Generated field-definition sections now include workbook identity as well as datasource identity, avoiding collisions between workbooks and workspace roots.
+- Field extraction preserves Tableau `local-name` metadata and exact datasource provenance, including datasource captions containing punctuation.
+
+### Fixed
+
+- Prevented stale workbook reads, delayed tab changes, background edits, and transient atomic-save failures from replacing the active schema with another workbook or an empty context.
+- Corrected source navigation when duplicate captions occur in multiple datasources or workbook XML embeds datasource markup inside CDATA.
+- Corrected punctuation-prefixed field completion, existing-bracket replacement, and datasource-qualified completion edits.
+- Ignored bracket-shaped text inside strings and comments while preserving legitimate apostrophes in names such as `[Customer's Name]`.
+- Added safe ambiguity handling for multiple open workbooks and correct `fields.d.twbl` selection in multi-root workspaces.
+
 ## [1.6.0] - 2026-07-09
 
 ### Added

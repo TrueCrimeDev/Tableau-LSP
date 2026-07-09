@@ -27,12 +27,12 @@ export function mapDatatype(datatype: string | undefined): string {
     return DATATYPE_MAP[(datatype ?? '').toLowerCase()] ?? 'String';
 }
 
-function sectionStartMarker(datasource: string): string {
-    return `// === Datasource: ${datasource} ===`;
+function sectionStartMarker(datasource: string, workbook: string): string {
+    return `// === Workbook: ${workbook} | Datasource: ${datasource} ===`;
 }
 
-function sectionEndMarker(datasource: string): string {
-    return `// === End: ${datasource} ===`;
+function sectionEndMarker(datasource: string, workbook: string): string {
+    return `// === End Workbook: ${workbook} | Datasource: ${datasource} ===`;
 }
 
 /**
@@ -46,7 +46,7 @@ export function generateFieldDefsSection(
     datasource: string,
     workbook: string
 ): string {
-    const lines: string[] = [sectionStartMarker(datasource)];
+    const lines: string[] = [sectionStartMarker(datasource, workbook)];
     const seen = new Set<string>();
 
     for (const field of fields) {
@@ -70,7 +70,7 @@ export function generateFieldDefsSection(
     }
 
     lines.push('');
-    lines.push(sectionEndMarker(datasource));
+    lines.push(sectionEndMarker(datasource, workbook));
     return lines.join('\n');
 }
 
@@ -90,16 +90,29 @@ export function upsertDatasourceSection(
         ' * Tableau Tools sidebar to refresh its section.\n' +
         ' */\n';
 
-    const start = sectionStartMarker(datasource);
-    const end = sectionEndMarker(datasource);
+    const sectionLines = section.split(/\r?\n/);
+    const start = sectionLines[0];
+    const end = sectionLines[sectionLines.length - 1];
 
     const content = existingContent.trim();
     if (!content) {
         return `${header}\n${section}\n`;
     }
 
-    const startIdx = content.indexOf(start);
-    const endIdx = content.indexOf(end);
+    let startIdx = content.indexOf(start);
+    let endIdx = content.indexOf(end);
+    // Upgrade a pre-1.6 legacy datasource-only section in place when possible.
+    if (startIdx === -1 || endIdx === -1) {
+        const legacyStart = `// === Datasource: ${datasource} ===`;
+        const legacyEnd = `// === End: ${datasource} ===`;
+        startIdx = content.indexOf(legacyStart);
+        endIdx = content.indexOf(legacyEnd);
+        if (startIdx !== -1 && endIdx !== -1) {
+            const before = content.slice(0, startIdx).trimEnd();
+            const after = content.slice(endIdx + legacyEnd.length).trimStart();
+            return [before, section, after].filter(Boolean).join('\n\n') + '\n';
+        }
+    }
     if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
         const before = content.slice(0, startIdx).trimEnd();
         const after = content.slice(endIdx + end.length).trimStart();

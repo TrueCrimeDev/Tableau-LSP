@@ -185,6 +185,32 @@ describe('buildWorkbookDigest — focus modes', () => {
     });
 });
 
+describe('buildWorkbookDigest — datasource field context', () => {
+    it('keeps same-named fields grouped under their datasource', () => {
+        const xml = `<workbook><datasources>
+          <datasource caption='Orders'><column datatype='string' name='Status' role='dimension' /></datasource>
+          <datasource caption='Returns'><column datatype='integer' name='Status' role='measure' /></datasource>
+        </datasources></workbook>`;
+        const digest = buildWorkbookDigest(xml, 'fields', 'Collision.twb');
+
+        expect(digest).toContain('## Datasource fields (2)');
+        expect(digest).toContain('### Orders (1)');
+        expect(digest).toContain('- Status (string, dimension)');
+        expect(digest).toContain('### Returns (1)');
+        expect(digest).toContain('- Status (integer, measure)');
+    });
+
+    it('prioritizes a specifically requested field beyond the default inventory cap', () => {
+        const columns = Array.from({ length: 65 }, (_, index) =>
+            `<column datatype='string' name='Field ${index}' role='dimension' />`
+        ).join('');
+        const xml = `<workbook><datasources><datasource caption='Big'>${columns}</datasource></datasources></workbook>`;
+        const { context } = composeTableauMessages(xml, 'What is Field 64?', undefined, 'Big.twb');
+
+        expect(context).toContain('- Field 64 (string, dimension)');
+    });
+});
+
 describe('buildWorkbookDigest — caps', () => {
     const manySheets = Array.from({ length: 400 }, (_, i) =>
         `<worksheet name='Sheet ${i}'><table><view /><style><style-rule element='cell'><format attr='border-style' value='solid' /></style-rule></style></table></worksheet>`

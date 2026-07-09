@@ -4,6 +4,7 @@ import { parseDocument } from './documentModel.js';
 import { JSDocParser, JSDocSymbol } from './jsdocParser.js';
 import { SymbolType, Symbol } from './common.js';
 import { FieldParser, CustomField } from './fieldParser.js';
+import { isCodeOffset, isDatasourceQualifier, precedingDatasource } from './fieldReferenceContext.js';
 
 interface SymbolInfo {
     name: string;
@@ -69,6 +70,10 @@ export function provideHover(params: HoverParams, document: TextDocument, fieldP
     const documentUri = document.uri;
     const documentVersion = document.version;
 
+    if (!isCodeOffset(document.getText(), document.offsetAt(position))) {
+        return undefined;
+    }
+
     // R3.4: Generate cache key for this hover request
     const cacheKey = generateHoverCacheKey(documentUri, position, documentVersion);
 
@@ -85,13 +90,23 @@ export function provideHover(params: HoverParams, document: TextDocument, fieldP
     // R3.4: Use efficient symbol lookup
     const symbol = findSymbolAtPosition(position, symbolIndex);
     let hover: Hover | undefined;
+    let suppressWordFallback = false;
 
     if (symbol) {
-        hover = createHoverForSymbol(symbol, fieldParser);
+        if (symbol.type === SymbolType.FieldReference &&
+            isDatasourceQualifier(document.getText(), document.offsetAt(symbol.range.end))) {
+            suppressWordFallback = true;
+            const datasource = fieldParser?.getDatasource(symbol.name);
+            hover = datasource
+                ? createDatasourceHoverResponse(datasource.name, datasource.fieldCount, symbol.range)
+                : undefined;
+        } else {
+            hover = createHoverForSymbol(symbol, fieldParser, document);
+        }
     }
 
     // R3.4: Fallback to word-at-position lookup if no symbol found
-    if (!hover) {
+    if (!hover && !suppressWordFallback) {
         hover = createHoverForWordAtPosition(document, position, fieldParser);
     }
 
@@ -297,15 +312,25 @@ function findSymbolAtPosition(position: any, symbolIndex: SymbolLookupIndex): Sy
 /**
  * R3.4: Create hover for a specific symbol
  */
-function createHoverForSymbol(symbol: Symbol, fieldParser: FieldParser | null): Hover | undefined {
+function createHoverForSymbol(
+    symbol: Symbol,
+    fieldParser: FieldParser | null,
+    document: TextDocument
+): Hover | undefined {
     // Handle Custom Fields
     if (symbol.type === SymbolType.FieldReference && fieldParser) {
-        const customField = fieldParser.getField(symbol.name);
+        const datasource = precedingDatasource(
+            document.getText(),
+            document.offsetAt(symbol.range.start)
+        );
+        const customField = datasource
+            ? fieldParser.getField(symbol.name, datasource)
+            : fieldParser.getField(symbol.name);
         if (customField) {
             return createCustomFieldHoverResponse(customField, symbol.range);
         }
         // Undefined field fallback
-        return createUndefinedFieldHoverResponse(symbol.name, symbol.range);
+        return createUndefinedFieldHoverResponse(symbol.name, symbol.range, datasource);
     }
 
     // Handle variables with JSDoc types
@@ -391,15 +416,24 @@ function createHoverForWordAtPosition(document: TextDocument, position: any, fie
     while ((match = bracketRegex.exec(lineText)) !== null) {
         const startIdx = match.index;
         const endIdx = startIdx + match[0].length; // exclusive
-        if (position.character >= startIdx && position.character <= endIdx) {
+        if (position.character >= startIdx && position.character <= endIdx && isCodeOffset(lineText, startIdx)) {
             const fieldName = match[1];
+            if (isDatasourceQualifier(lineText, endIdx)) {
+                const datasource = fieldParser?.getDatasource(fieldName);
+                return datasource
+                    ? createDatasourceHoverResponse(datasource.name, datasource.fieldCount, wordRange)
+                    : undefined;
+            }
+            const datasource = precedingDatasource(lineText, startIdx);
             if (fieldParser) {
-                const customField = fieldParser.getField(fieldName);
+                const customField = datasource
+                    ? fieldParser.getField(fieldName, datasource)
+                    : fieldParser.getField(fieldName);
                 if (customField) {
                     return createCustomFieldHoverResponse(customField, wordRange);
                 }
             }
-            return createUndefinedFieldHoverResponse(fieldName, wordRange);
+            return createUndefinedFieldHoverResponse(fieldName, wordRange, datasource);
         }
     }
 
@@ -527,6 +561,16 @@ function createCustomFieldHoverResponse(field: CustomField, range: any): Hover |
             value
         },
         range: range
+    };
+}
+
+function createDatasourceHoverResponse(name: string, fieldCount: number, range: any): Hover {
+    return {
+        contents: {
+            kind: MarkupKind.Markdown,
+            value: `**[${name}]**: \`Datasource\`\n\n${String(fieldCount)} known fields in the active workbook.`,
+        },
+        range,
     };
 }
 
@@ -760,8 +804,14 @@ function humanizeCalcName(name: string): string {
     return name.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-function createUndefinedFieldHoverResponse(fieldName: string, range: any): Hover | undefined {
-    const message = `[${fieldName}] is not defined in the current context.`;
+function createUndefinedFieldHoverResponse(
+    fieldName: string,
+    range: any,
+    datasource?: string
+): Hover | undefined {
+    const message = datasource
+        ? `[${fieldName}] is not defined in datasource [${datasource}].`
+        : `[${fieldName}] is not defined in the current context.`;
     return {
         contents: { kind: MarkupKind.Markdown, value: message },
         range

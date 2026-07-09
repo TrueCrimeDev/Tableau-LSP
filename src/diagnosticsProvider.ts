@@ -3,13 +3,19 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { ParsedDocument, FUNCTION_SIGNATURES, SymbolType, Symbol } from './common.js';
 import { ConditionalExpressionValidator } from './conditionalExpressionValidator.js';
 import { AdvancedErrorRecovery } from './errorRecovery.js';
+import { FieldParser } from './fieldParser.js';
+import { isDatasourceQualifier, precedingDatasource } from './fieldReferenceContext.js';
 
 /**
  * R2.1: Main diagnostic provider implementing comprehensive Tableau validation
  * Replaces all diagnostics for a document on each update
  * FIXED: Re-enabled with improved false positive prevention
  */
-export function getDiagnostics(document: TextDocument, parsedDocument: ParsedDocument): Diagnostic[] {
+export function getDiagnostics(
+    document: TextDocument,
+    parsedDocument: ParsedDocument,
+    fieldParser: FieldParser | null = null
+): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
 
     try {
@@ -22,6 +28,13 @@ export function getDiagnostics(document: TextDocument, parsedDocument: ParsedDoc
 
         // R2.4: Enhanced function signature validation with operator recognition
         diagnostics.push(...validateFunctionSignatures(parsedDocument));
+
+        // Workbook datasource metadata is authoritative when available. Do not
+        // validate against the bundled sample definitions, which would create
+        // false positives for unrelated workbooks.
+        if (fieldParser?.hasRuntimeFieldContext()) {
+            diagnostics.push(...validateKnownFieldReferences(document, parsedDocument, fieldParser));
+        }
 
         // R2.3: Enhanced conditional expression validation
         const conditionalValidator = new ConditionalExpressionValidator();
@@ -38,6 +51,65 @@ export function getDiagnostics(document: TextDocument, parsedDocument: ParsedDoc
         console.error('Error in diagnostics provider:', error);
         return [];
     }
+}
+
+function validateKnownFieldReferences(
+    document: TextDocument,
+    parsedDocument: ParsedDocument,
+    fieldParser: FieldParser
+): Diagnostic[] {
+    const diagnostics: Diagnostic[] = [];
+    const seen = new Set<string>();
+    const text = document.getText();
+    const visit = (symbol: Symbol): void => {
+        if (symbol.type === SymbolType.FieldReference) {
+            const name = symbol.name.trim();
+            const key = `${name.toUpperCase()}@${symbol.range.start.line}:${symbol.range.start.character}`;
+            const startOffset = document.offsetAt(symbol.range.start);
+            const endOffset = document.offsetAt(symbol.range.end);
+            const qualifierToken = isDatasourceQualifier(text, endOffset);
+            const datasource = qualifierToken ? undefined : precedingDatasource(text, startOffset);
+
+            if (name && qualifierToken && !seen.has(key) && !fieldParser.hasDatasource(name)) {
+                seen.add(key);
+                diagnostics.push({
+                    severity: DiagnosticSeverity.Warning,
+                    range: symbol.range,
+                    message: `Unknown datasource [${name}] in the active workbook context.`,
+                    code: 'UNKNOWN_DATASOURCE',
+                    source: 'tableau-lsp',
+                });
+            } else if (name && !qualifierToken && !seen.has(key)) {
+                // If the datasource itself is unknown, its qualifier receives the
+                // actionable diagnostic; avoid a second warning on every field.
+                if (datasource && !fieldParser.hasDatasource(datasource)) {
+                    return;
+                }
+                const knownField = fieldParser.getField(name, datasource) ?? (
+                    name.startsWith('#') ? fieldParser.getField(name.slice(1), datasource) : undefined
+                );
+                if (!knownField) {
+                    seen.add(key);
+                    diagnostics.push({
+                        severity: DiagnosticSeverity.Warning,
+                        range: symbol.range,
+                        message: datasource
+                            ? `Unknown field [${name}] in datasource [${datasource}].`
+                            : `Unknown field [${name}] in the active workbook datasource context.`,
+                        code: 'UNKNOWN_FIELD',
+                        source: 'tableau-lsp',
+                    });
+                }
+            }
+        }
+        for (const child of symbol.children ?? []) {
+            visit(child);
+        }
+    };
+    for (const symbol of parsedDocument.symbols) {
+        visit(symbol);
+    }
+    return diagnostics;
 }
 
 /**

@@ -10,6 +10,7 @@ import {
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { ParsedDocument, FUNCTION_SIGNATURES, SymbolType } from './common.js';
 import { FieldParser } from './fieldParser.js';
+import { isCodeOffset, isDatasourceQualifier, precedingDatasource } from './fieldReferenceContext.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { performance } from 'perf_hooks';
@@ -109,6 +110,12 @@ export function provideCompletion(
     const position = params.position;
     const documentUri = document.uri;
     const documentVersion = document.version;
+
+    // Strings and comments may legitimately contain bracket-shaped labels;
+    // they are not Tableau field references and should not trigger IntelliSense.
+    if (!isCodeOffset(document.getText(), document.offsetAt(position))) {
+        return { isIncomplete: false, items: [] };
+    }
     
     // Get the word being typed
     const wordRange = getWordRangeAtPosition(document, position);
@@ -120,9 +127,19 @@ export function provideCompletion(
         start: { line: position.line, character: 0 },
         end: { line: position.line, character: position.character }
     });
+    const fullLineText = document.getText({
+        start: { line: position.line, character: 0 },
+        end: { line: position.line, character: Number.MAX_SAFE_INTEGER }
+    });
     
     // R4.5: Check cache first
-    const cacheKey = generateCompletionCacheKey(documentUri, position, word, documentVersion);
+    const cacheKey = generateCompletionCacheKey(
+        documentUri,
+        position,
+        word,
+        documentVersion,
+        fullLineText
+    );
     const cachedResult = getFromCompletionCache(cacheKey);
     if (cachedResult) {
         logPerformance('Completion cache hit', startTime);
@@ -133,10 +150,36 @@ export function provideCompletion(
     }
     
     // R4.6: Context-specific completions
-    if (isInFieldBrackets(lineText, position.character)) {
-        // Only show field completions when inside brackets
-        const fieldCompletions = fieldParser ? getFieldCompletions(upperWord, fieldParser, /*bracketContext*/ true) : [];
-        const optimizedFieldCompletions = optimizeCompletions(fieldCompletions, word);
+    const fieldBracketContext = getFieldBracketContext(fullLineText, position.character);
+    if (fieldBracketContext) {
+        // The first token in [Datasource].[Field] completes datasource names;
+        // the second token is restricted to that datasource's actual fields.
+        const fieldCompletions = fieldParser
+            ? (fieldBracketContext.isDatasourceQualifier
+                ? getDatasourceCompletions(fieldParser)
+                : getFieldCompletions(
+                    fieldBracketContext.prefix.toUpperCase(),
+                    fieldParser,
+                    /*bracketContext*/ true,
+                    fieldBracketContext.datasource
+                ))
+                .map(item => {
+                    const label = item.label;
+                    return {
+                        ...item,
+                        textEdit: {
+                            range: {
+                                start: { line: position.line, character: fieldBracketContext.replaceStart },
+                                end: { line: position.line, character: fieldBracketContext.replaceEnd }
+                            },
+                            newText: fieldBracketContext.isDatasourceQualifier
+                                ? `${label}]`
+                                : `${label}] `
+                        }
+                    };
+                })
+            : [];
+        const optimizedFieldCompletions = optimizeCompletions(fieldCompletions, fieldBracketContext.prefix);
         
         addToCompletionCache(cacheKey, optimizedFieldCompletions, documentVersion);
         logPerformance('Field-only completion', startTime);
@@ -188,9 +231,10 @@ function generateCompletionCacheKey(
     documentUri: string, 
     position: Position, 
     word: string, 
-    documentVersion: number
+    documentVersion: number,
+    lineContext: string
 ): string {
-    return `${documentUri}:${position.line}:${position.character}:${word}:${documentVersion}`;
+    return `${documentUri}:${position.line}:${position.character}:${word}:${documentVersion}:${lineContext}`;
 }
 
 /**
@@ -520,11 +564,18 @@ function getKeywordCompletions(prefix: string): CompletionItem[] {
 /**
  * R4.4: Get field completions from field parser
  */
-function getFieldCompletions(prefix: string, fieldParser: FieldParser, bracketContext: boolean = false): CompletionItem[] {
+function getFieldCompletions(
+    prefix: string,
+    fieldParser: FieldParser,
+    bracketContext: boolean = false,
+    datasource?: string
+): CompletionItem[] {
     const completions: CompletionItem[] = [];
     
     // Get all available fields
-    const fieldsMap = fieldParser.getAllFields();
+    const fieldsMap = datasource
+        ? fieldParser.getFieldsForDatasource(datasource)
+        : fieldParser.getAllFields();
 
     // Return every field as a candidate; relevance ranking / fuzzy matching in
     // optimizeCompletions() does the filtering against the typed word. Pre-filtering
@@ -559,6 +610,20 @@ function getFieldCompletions(prefix: string, fieldParser: FieldParser, bracketCo
     }
 
     return completions;
+}
+
+function getDatasourceCompletions(fieldParser: FieldParser): CompletionItem[] {
+    return fieldParser.getDatasources().map(datasource => ({
+        label: datasource.name,
+        kind: CompletionItemKind.Module,
+        detail: `Datasource (${String(datasource.fieldCount)} fields)`,
+        documentation: {
+            kind: MarkupKind.Markdown,
+            value: `**[${datasource.name}]**\n\nWorkbook datasource with ${String(datasource.fieldCount)} known fields.`,
+        },
+        insertText: datasource.name,
+        sortText: `0_${datasource.name}`,
+    }));
 }
 
 /**
@@ -952,17 +1017,35 @@ function getWordRangeAtPosition(document: TextDocument, position: Position) {
 /**
  * Helper: Check if position is inside field brackets
  */
-function isInFieldBrackets(lineText: string, character: number): boolean {
-    let openBracket = -1;
-    let closeBracket = -1;
-    
-    for (let i = 0; i < character; i++) {
-        if (lineText[i] === '[') {
-            openBracket = i;
-        } else if (lineText[i] === ']') {
-            closeBracket = i;
-        }
+function getFieldBracketContext(
+    lineText: string,
+    character: number
+): {
+    prefix: string;
+    replaceStart: number;
+    replaceEnd: number;
+    isDatasourceQualifier: boolean;
+    datasource?: string;
+} | null {
+    const beforeCursor = lineText.slice(0, character);
+    const openBracket = beforeCursor.lastIndexOf('[');
+    const closeBracket = beforeCursor.lastIndexOf(']');
+    if (openBracket === -1 || openBracket < closeBracket || !isCodeOffset(lineText, openBracket)) {
+        return null;
     }
-    
-    return openBracket !== -1 && (closeBracket === -1 || openBracket > closeBracket);
-} 
+
+    let replaceEnd = character;
+    const suffix = lineText.slice(character);
+    const nextClose = suffix.indexOf(']');
+    const nextOpen = suffix.indexOf('[');
+    if (nextClose !== -1 && (nextOpen === -1 || nextClose < nextOpen)) {
+        replaceEnd += nextClose + 1;
+    }
+    return {
+        prefix: beforeCursor.slice(openBracket + 1),
+        replaceStart: openBracket + 1,
+        replaceEnd,
+        isDatasourceQualifier: isDatasourceQualifier(lineText, replaceEnd),
+        datasource: precedingDatasource(lineText, openBracket),
+    };
+}

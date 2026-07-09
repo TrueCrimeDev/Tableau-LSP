@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { TWB_AGENT_PRIMER } from './twbPrimer.js';
 import { buildWorkbookDigest, DigestFocus } from './workbookDigest.js';
+import { readWorkbookXml } from '../services/workbookFieldContextManager.js';
 
 export const TABLEAU_PARTICIPANT_ID = 'tableau-language-support.tableau';
 
@@ -19,12 +20,14 @@ const KNOWN_FOCUS = new Set<string>(['borders', 'calcs', 'fields']);
 export function composeTableauMessages(
     xml: string,
     prompt: string,
-    command?: string
+    command?: string,
+    workbookName: string = 'Workbook.twb',
+    sourceUri?: string
 ): { context: string; question: string } {
     const focus = command && KNOWN_FOCUS.has(command) ? (command as DigestFocus) : undefined;
     // Workbook content is untrusted: neutralise anything that could forge the
     // primer's instruction-boundary tag inside the digest.
-    const digest = buildWorkbookDigest(xml, focus)
+    const digest = buildWorkbookDigest(xml, focus, workbookName, sourceUri, prompt)
         .replace(/<(\/?)TABLEAU_AGENT_INSTRUCTION>/gi, '&lt;$1TABLEAU_AGENT_INSTRUCTION&gt;');
     const question = prompt.trim() || (command ? DEFAULT_QUESTIONS[command] : '') ||
         'Give me an overview of this workbook.';
@@ -54,39 +57,43 @@ export function describeChatError(error: unknown): string {
  * any open .twb tab. VS Code exposes no true MRU order, so the handler also
  * names the workbook it picked in its reply.
  */
-function resolveWorkbookUri(): vscode.Uri | undefined {
+async function resolveWorkbookUri(): Promise<vscode.Uri | undefined> {
+    const isWorkbook = (uri: vscode.Uri | undefined): uri is vscode.Uri => {
+        const path = uri?.path.toLowerCase() ?? '';
+        return path.endsWith('.twb') || path.endsWith('.twbx');
+    };
     const active = vscode.window.activeTextEditor;
-    if (active && active.document.uri.path.toLowerCase().endsWith('.twb')) {
+    if (active && isWorkbook(active.document.uri)) {
         return active.document.uri;
     }
     const twbOf = (tab: vscode.Tab | undefined): vscode.Uri | undefined => {
         const input = tab?.input as { uri?: vscode.Uri } | null | undefined;
-        return input?.uri?.path.toLowerCase().endsWith('.twb') ? input.uri : undefined;
+        return isWorkbook(input?.uri) ? input.uri : undefined;
     };
-    const groups = [
-        vscode.window.tabGroups.activeTabGroup,
-        ...vscode.window.tabGroups.all.filter(g => g !== vscode.window.tabGroups.activeTabGroup),
-    ];
-    for (const group of groups) {
-        const fromActive = twbOf(group.activeTab ?? undefined);
-        if (fromActive) { return fromActive; }
+    const activeTabWorkbook = twbOf(vscode.window.tabGroups.activeTabGroup.activeTab ?? undefined);
+    if (activeTabWorkbook) {
+        return activeTabWorkbook;
     }
-    for (const group of groups) {
+
+    const candidates = new Map<string, vscode.Uri>();
+    for (const group of vscode.window.tabGroups.all) {
         for (const tab of group.tabs) {
             const uri = twbOf(tab);
-            if (uri) { return uri; }
+            if (uri) { candidates.set(uri.toString(), uri); }
         }
     }
-    return undefined;
-}
-
-async function readWorkbookXml(uri: vscode.Uri): Promise<string> {
-    const openDoc = vscode.workspace.textDocuments.find(d => d.uri.toString() === uri.toString());
-    if (openDoc) {
-        return openDoc.getText();
+    if (candidates.size === 1) {
+        return candidates.values().next().value;
     }
-    const data = await vscode.workspace.fs.readFile(uri);
-    return Buffer.from(data).toString('utf8');
+    if (candidates.size > 1) {
+        return undefined;
+    }
+    const workspaceWorkbooks = await vscode.workspace.findFiles(
+        '**/*.{twb,twbx}',
+        '**/{node_modules,.git,.worktrees}/**',
+        2
+    );
+    return workspaceWorkbooks.length === 1 ? workspaceWorkbooks[0] : undefined;
 }
 
 async function handleRequest(
@@ -95,24 +102,39 @@ async function handleRequest(
     stream: vscode.ChatResponseStream,
     token: vscode.CancellationToken
 ): Promise<void> {
-    const uri = resolveWorkbookUri();
+    const uri = await resolveWorkbookUri();
     if (!uri) {
         stream.markdown(
-            'No `.twb` workbook is open. Open a Tableau workbook file, then ask again. ' +
-            '(Packaged `.twbx` workbooks are not yet supported.)'
+            'No unambiguous Tableau workbook is available. Open the `.twb` or `.twbx` workbook you want to discuss, then ask again.'
         );
         return;
     }
 
     let xml: string;
+    let workbookName: string;
     try {
-        xml = await readWorkbookXml(uri);
+        const source = await readWorkbookXml(uri);
+        xml = source.xml;
+        workbookName = source.workbookName;
     } catch (error: unknown) {
         stream.markdown(`Could not read the workbook: ${error instanceof Error ? error.message : String(error)}`);
         return;
     }
 
-    const { context: contextMessage, question } = composeTableauMessages(xml, request.prompt, request.command);
+    let contextMessage: string;
+    let question: string;
+    try {
+        ({ context: contextMessage, question } = composeTableauMessages(
+            xml,
+            request.prompt,
+            request.command,
+            workbookName,
+            uri.path.toLowerCase().endsWith('.twb') ? uri.toString() : undefined
+        ));
+    } catch (error: unknown) {
+        stream.markdown(`Could not parse the workbook: ${error instanceof Error ? error.message : String(error)}`);
+        return;
+    }
     const fileName = uri.path.split('/').pop() ?? uri.path;
     stream.markdown(`Analyzing \`${fileName}\`\n\n`);
 

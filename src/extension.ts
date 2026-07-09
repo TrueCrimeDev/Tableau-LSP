@@ -8,9 +8,11 @@ import { registerTableauChatParticipant } from './chat/tableauChatParticipant.js
 import { registerFieldSwapFeature } from './providers/fieldSwapHover.js';
 import { CalcCopyCodeLensProvider, COPY_CALC_BLOCK_COMMAND } from './calcCopyLens.js';
 import { registerRunTestsCommand } from './commands/runTests.js';
+import { WorkbookFieldContextManager } from './services/workbookFieldContextManager.js';
 
 let client: LanguageClient | undefined;
 let activationManager: ActivationManager;
+let workbookFieldContextManager: WorkbookFieldContextManager | undefined;
 
 /**
  * R10.1: Robust Extension Activation
@@ -44,6 +46,14 @@ export async function activate(context: ExtensionContext): Promise<void> {
         // Store client reference if language server started successfully
         if (result.client) {
             client = result.client;
+        }
+
+        if (!workbookFieldContextManager) {
+            workbookFieldContextManager = new WorkbookFieldContextManager(() => client);
+            context.subscriptions.push(workbookFieldContextManager);
+            await workbookFieldContextManager.initialize();
+        } else {
+            await workbookFieldContextManager.syncLanguageServer();
         }
 
         // Register additional components that don't require language server
@@ -287,6 +297,7 @@ async function restartExtension(context: ExtensionContext): Promise<void> {
             const result = await activationManager.restart(context);
             if (result?.client) {
                 client = result.client;
+                await workbookFieldContextManager?.syncLanguageServer();
             }
         }
 
@@ -353,6 +364,8 @@ export async function deactivate(): Promise<void> {
             await client.stop();
             client = undefined;
         }
+        workbookFieldContextManager?.dispose();
+        workbookFieldContextManager = undefined;
 
         console.log('Tableau LSP: Extension deactivated successfully');
 

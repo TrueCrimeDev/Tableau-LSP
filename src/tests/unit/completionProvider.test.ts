@@ -2,7 +2,7 @@
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Position, CompletionItem, CompletionItemKind } from 'vscode-languageserver';
-import { provideCompletion } from '../../completionProvider.js';
+import { CompletionPerformanceAPI, provideCompletion } from '../../completionProvider.js';
 import { FieldParser } from '../../fieldParser.js';
 import { parsedDocumentCache } from '../../common.js';
 import { IncrementalParser } from '../../incrementalParser.js';
@@ -13,6 +13,7 @@ describe('Completion Provider', () => {
     beforeEach(() => {
         // Clear cache
         parsedDocumentCache.clear();
+        CompletionPerformanceAPI.clearCache();
         
         // Mock field parser
         fieldParser = {
@@ -24,8 +25,24 @@ describe('Completion Provider', () => {
                 ['PROFIT', { name: 'Profit', type: 'Number' }],
                 ['CUSTOMER NAME', { name: 'Customer Name', type: 'String' }],
                 ['ORDER DATE', { name: 'Order Date', type: 'Date' }],
-                ['CATEGORY', { name: 'Category', type: 'String' }]
+                ['CATEGORY', { name: 'Category', type: 'String' }],
+                ['#COMPLAINT', { name: '#Complaint', type: 'Number' }],
+                ['!DO CASE', { name: '!DO Case', type: 'String' }]
             ])),
+            getFieldsForDatasource: jest.fn().mockImplementation((datasource: string) =>
+                datasource.toLowerCase() === 'orders'
+                    ? new Map([
+                        ['SALES', { name: 'Sales', type: 'Number', datasource: 'Orders' }],
+                        ['ORDER DATE', { name: 'Order Date', type: 'Date', datasource: 'Orders' }],
+                    ])
+                    : new Map([
+                        ['STATUS', { name: 'Status', type: 'String', datasource: 'Returns' }],
+                    ])
+            ),
+            getDatasources: jest.fn().mockReturnValue([
+                { name: 'Orders', fieldCount: 2 },
+                { name: 'Returns', fieldCount: 1 },
+            ]),
             findDefinitionFile: jest.fn()
         } as any;
     });
@@ -188,6 +205,100 @@ describe('Completion Provider', () => {
             // Should match 'Customer Name' with fuzzy matching
             const fieldNames = completions.items.map(item => item.label);
             expect(fieldNames).toContain('Customer Name');
+        });
+
+        it.each([
+            ['[#Comp', '#Complaint'],
+            ['[!DO', '!DO Case'],
+        ])('replaces the full punctuation-prefixed bracket text for %s', async (text, expected) => {
+            const document = createTestDocument(text);
+            const position: Position = { line: 0, character: text.length };
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+
+            const completions = await provideCompletion(
+                { textDocument: { uri: document.uri }, position, context: { triggerKind: 1 } },
+                document,
+                parsedDoc,
+                fieldParser
+            );
+            const item = completions.items.find(completion => completion.label === expected);
+            const edit = item?.textEdit as { range: { start: Position; end: Position }; newText: string };
+
+            expect(edit.range).toEqual({
+                start: { line: 0, character: 1 },
+                end: { line: 0, character: text.length },
+            });
+            expect(text.slice(0, edit.range.start.character) + edit.newText)
+                .toBe(`[${expected}] `);
+        });
+
+        it('replaces an existing closing bracket instead of duplicating it', async () => {
+            const document = createTestDocument('[Sal]');
+            const position: Position = { line: 0, character: 4 };
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            const completions = await provideCompletion(
+                { textDocument: { uri: document.uri }, position, context: { triggerKind: 1 } },
+                document,
+                parsedDoc,
+                fieldParser
+            );
+            const edit = completions.items.find(item => item.label === 'Sales')?.textEdit as {
+                range: { start: Position; end: Position };
+                newText: string;
+            };
+
+            expect(edit.range.end.character).toBe(5);
+            expect(document.getText().slice(0, edit.range.start.character) + edit.newText)
+                .toBe('[Sales] ');
+        });
+
+        it('completes datasource names without corrupting the following dot', async () => {
+            const document = createTestDocument('[Ord].[Sales]');
+            const position: Position = { line: 0, character: 4 };
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            const completions = await provideCompletion(
+                { textDocument: { uri: document.uri }, position, context: { triggerKind: 1 } },
+                document,
+                parsedDoc,
+                fieldParser
+            );
+            const item = completions.items.find(completion => completion.label === 'Orders');
+            const edit = item?.textEdit as { range: { start: Position; end: Position }; newText: string };
+
+            expect(completions.items.map(completion => completion.label)).not.toContain('Sales');
+            expect(edit.newText).toBe('Orders]');
+            expect(document.getText().slice(0, edit.range.start.character) + edit.newText +
+                document.getText().slice(edit.range.end.character)).toBe('[Orders].[Sales]');
+        });
+
+        it('limits qualified field completion to the selected datasource', async () => {
+            const document = createTestDocument('[Orders].[S');
+            const position: Position = { line: 0, character: document.getText().length };
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            const completions = await provideCompletion(
+                { textDocument: { uri: document.uri }, position, context: { triggerKind: 1 } },
+                document,
+                parsedDoc,
+                fieldParser
+            );
+
+            expect(completions.items.map(completion => completion.label)).toContain('Sales');
+            expect(completions.items.map(completion => completion.label)).not.toContain('Status');
+            expect(fieldParser?.getFieldsForDatasource).toHaveBeenCalledWith('Orders');
+        });
+
+        it('does not offer fields for bracket-shaped text inside a string', async () => {
+            const document = createTestDocument('"Label [Sa]"');
+            const position: Position = { line: 0, character: 10 };
+            const parsedDoc = IncrementalParser.parseDocumentIncremental(document);
+            const completions = await provideCompletion(
+                { textDocument: { uri: document.uri }, position, context: { triggerKind: 1 } },
+                document,
+                parsedDoc,
+                fieldParser
+            );
+
+            expect(completions.items).toHaveLength(0);
         });
     });
     
