@@ -531,6 +531,7 @@ const state = {
   workbookData: null,
   calcBankCalcs: [],
   calcPortfolioGroups: [],
+  commonCalculations: [],
 }
 
 const requiredElements = [
@@ -922,6 +923,65 @@ if (requiredElements.some((element) => !element)) {
         },
         relaunch: /** @type {HTMLInputElement|null} */ (document.getElementById('wb-calc-relaunch'))?.checked ?? false,
       })
+    })
+  }
+
+  const commonCalculationSelect = document.getElementById('wb-common-calc-select')
+  if (commonCalculationSelect) {
+    commonCalculationSelect.addEventListener('change', updateCommonCalculationActions)
+  }
+  const useCommonCalculationBtn = document.getElementById('wb-common-calc-use')
+  if (useCommonCalculationBtn) {
+    useCommonCalculationBtn.addEventListener('click', () => {
+      const calculation = selectedCommonCalculation()
+      if (!calculation) {
+        setCommonCalculationStatus('Choose a saved calculation first.', 'error')
+        return
+      }
+      const name = document.getElementById('wb-calc-name')
+      const formula = document.getElementById('wb-calc-formula')
+      const datatype = document.getElementById('wb-calc-datatype')
+      if (name instanceof HTMLInputElement) { name.value = calculation.name }
+      if (formula instanceof HTMLTextAreaElement) { formula.value = calculation.formula }
+      if (datatype instanceof HTMLSelectElement) { datatype.value = calculation.datatype }
+      setCommonCalculationStatus('Loaded into Calculation details.', 'success')
+    })
+  }
+  const saveCommonCalculationBtn = document.getElementById('wb-common-calc-save')
+  if (saveCommonCalculationBtn) {
+    saveCommonCalculationBtn.addEventListener('click', () => {
+      const name = /** @type {HTMLInputElement|null} */ (document.getElementById('wb-calc-name'))?.value.trim() || ''
+      const formula = /** @type {HTMLTextAreaElement|null} */ (document.getElementById('wb-calc-formula'))?.value.trim() || ''
+      const datatype = /** @type {HTMLSelectElement|null} */ (document.getElementById('wb-calc-datatype'))?.value || 'string'
+      if (!name || !formula) {
+        setCommonCalculationStatus('Enter a field name and formula in Calculation details first.', 'error')
+        return
+      }
+      setCommonCalculationStatus('Saving common calculation…', 'info')
+      vscode.postMessage({
+        type: 'saveCommonCalculation',
+        commonCalculation: { name, formula, datatype },
+      })
+    })
+  }
+  const deleteCommonCalculationBtn = document.getElementById('wb-common-calc-delete')
+  if (deleteCommonCalculationBtn) {
+    deleteCommonCalculationBtn.addEventListener('click', () => {
+      const calculation = selectedCommonCalculation()
+      if (!calculation) {
+        setCommonCalculationStatus('Choose a saved calculation first.', 'error')
+        return
+      }
+      vscode.postMessage({
+        type: 'deleteCommonCalculation',
+        commonCalculationName: calculation.name,
+      })
+    })
+  }
+  const refreshCommonCalculationBtn = document.getElementById('wb-common-calc-refresh')
+  if (refreshCommonCalculationBtn) {
+    refreshCommonCalculationBtn.addEventListener('click', () => {
+      vscode.postMessage({ type: 'requestCommonCalculations' })
     })
   }
 
@@ -1786,6 +1846,15 @@ window.addEventListener('message', (event) => {
       }
       return
     }
+    if (message.type === 'commonCalculationsLoaded') {
+      renderCommonCalculations(
+        message.calculations || [],
+        typeof message.maximum === 'number' ? message.maximum : 10,
+        message.status,
+        message.tone,
+      )
+      return
+    }
     if (message.type === 'calcPortfolioLoaded') {
       const plist = document.getElementById('calc-portfolio-list')
       if (!plist) { return }
@@ -1831,6 +1900,7 @@ window.addEventListener('message', (event) => {
 vscode.postMessage({ type: 'requestContext' })
 vscode.postMessage({ type: 'parseWorkbook' })
 vscode.postMessage({ type: 'requestCalcPortfolio' })
+vscode.postMessage({ type: 'requestCommonCalculations' })
 
 ;(function setupCalcBank() {
   const refreshBtn = document.getElementById('calc-bank-refresh')
@@ -2367,7 +2437,7 @@ function renderWorkbookData(data) {
   // Expand sub-sections only when a new workbook file is loaded, not on re-parses,
   // so the user's manually collapsed sections are preserved.
   if (workbookSbEl2 && data.filePath !== _renderedFilePath) {
-    workbookSbEl2.querySelectorAll('.ssh.c').forEach(function (h) {
+    workbookSbEl2.querySelectorAll('.ssh.c:not([data-preserve-collapsed="true"])').forEach(function (h) {
       tSS(h)
     })
   }
@@ -2598,6 +2668,51 @@ function renderCalculationEditor(data) {
 
 function setCalculationMutationStatus(message, tone) {
   const el = document.getElementById('wb-add-calc-status')
+  if (!el) { return }
+  el.textContent = message || ''
+  el.className = message ? 'fmt-status ' + (tone || 'info') : 'fmt-status hidden'
+}
+
+function selectedCommonCalculation() {
+  const select = document.getElementById('wb-common-calc-select')
+  if (!(select instanceof HTMLSelectElement) || select.value === '') {
+    return null
+  }
+  const index = parseInt(select.value, 10)
+  return Number.isInteger(index) ? state.commonCalculations[index] || null : null
+}
+
+function updateCommonCalculationActions() {
+  const selected = Boolean(selectedCommonCalculation())
+  const useButton = document.getElementById('wb-common-calc-use')
+  const deleteButton = document.getElementById('wb-common-calc-delete')
+  if (useButton instanceof HTMLButtonElement) { useButton.disabled = !selected }
+  if (deleteButton instanceof HTMLButtonElement) { deleteButton.disabled = !selected }
+}
+
+function renderCommonCalculations(calculations, maximum, status, tone) {
+  state.commonCalculations = Array.isArray(calculations) ? calculations : []
+  const select = document.getElementById('wb-common-calc-select')
+  const badge = document.getElementById('wb-common-calc-badge')
+  const summary = document.getElementById('wb-common-calc-summary')
+  if (badge) { badge.textContent = state.commonCalculations.length + ' / ' + maximum }
+  if (summary) {
+    summary.textContent = state.commonCalculations.length + ' saved'
+  }
+  if (select instanceof HTMLSelectElement) {
+    select.innerHTML = '<option value="">Choose a saved calculation…</option>' +
+      state.commonCalculations.map(function (calculation, index) {
+        return '<option value="' + index + '">' + escapeHtml(calculation.name) + '</option>'
+      }).join('')
+  }
+  updateCommonCalculationActions()
+  if (status) {
+    setCommonCalculationStatus(status, tone || 'info')
+  }
+}
+
+function setCommonCalculationStatus(message, tone) {
+  const el = document.getElementById('wb-common-calc-status')
   if (!el) { return }
   el.textContent = message || ''
   el.className = message ? 'fmt-status ' + (tone || 'info') : 'fmt-status hidden'

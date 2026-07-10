@@ -102,6 +102,8 @@ Use **Tableau: Add Calculation to Workbook** or the Calculated Fields form in th
 
 Every workbook mutation is transactional: the extension validates the source XML, creates a timestamped copy in `.tableau-lsp-backups`, writes through an open editor when needed, rereads and validates the exact persisted result, and restores the original if writing or verification fails. Duplicate calculated-field names require explicit replacement, while collisions with physical fields are rejected. Packaged `.twbx` mutation is intentionally not supported yet.
 
+The collapsed **Add Calculated Field** section contains a nested **Common Calculations** library. It starts with a Profit Ratio example and can store up to ten reusable field-name, formula, and datatype combinations. **Use Saved** fills the workbook insertion form; **Save Current** adds or updates the template. The library is synchronized through VS Code Settings Sync when available.
+
 The formatting sidebar and standalone formatting panel use the same transaction layer for border edits, bulk changes, theme imports, and formatting removal. Enable **Open in Tableau after a verified write** to launch the saved workbook after verification. This opens the edited file with the configured or newest discovered Tableau Desktop installation; it does not terminate an already-running Tableau process.
 
 ### Formatting calculations
@@ -162,13 +164,27 @@ Grab the latest `.vsix` from [Releases](https://github.com/TrueCrimeDev/Tableau-
 **CMD:**
 
 ```batch
-code --install-extension "%USERPROFILE%\Downloads\tableau-language-support-1.7.2.vsix" --force
+code --install-extension "%USERPROFILE%\Downloads\tableau-language-support-1.7.3.vsix" --force
 ```
 
 **PowerShell:**
 
 ```powershell
-code --install-extension "$env:USERPROFILE\Downloads\tableau-language-support-1.7.2.vsix" --force
+code --install-extension "$env:USERPROFILE\Downloads\tableau-language-support-1.7.3.vsix" --force
 ```
 
 Then reload VS Code. If an older version is already installed, add `--force`.
+
+### Updating the source checkout
+
+From the repository root, run:
+
+```powershell
+.\Update-FromGitHub.ps1
+```
+
+This fetches `origin`, switches to `main`, and performs a fast-forward-only pull. It refuses to continue when tracked files have local changes and leaves untracked workbook fixtures untouched. Another branch or remote can be selected explicitly:
+
+```powershell
+.\Update-FromGitHub.ps1 -Remote origin -Branch codex/tableau-1.7.2-release
+```

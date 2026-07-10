@@ -2,6 +2,17 @@
 
 All notable changes to the "tableau-language-support" extension will be documented in this file.
 
+## [1.7.3] - 2026-07-10
+
+### Added
+
+- Added a synchronized Common Calculations library with one base Profit Ratio calculation and support for up to ten reusable calculation templates.
+- Added `Update-FromGitHub.ps1` for safe, fast-forward-only synchronization of the local checkout with a selected GitHub branch.
+
+### Changed
+
+- The calculated-field workflow and its Common Calculations library now use nested progressive disclosure instead of keeping the entire form permanently expanded.
+
 ## [1.7.2] - 2026-07-10
 
 ### Fixed

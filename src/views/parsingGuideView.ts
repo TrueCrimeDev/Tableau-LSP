@@ -52,10 +52,19 @@ import {
     applyWorkbookXmlMutation,
     readCurrentWorkbookXml,
 } from '../services/workbookMutationService.js';
+import {
+    CommonCalculation,
+    DEFAULT_COMMON_CALCULATIONS,
+    MAX_COMMON_CALCULATIONS,
+    normalizeCommonCalculations,
+    removeCommonCalculation,
+    upsertCommonCalculation,
+} from '../services/commonCalculations.js';
 
 const log = getLogger();
 const LOG_CAT = 'WorkbookInspector';
 const BUILD_STAMP = 'v6-2026-02-24';
+const COMMON_CALCULATIONS_STATE_KEY = 'tableau-language-support.commonCalculations';
 
 export const PARSING_GUIDE_VIEW_ID = 'tableauLanguageSupport.parsingGuide';
 export const PARSING_GUIDE_CONTAINER_ID = 'tableauLsp';
@@ -68,7 +77,9 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
     private lastWorkbookIdentity = '';
     private lastExtractedWorkbookUri: string | undefined;
 
-    public constructor(private readonly context: vscode.ExtensionContext) {}
+    public constructor(private readonly context: vscode.ExtensionContext) {
+        context.globalState.setKeysForSync([COMMON_CALCULATIONS_STATE_KEY]);
+    }
 
     public resolveWebviewView(view: vscode.WebviewView): void {
         this.view = view;
@@ -83,7 +94,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 return;
             }
 
-            const payload = message as { type?: string; palettes?: unknown; palette?: unknown; paletteName?: unknown; path?: string; formula?: string; options?: unknown; edits?: unknown; mode?: string; json?: string; element?: string; calculation?: unknown; relaunch?: boolean; };
+            const payload = message as { type?: string; palettes?: unknown; palette?: unknown; paletteName?: unknown; path?: string; formula?: string; options?: unknown; edits?: unknown; mode?: string; json?: string; element?: string; calculation?: unknown; commonCalculation?: unknown; commonCalculationName?: unknown; relaunch?: boolean; };
             switch (payload.type) {
                 case 'openPreferencesTemplate':
                     void this.openPreferencesTemplate();
@@ -159,6 +170,19 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'addWorkbookCalculation':
                     void this.addWorkbookCalculation(payload.calculation, payload.relaunch === true);
+                    break;
+                case 'requestCommonCalculations':
+                    void this.postCommonCalculations();
+                    break;
+                case 'saveCommonCalculation':
+                    void this.saveCommonCalculation(payload.commonCalculation);
+                    break;
+                case 'deleteCommonCalculation':
+                    void this.deleteCommonCalculation(
+                        typeof payload.commonCalculationName === 'string'
+                            ? payload.commonCalculationName
+                            : ''
+                    );
                     break;
                 case 'importPaletteFromFile':
                     void this.importPaletteFromFile();
@@ -1138,6 +1162,53 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    private getCommonCalculations(): CommonCalculation[] {
+        const stored = this.context.globalState.get<unknown>(COMMON_CALCULATIONS_STATE_KEY);
+        return stored === undefined
+            ? DEFAULT_COMMON_CALCULATIONS.map(calculation => ({ ...calculation }))
+            : normalizeCommonCalculations(stored);
+    }
+
+    private async postCommonCalculations(
+        status?: string,
+        tone: 'info' | 'success' | 'error' = 'info'
+    ): Promise<void> {
+        await this.view?.webview.postMessage({
+            type: 'commonCalculationsLoaded',
+            calculations: this.getCommonCalculations(),
+            maximum: MAX_COMMON_CALCULATIONS,
+            status,
+            tone,
+        });
+    }
+
+    private async saveCommonCalculation(rawCalculation: unknown): Promise<void> {
+        try {
+            const result = upsertCommonCalculation(this.getCommonCalculations(), rawCalculation);
+            await this.context.globalState.update(COMMON_CALCULATIONS_STATE_KEY, result.calculations);
+            await this.postCommonCalculations(
+                `${result.action === 'added' ? 'Saved' : 'Updated'} common calculation.`,
+                'success'
+            );
+        } catch (error) {
+            await this.postCommonCalculations(
+                error instanceof Error ? error.message : String(error),
+                'error'
+            );
+        }
+    }
+
+    private async deleteCommonCalculation(name: string): Promise<void> {
+        const current = this.getCommonCalculations();
+        const updated = removeCommonCalculation(current, name);
+        if (!name.trim() || updated.length === current.length) {
+            await this.postCommonCalculations('Choose a saved calculation to remove.', 'error');
+            return;
+        }
+        await this.context.globalState.update(COMMON_CALCULATIONS_STATE_KEY, updated);
+        await this.postCommonCalculations('Removed common calculation.', 'success');
+    }
+
     private getActiveWorkbookXml(): Promise<string | null> {
         const uri = this.lastWorkbookUri;
         if (!uri) { return Promise.resolve(null); }
@@ -2003,19 +2074,42 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         <span id="wb-calcs-badge" style="margin-left:auto;font-size:10px;color:var(--vscode-descriptionForeground);font-weight:400">0</span>
       </div>
       <div class="ssb" id="wb-calcs-content" style="display:none"></div>
-      <div class="fs" id="wb-add-calc-form" style="margin:6px 8px 10px">
-        <div class="fl" style="font-weight:600;margin-bottom:6px">Add calculated field</div>
-        <div class="fg"><label class="fl" for="wb-calc-datasource">Datasource</label><select id="wb-calc-datasource" class="bf" disabled><option value="">Open a workbook</option></select></div>
-        <div class="fg"><label class="fl" for="wb-calc-name">Field name</label><input type="text" id="wb-calc-name" placeholder="Profit Ratio"></div>
-        <div class="fg"><label class="fl" for="wb-calc-datatype">Result datatype</label><select id="wb-calc-datatype" class="bf">
-          <option value="real">Number (real)</option><option value="integer">Integer</option><option value="string">String</option><option value="boolean">Boolean</option><option value="date">Date</option><option value="datetime">Date &amp; time</option>
-        </select></div>
-        <div class="fg"><label class="fl" for="wb-calc-formula">Formula</label><textarea id="wb-calc-formula" rows="6" spellcheck="false" placeholder="SUM([Profit]) / SUM([Sales])" style="width:100%;resize:vertical;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border);padding:6px;font-family:var(--vscode-editor-font-family);font-size:12px"></textarea></div>
-        <label style="display:flex;align-items:center;gap:6px;font-size:11px;margin:5px 0"><input type="checkbox" id="wb-calc-replace"> Replace a calculated field with the same name</label>
-        <label style="display:flex;align-items:center;gap:6px;font-size:11px;margin:5px 0"><input type="checkbox" id="wb-calc-relaunch"> Open in Tableau after the verified write</label>
-        <button class="bt bp bf" id="wb-add-calc-btn" disabled><svg class="ic"><use href="#i-plus"/></svg> Add to Workbook</button>
-        <div id="wb-add-calc-status" class="fmt-status hidden"></div>
-        <div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-top:6px">Creates a timestamped backup and rolls back if persisted XML verification fails.</div>
+      <div class="ssh c" id="wb-add-calc-ssh" data-preserve-collapsed="true">
+        <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
+        Add Calculated Field
+        <span id="wb-common-calc-summary" style="margin-left:auto;font-size:10px;color:var(--vscode-descriptionForeground);font-weight:400">1 saved</span>
+      </div>
+      <div class="ssb" id="wb-add-calc-content" style="display:none">
+        <div class="ssh c" id="wb-common-calcs-ssh" data-preserve-collapsed="true" style="margin-top:3px">
+          <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
+          Common Calculations
+          <span id="wb-common-calc-badge" style="margin-left:auto;font-size:10px;color:var(--vscode-descriptionForeground);font-weight:400">1 / 10</span>
+        </div>
+        <div class="ssb" id="wb-common-calcs-content" style="display:none;padding:7px 8px 4px">
+          <div class="fg"><label class="fl" for="wb-common-calc-select">Saved calculation</label><select id="wb-common-calc-select" class="bf"><option value="">Loading common calculations…</option></select></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:5px">
+            <button class="bt bp" id="wb-common-calc-use" disabled><svg class="ic"><use href="#i-arrow"/></svg> Use Saved</button>
+            <button class="bt bs" id="wb-common-calc-save"><svg class="ic"><use href="#i-plus"/></svg> Save Current</button>
+            <button class="bt bs" id="wb-common-calc-refresh"><svg class="ic"><use href="#i-refresh"/></svg> Refresh</button>
+            <button class="bt bs" id="wb-common-calc-delete" disabled>Remove</button>
+          </div>
+          <div id="wb-common-calc-status" class="fmt-status hidden"></div>
+          <div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-top:6px">Save up to ten reusable name, formula, and datatype combinations. Selecting one fills the workbook form below.</div>
+        </div>
+        <div class="fs" id="wb-add-calc-form" style="margin:6px 8px 10px">
+          <div class="fl" style="font-weight:600;margin-bottom:6px">Calculation details</div>
+          <div class="fg"><label class="fl" for="wb-calc-datasource">Datasource</label><select id="wb-calc-datasource" class="bf" disabled><option value="">Open a workbook</option></select></div>
+          <div class="fg"><label class="fl" for="wb-calc-name">Field name</label><input type="text" id="wb-calc-name" placeholder="Profit Ratio"></div>
+          <div class="fg"><label class="fl" for="wb-calc-datatype">Result datatype</label><select id="wb-calc-datatype" class="bf">
+            <option value="real">Number (real)</option><option value="integer">Integer</option><option value="string">String</option><option value="boolean">Boolean</option><option value="date">Date</option><option value="datetime">Date &amp; time</option>
+          </select></div>
+          <div class="fg"><label class="fl" for="wb-calc-formula">Formula</label><textarea id="wb-calc-formula" rows="6" spellcheck="false" placeholder="SUM([Profit]) / SUM([Sales])" style="width:100%;resize:vertical;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border);padding:6px;font-family:var(--vscode-editor-font-family);font-size:12px"></textarea></div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:11px;margin:5px 0"><input type="checkbox" id="wb-calc-replace"> Replace a calculated field with the same name</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:11px;margin:5px 0"><input type="checkbox" id="wb-calc-relaunch"> Open in Tableau after the verified write</label>
+          <button class="bt bp bf" id="wb-add-calc-btn" disabled><svg class="ic"><use href="#i-plus"/></svg> Add to Workbook</button>
+          <div id="wb-add-calc-status" class="fmt-status hidden"></div>
+          <div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-top:6px">Creates a timestamped backup and rolls back if persisted XML verification fails.</div>
+        </div>
       </div>
       <div class="ssh c">
         <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
