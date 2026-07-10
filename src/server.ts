@@ -9,7 +9,7 @@ import {
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { getDiagnostics } from './diagnosticsProvider.js';
-import { format } from './format.js';
+import { format, formatRange, TableauFormattingOptions } from './format.js';
 import { parseDocument } from './documentModel.js';
 import { provideHover, HoverPerformanceAPI } from './hoverProvider.js';
 import { buildSignatureHelp, SignaturePerformanceAPI } from './signatureProvider.js';
@@ -194,6 +194,7 @@ connection.onInitialize((params) => {
             documentSymbolProvider: true,
             workspaceSymbolProvider: true,
             documentFormattingProvider: true,
+            documentRangeFormattingProvider: true,
             hoverProvider: true,
             codeActionProvider: true,
             definitionProvider: true,
@@ -445,19 +446,53 @@ connection.onHover((params) => {
 });
 
 
-connection.onDocumentFormatting((params) => {
+async function configuredFormattingOptions(
+    uri: string,
+    options: TableauFormattingOptions
+): Promise<TableauFormattingOptions> {
+    if (!hasConfigurationCapability) {
+        return options;
+    }
+    try {
+        const configured = await connection.workspace.getConfiguration({
+            scopeUri: uri,
+            section: 'tableau-language-support.formatting',
+        }) as Partial<TableauFormattingOptions> | null;
+        return configured ? { ...options, ...configured } : options;
+    } catch (error) {
+        connection.console.warn(`[Server] Could not read formatting settings: ${String(error)}`);
+        return options;
+    }
+}
+
+connection.onDocumentFormatting(async (params) => {
     const document = documents.get(params.textDocument.uri);
     if (!document) {
         return [];
     }
-    
+    const options = await configuredFormattingOptions(document.uri, params.options);
+
     // R7.2: Debounce formatting requests (low priority)
     return DebounceHelpers.formatting(
-        { document, options: params.options },
+        { document, options },
         async ({ document, options }) => {
             return format(document, options);
         },
         document.uri
+    );
+});
+
+connection.onDocumentRangeFormatting(async (params) => {
+    const document = documents.get(params.textDocument.uri);
+    if (!document) {
+        return [];
+    }
+    const options = await configuredFormattingOptions(document.uri, params.options);
+    return DebounceHelpers.formatting(
+        { document, options, range: params.range },
+        ({ document, options, range }) => formatRange(document, range, options),
+        `${document.uri}#${String(params.range.start.line)}:${String(params.range.start.character)}-` +
+            `${String(params.range.end.line)}:${String(params.range.end.character)}`
     );
 });
 

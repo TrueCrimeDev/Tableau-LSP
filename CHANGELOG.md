@@ -2,6 +2,37 @@
 
 All notable changes to the "tableau-language-support" extension will be documented in this file.
 
+## [1.7.3] - 2026-07-10
+
+### Added
+
+- Added a synchronized Common Calculations library with one base Profit Ratio calculation and support for up to ten reusable calculation templates.
+- Added `Update-FromGitHub.ps1` for safe, fast-forward-only synchronization of the local checkout with a selected GitHub branch.
+
+### Changed
+
+- The calculated-field workflow and its Common Calculations library now use nested progressive disclosure instead of keeping the entire form permanently expanded.
+
+## [1.7.2] - 2026-07-10
+
+### Fixed
+
+- Replaced the generic bracket-shaped Activity Bar icon with a crisp, monochrome Tableau cross constellation that remains recognizable across light, dark, high-contrast, and small-icon rendering.
+
+## [1.7.1] - 2026-07-10
+
+### Added
+
+- Native calculated-field insertion for plain `.twb` workbooks from the command palette, sidebar, or a selected `.twbl` formula.
+- Transactional workbook writes with timestamped backups, persisted-content verification, and automatic rollback.
+- Optional verified relaunch in Tableau Desktop after calculated-field, border, theme, or bulk-formatting edits.
+- Local Tableau Desktop and repository connectors plus configurable calculation-formatting profiles.
+
+### Fixed
+
+- Published a distinct patch version so manual VSIX installs cannot reuse the stale 1.7.0 extension-host/catalog entry.
+- Documented `--force` installation and verified the packaged extension by installing it into a clean VS Code profile, activating it on a `.twbl` document, and checking extension-host errors.
+
 ## [1.7.0] - 2026-07-09
 
 ### Added

@@ -1,6 +1,7 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: var(--vscode-font-family); font-size: 13px; color: var(--vscode-foreground); background: var(--vscode-editor-background); }
 .tabs { display: flex; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-editor-background); position: sticky; top: 0; z-index: 10; }
+.relaunch-option { display: flex; align-items: center; gap: 7px; padding: 8px 16px; color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-panel-border); font-size: 12px; }
 .tab { padding: 10px 20px; cursor: pointer; color: var(--vscode-foreground); opacity: 0.6; border-bottom: 2px solid transparent; font-size: 13px; }
 .tab.active { opacity: 1; border-bottom-color: var(--vscode-focusBorder); }
 .tab-content { display: none; padding: 16px; }

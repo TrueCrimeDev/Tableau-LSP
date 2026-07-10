@@ -1,8 +1,8 @@
 // src/tests/unit/formatProvider.test.ts
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { FormattingOptions, TextEdit } from 'vscode-languageserver';
-import { format, FormattingErrorHandlingAPI } from '../../format.js';
+import { FormattingOptions, Range, TextEdit } from 'vscode-languageserver';
+import { format, formatRange, FormattingErrorHandlingAPI } from '../../format.js';
 
 describe('Format Provider', () => {
     const defaultOptions: FormattingOptions = {
@@ -571,6 +571,84 @@ describe('Format Provider', () => {
                 }
             }
         });
+    });
+});
+
+describe('Advanced formatting profiles', () => {
+    const options: FormattingOptions = { tabSize: 4, insertSpaces: true };
+
+    it('lays out IF branches as conventional readable blocks', () => {
+        const document = createTestDocument('IF [Sales]>100 THEN "High" ELSE "Low" END');
+        const formatted = format(document, { ...options, profile: 'readable' })[0].newText;
+
+        expect(formatted).toBe([
+            'IF [Sales] > 100 THEN',
+            '    "High"',
+            'ELSE',
+            '    "Low"',
+            'END',
+        ].join('\n'));
+    });
+
+    it('expands function arguments and closes at the matching indentation', () => {
+        const document = createTestDocument('IFNULL([Sales],0)');
+        const formatted = format(document, {
+            ...options,
+            profile: 'expanded',
+        })[0].newText;
+
+        expect(formatted).toBe([
+            'IFNULL(',
+            '    [Sales],',
+            '    0',
+            ')',
+        ].join('\n'));
+    });
+
+    it('keeps function arguments on one line in the compact profile', () => {
+        const document = createTestDocument('IFNULL([Sales],0)');
+        const formatted = format(document, {
+            ...options,
+            profile: 'compact',
+            maxLineLength: 40,
+        })[0].newText;
+
+        expect(formatted).toBe('IFNULL([Sales], 0)');
+    });
+
+    it('supports keyword casing, leading logical operators, and a final newline', () => {
+        const document = createTestDocument(
+            'IF [Very Long Sales Field] > 100 AND [Very Long Profit Field] > 50 THEN 1 ELSE 0 END'
+        );
+        const formatted = format(document, {
+            ...options,
+            profile: 'readable',
+            maxLineLength: 40,
+            keywordCase: 'lower',
+            logicalOperatorPosition: 'leading',
+            finalNewline: true,
+        })[0].newText;
+
+        expect(formatted).toMatch(/\n\s+and /);
+        expect(formatted).toContain('then\n');
+        expect(formatted.endsWith('\n')).toBe(true);
+    });
+
+    it('formats only a requested range', () => {
+        const document = TextDocument.create(
+            'test://selection.twbl',
+            'tableau',
+            1,
+            'SUM([Sales])\nIF [Profit]>0 THEN "Yes" ELSE "No" END\nAVG([Discount])'
+        );
+        const range = Range.create(1, 0, 1, 45);
+        const edits = formatRange(document, range, { ...options, profile: 'readable' });
+
+        expect(edits).toHaveLength(1);
+        expect(edits[0].range).toEqual(range);
+        expect(edits[0].newText).toContain('IF [Profit] > 0 THEN');
+        expect(edits[0].newText).not.toContain('SUM([Sales])');
+        expect(edits[0].newText).not.toContain('AVG([Discount])');
     });
 });
 
