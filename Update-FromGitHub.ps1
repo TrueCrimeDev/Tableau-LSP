@@ -24,9 +24,9 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     throw 'Git is not installed or is not available on PATH.'
 }
 
-$repoRoot = (& git rev-parse --show-toplevel 2>$null)
+$repoRoot = (& git -C $PSScriptRoot rev-parse --show-toplevel 2>$null)
 if ($LASTEXITCODE -ne 0 -or -not $repoRoot) {
-    throw 'Run this script from inside the Tableau-LSP Git checkout.'
+    throw 'Update-FromGitHub.ps1 must remain inside the Tableau-LSP Git checkout.'
 }
 
 Push-Location -LiteralPath $repoRoot
