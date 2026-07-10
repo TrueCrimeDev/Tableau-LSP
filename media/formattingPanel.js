@@ -204,8 +204,12 @@
         if (btn) { btn.disabled = Object.keys(state.pendingEdits).length === 0 }
     }
 
+    function shouldRelaunch() {
+        return /** @type {HTMLInputElement|null} */ (document.getElementById('relaunch-after-write'))?.checked ?? false
+    }
+
     document.getElementById('apply-edits-btn')?.addEventListener('click', () => {
-        vscode.postMessage({ type: 'applyEdits', edits: state.pendingEdits })
+        vscode.postMessage({ type: 'applyEdits', edits: state.pendingEdits, relaunch: shouldRelaunch() })
     })
 
     document.getElementById('reset-edits-btn')?.addEventListener('click', () => {
@@ -225,7 +229,7 @@
         if (!importFilePath) { return }
         const modeInput = /** @type {HTMLInputElement|null} */ (document.querySelector('input[name="apply-mode"]:checked'))
         const mode = modeInput?.value || 'override'
-        vscode.postMessage({ type: 'importTheme', filePath: importFilePath, mode })
+        vscode.postMessage({ type: 'importTheme', filePath: importFilePath, mode, relaunch: shouldRelaunch() })
     })
 
     // ── Export Theme ──────────────────────────────────────────────────────────

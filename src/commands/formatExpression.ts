@@ -23,14 +23,18 @@ export async function formatExpressionCommand(): Promise<void> {
     }
 
     try {
-        // Use VS Code's built-in format command which will use our LSP formatter
-        await vscode.commands.executeCommand('editor.action.formatDocument');
+        // Respect a selection when present; the server exposes both document and
+        // range formatting so a single calculation can be polished in place.
+        await vscode.commands.executeCommand(
+            editor.selection.isEmpty ? 'editor.action.formatDocument' : 'editor.action.formatSelection'
+        );
         
         // Show success message
         vscode.window.setStatusBarMessage('Tableau expression formatted', 2000);
         
     } catch (error) {
-        vscode.window.showErrorMessage(`Failed to format expression: ${error}`);
+        const message = error instanceof Error ? error.message : String(error);
+        vscode.window.showErrorMessage(`Failed to format expression: ${message}`);
         console.error('Format expression error:', error);
     }
 }

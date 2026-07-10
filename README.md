@@ -85,6 +85,37 @@ Use a tableau code block to get syntax highlighting in Markdown:
 IF [Sales] > 1000 THEN "High" ELSE "Low" END
 ```
 
+### Connecting to local Tableau Desktop
+
+The extension discovers installed Tableau Desktop versions, standard local or OneDrive-backed `My Tableau Repository` folders, and recent Tableau artifacts. Use the Command Palette for:
+
+- **Tableau: Connect Local Workbook to LSP and Chat** — attaches a `.twb` or `.twbx` outside the current workspace to the same datasource/field model used by IntelliSense, diagnostics, navigation, and `@tableau` chat.
+- **Tableau: Open Workbook in Local Tableau Desktop** — launches the active or selected workbook with the newest discovered Desktop installation.
+- **Tableau: Show Local Connector Status** — reports installed versions, running state, repositories, workbooks, datasources, `.taco` connector packages, Hyper extracts, and logs.
+- **Tableau: Open Local Tableau Repository** — reveals the detected repository in the operating system.
+
+The connector uses Tableau's documented local file surfaces (`.twb`, `.twbx`, `.tds`, `.tdsx`, `.hyper`, and the repository layout). It does not depend on an unsupported private automation socket in Tableau Desktop. Repository and executable paths can be overridden in settings.
+
+### Adding calculations to a workbook
+
+Use **Tableau: Add Calculation to Workbook** or the Calculated Fields form in the sidebar to write a calculation into a datasource in a plain `.twb` workbook. A `.twbl` editor selection can supply the formula to the command, but `.twbl` remains the calculation-authoring/definitions format; Tableau Desktop reads the generated native `<column><calculation ... /></column>` entry from the `.twb` XML.
+
+Every workbook mutation is transactional: the extension validates the source XML, creates a timestamped copy in `.tableau-lsp-backups`, writes through an open editor when needed, rereads and validates the exact persisted result, and restores the original if writing or verification fails. Duplicate calculated-field names require explicit replacement, while collisions with physical fields are rejected. Packaged `.twbx` mutation is intentionally not supported yet.
+
+The collapsed **Add Calculated Field** section contains a nested **Common Calculations** library. It starts with a Profit Ratio example and can store up to ten reusable field-name, formula, and datatype combinations. **Use Saved** fills the workbook insertion form; **Save Current** adds or updates the template. The library is synchronized through VS Code Settings Sync when available.
+
+The formatting sidebar and standalone formatting panel use the same transaction layer for border edits, bulk changes, theme imports, and formatting removal. Enable **Open in Tableau after a verified write** to launch the saved workbook after verification. This opens the edited file with the configured or newest discovered Tableau Desktop installation; it does not terminate an already-running Tableau process.
+
+### Formatting calculations
+
+**Tableau: Format Tableau Expression** now formats the current selection when one exists, otherwise the complete `.twbl` document. **Tableau: Select Calculation Formatting Profile** provides three styles:
+
+- `readable` — conventional IF/CASE blocks and balanced wrapping.
+- `compact` — fewer line breaks for short calculations.
+- `expanded` — one function argument per line and earlier condition wrapping.
+
+Keyword case, maximum line length, logical operator position, function argument wrapping, indentation, and final-newline behavior can be configured independently.
+
 ## Requirements
 
 - Visual Studio Code 1.60.0 or higher
@@ -93,8 +124,10 @@ IF [Sales] > 1000 THEN "High" ELSE "Low" END
 
 This extension contributes the following settings:
 
-- `tableau.enableFormatting`: Enable/disable formatting for Tableau expressions.
-- `tableau.enableSignatureHelp`: Enable/disable signature help for Tableau functions.
+- `tableau-language-support.enableFormatting`: Enable/disable formatting for Tableau expressions.
+- `tableau-language-support.enableSignatureHelp`: Enable/disable signature help for Tableau functions.
+- `tableau-language-support.formatting.*`: Select a profile and customize wrapping, casing, and line layout.
+- `tableau-language-support.local.*`: Override local repository discovery, Tableau Desktop executable selection, and artifact limits.
 
 ## Known Issues
 
@@ -131,13 +164,27 @@ Grab the latest `.vsix` from [Releases](https://github.com/TrueCrimeDev/Tableau-
 **CMD:**
 
 ```batch
-code --install-extension "%USERPROFILE%\Downloads\tableau-language-support-1.5.15.vsix"
+code --install-extension "%USERPROFILE%\Downloads\tableau-language-support-1.7.3.vsix" --force
 ```
 
 **PowerShell:**
 
 ```powershell
-code --install-extension "$env:USERPROFILE\Downloads\tableau-language-support-1.5.15.vsix"
+code --install-extension "$env:USERPROFILE\Downloads\tableau-language-support-1.7.3.vsix" --force
 ```
 
 Then reload VS Code. If an older version is already installed, add `--force`.
+
+### Updating the source checkout
+
+From the repository root, run:
+
+```powershell
+.\Update-FromGitHub.ps1
+```
+
+This fetches `origin`, switches to `main`, and performs a fast-forward-only pull. It refuses to continue when tracked files have local changes and leaves untracked workbook fixtures untouched. Another branch or remote can be selected explicitly:
+
+```powershell
+.\Update-FromGitHub.ps1 -Remote origin -Branch codex/tableau-1.7.2-release
+```

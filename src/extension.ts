@@ -9,6 +9,7 @@ import { registerFieldSwapFeature } from './providers/fieldSwapHover.js';
 import { CalcCopyCodeLensProvider, COPY_CALC_BLOCK_COMMAND } from './calcCopyLens.js';
 import { registerRunTestsCommand } from './commands/runTests.js';
 import { WorkbookFieldContextManager } from './services/workbookFieldContextManager.js';
+import { registerLocalTableauCommands } from './commands/localTableauCommands.js';
 
 let client: LanguageClient | undefined;
 let activationManager: ActivationManager;
@@ -29,6 +30,10 @@ export async function activate(context: ExtensionContext): Promise<void> {
     // activation happens to succeed (registerBasicFunctionality previously only
     // ran from the catch block below, i.e. only when activation had already failed).
     registerBasicFunctionality(context);
+
+    // Local connectors are command-driven, so registration is safe before the
+    // asynchronous language client and workbook context manager finish starting.
+    registerLocalTableauCommands(context, () => workbookFieldContextManager);
 
     // Register before any awaits: chat requests must not hang behind the
     // conflicting-extension warning or language-server startup.

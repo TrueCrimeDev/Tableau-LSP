@@ -4,4 +4,9 @@ declare module 'fast-xml-parser' {
     constructor(options?: unknown);
     parse(input: string): unknown;
   }
+  export class XMLValidator {
+    static validate(input: string): true | {
+      err: { msg: string; line: number; col: number };
+    };
+  }
 }
