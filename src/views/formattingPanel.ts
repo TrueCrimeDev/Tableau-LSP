@@ -10,6 +10,10 @@ import {
     getXmlElementName,
     WorkbookTheme,
 } from '../parsers/formattingTheme.js';
+import {
+    applyWorkbookXmlMutation,
+    readCurrentWorkbookXml,
+} from '../services/workbookMutationService.js';
 
 let panel: vscode.WebviewPanel | undefined;
 
@@ -41,13 +45,17 @@ function openOrReveal(context: vscode.ExtensionContext): void {
 
     panel.webview.html = getPanelHtml(panel.webview, context);
 
-    panel.webview.onDidReceiveMessage(async (msg: { type: string; edits?: WorkbookTheme; filePath?: string; mode?: string; json?: string; element?: string }) => {
+    panel.webview.onDidReceiveMessage(async (msg: { type: string; edits?: WorkbookTheme; filePath?: string; mode?: string; json?: string; element?: string; relaunch?: boolean }) => {
         switch (msg.type) {
             case 'applyEdits':
-                await handleApplyEdits(msg.edits ?? {});
+                await handleApplyEdits(msg.edits ?? {}, msg.relaunch === true);
                 break;
             case 'importTheme':
-                await handleImportTheme(msg.filePath ?? '', (msg.mode ?? 'override') as 'override' | 'preserve');
+                await handleImportTheme(
+                    msg.filePath ?? '',
+                    (msg.mode ?? 'override') as 'override' | 'preserve',
+                    msg.relaunch === true
+                );
                 break;
             case 'requestExport':
                 await handleRequestExport();
@@ -93,16 +101,34 @@ async function refreshPanel(uri: vscode.Uri): Promise<void> {
     } catch { /* silently ignore read errors */ }
 }
 
-async function handleApplyEdits(edits: WorkbookTheme): Promise<void> {
+async function handleApplyEdits(edits: WorkbookTheme, relaunch = false): Promise<void> {
     const uri = getWorkbookUri();
     if (!uri) { await postError('inspect', 'No active .twb file.'); return; }
     try {
-        const parser = new TWBParser();
-        const doc = await parser.parseWorkbook(uri);
-        const updated = applyThemeEditsToXml(doc.xml, edits);
-        await parser.writeWorkbook(uri, updated);
+        const original = await readCurrentWorkbookXml(uri);
+        const updated = applyThemeEditsToXml(original, edits);
+        if (updated === original) {
+            await panel?.webview.postMessage({
+                type: 'formattingSuccess',
+                tab: 'inspect',
+                message: 'No formatting changes were needed.',
+                elements: readThemeFromXml(original)
+            });
+            return;
+        }
+        const receipt = await applyWorkbookXmlMutation(uri, original, updated, { relaunch });
         const elements = readThemeFromXml(updated);
-        await panel?.webview.postMessage({ type: 'formattingSuccess', tab: 'inspect', message: 'Changes applied.', elements });
+        const launchMessage = receipt.launchedWith
+            ? ' Opened in Tableau.'
+            : receipt.launchError
+                ? ` Saved, but Tableau did not open: ${receipt.launchError}.`
+                : '';
+        await panel?.webview.postMessage({
+            type: 'formattingSuccess',
+            tab: 'inspect',
+            message: `Changes applied and verified.${launchMessage} Backup: ${receipt.backup.fsPath}`,
+            elements
+        });
     } catch (e) {
         await postError('inspect', `Write failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -115,7 +141,11 @@ async function handlePickImportFile(): Promise<void> {
     }
 }
 
-async function handleImportTheme(filePath: string, mode: 'override' | 'preserve'): Promise<void> {
+async function handleImportTheme(
+    filePath: string,
+    mode: 'override' | 'preserve',
+    relaunch = false
+): Promise<void> {
     const uri = getWorkbookUri();
     if (!uri) { await postError('apply', 'No active .twb file.'); return; }
     try {
@@ -123,11 +153,27 @@ async function handleImportTheme(filePath: string, mode: 'override' | 'preserve'
         const theme = JSON.parse(raw) as object;
         const err = validateThemeJson(theme);
         if (err) { await postError('apply', `Invalid theme: ${err}`); return; }
-        const parser = new TWBParser();
-        const doc = await parser.parseWorkbook(uri);
-        const updated = applyThemeJsonToXml(doc.xml, theme, mode);
-        await parser.writeWorkbook(uri, updated);
-        await panel?.webview.postMessage({ type: 'formattingSuccess', tab: 'apply', message: 'Theme applied.' });
+        const original = await readCurrentWorkbookXml(uri);
+        const updated = applyThemeJsonToXml(original, theme, mode);
+        if (updated === original) {
+            await panel?.webview.postMessage({
+                type: 'formattingSuccess',
+                tab: 'apply',
+                message: 'The workbook already matches that theme.'
+            });
+            return;
+        }
+        const receipt = await applyWorkbookXmlMutation(uri, original, updated, { relaunch });
+        const launchMessage = receipt.launchedWith
+            ? ' Opened in Tableau.'
+            : receipt.launchError
+                ? ` Saved, but Tableau did not open: ${receipt.launchError}.`
+                : '';
+        await panel?.webview.postMessage({
+            type: 'formattingSuccess',
+            tab: 'apply',
+            message: `Theme applied and verified.${launchMessage} Backup: ${receipt.backup.fsPath}`
+        });
     } catch (e) {
         await postError('apply', `Failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -205,6 +251,10 @@ function getPanelHtml(webview: vscode.Webview, context: vscode.ExtensionContext)
         <div class="tab" data-tab="tab-apply">Apply Theme</div>
         <div class="tab" data-tab="tab-export">Export Theme</div>
     </div>
+    <label class="relaunch-option">
+        <input type="checkbox" id="relaunch-after-write">
+        Open the verified workbook in Tableau after writing
+    </label>
     <div id="tab-inspect" class="tab-content active">
         <div id="inspect-groups"></div>
         <div class="action-bar">

@@ -43,6 +43,15 @@ import {
 import { locateXmlElement } from './formattingPanel.js';
 import { stripFormattingXml, scanFormattingXml, FormatStripOptions } from '../parsers/formatStripper.js';
 import { CALC_PORTFOLIO } from './calcPortfolio.js';
+import {
+    TableauCalculationDatatype,
+    WorkbookCalculationInput,
+} from '../parsers/workbookCalculations.js';
+import {
+    addCalculationToWorkbook,
+    applyWorkbookXmlMutation,
+    readCurrentWorkbookXml,
+} from '../services/workbookMutationService.js';
 
 const log = getLogger();
 const LOG_CAT = 'WorkbookInspector';
@@ -74,7 +83,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 return;
             }
 
-            const payload = message as { type?: string; palettes?: unknown; palette?: unknown; paletteName?: unknown; path?: string; formula?: string; options?: unknown; edits?: unknown; mode?: string; json?: string; element?: string; };
+            const payload = message as { type?: string; palettes?: unknown; palette?: unknown; paletteName?: unknown; path?: string; formula?: string; options?: unknown; edits?: unknown; mode?: string; json?: string; element?: string; calculation?: unknown; relaunch?: boolean; };
             switch (payload.type) {
                 case 'openPreferencesTemplate':
                     void this.openPreferencesTemplate();
@@ -124,13 +133,20 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                     void this.handleLocateElement(payload.element ?? '');
                     break;
                 case 'applyFormattingEdits':
-                    void this.handleFormattingApplyEdits((payload.edits ?? {}) as WorkbookTheme);
+                    void this.handleFormattingApplyEdits(
+                        (payload.edits ?? {}) as WorkbookTheme,
+                        payload.relaunch === true
+                    );
                     break;
                 case 'pickFormattingImportFile':
                     void this.handleFormattingPickImportFile();
                     break;
                 case 'importFormattingTheme':
-                    void this.handleFormattingImportTheme(payload.path ?? '', (payload.mode ?? 'override') as 'override' | 'preserve');
+                    void this.handleFormattingImportTheme(
+                        payload.path ?? '',
+                        (payload.mode ?? 'override') as 'override' | 'preserve',
+                        payload.relaunch === true
+                    );
                     break;
                 case 'requestFormattingExport':
                     void this.handleFormattingExport();
@@ -139,7 +155,10 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                     void this.handleFormattingJsonSave(payload.json ?? '');
                     break;
                 case 'stripFormatting':
-                    void this.stripWorkbookFormatting(payload.options);
+                    void this.stripWorkbookFormatting(payload.options, payload.relaunch === true);
+                    break;
+                case 'addWorkbookCalculation':
+                    void this.addWorkbookCalculation(payload.calculation, payload.relaunch === true);
                     break;
                 case 'importPaletteFromFile':
                     void this.importPaletteFromFile();
@@ -1074,6 +1093,51 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    private async addWorkbookCalculation(rawCalculation: unknown, relaunch = false): Promise<void> {
+        if (!this.view) { return; }
+        const uri = this.lastWorkbookUri;
+        if (!uri || !uri.path.toLowerCase().endsWith('.twb')) {
+            await this.view.webview.postMessage({
+                type: 'calculationMutationResult',
+                success: false,
+                message: 'Open a plain .twb workbook before adding a calculation.'
+            });
+            return;
+        }
+        const calculation = coerceCalculationInput(rawCalculation);
+        if (!calculation) {
+            await this.view.webview.postMessage({
+                type: 'calculationMutationResult',
+                success: false,
+                message: 'Provide a datasource, field name, formula, and result datatype.'
+            });
+            return;
+        }
+        try {
+            const receipt = await addCalculationToWorkbook(uri, calculation, { relaunch });
+            const launchMessage = receipt.launchedWith
+                ? ' Opened in Tableau.'
+                : receipt.launchError
+                    ? ` Workbook saved, but Tableau did not open: ${receipt.launchError}.`
+                    : '';
+            await this.view.webview.postMessage({
+                type: 'calculationMutationResult',
+                success: true,
+                message: `${receipt.calculation.action === 'added' ? 'Added' : 'Updated'} ` +
+                    `“${receipt.calculation.caption}” and verified the workbook.` +
+                    `${launchMessage} Backup: ${receipt.backup.fsPath}`
+            });
+            await this.postWorkbookData();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            await this.view.webview.postMessage({
+                type: 'calculationMutationResult',
+                success: false,
+                message
+            });
+        }
+    }
+
     private getActiveWorkbookXml(): Promise<string | null> {
         const uri = this.lastWorkbookUri;
         if (!uri) { return Promise.resolve(null); }
@@ -1082,7 +1146,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         return Promise.resolve(vscode.workspace.fs.readFile(uri).then(data => new TextDecoder('utf-8').decode(data)));
     }
 
-    private async handleFormattingApplyEdits(edits: WorkbookTheme): Promise<void> {
+    private async handleFormattingApplyEdits(edits: WorkbookTheme, relaunch = false): Promise<void> {
         if (!this.view) { return; }
         const uri = this.lastWorkbookUri;
         if (!uri) {
@@ -1090,12 +1154,30 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             return;
         }
         try {
-            const parser = new TWBParser();
-            const doc = await parser.parseWorkbook(uri);
-            const updated = applyThemeEditsToXml(doc.xml, edits);
-            await parser.writeWorkbook(uri, updated);
+            const original = await readCurrentWorkbookXml(uri);
+            const updated = applyThemeEditsToXml(original, edits);
+            if (updated === original) {
+                await this.view.webview.postMessage({
+                    type: 'formattingSuccess',
+                    tab: 'inspect',
+                    message: 'No formatting changes were needed.',
+                    elements: readThemeFromXml(original)
+                });
+                return;
+            }
+            const receipt = await applyWorkbookXmlMutation(uri, original, updated, { relaunch });
             const elements = readThemeFromXml(updated);
-            await this.view.webview.postMessage({ type: 'formattingSuccess', tab: 'inspect', message: 'Changes applied.', elements });
+            const launchMessage = receipt.launchedWith
+                ? ' Opened in Tableau.'
+                : receipt.launchError
+                    ? ` Saved, but Tableau did not open: ${receipt.launchError}.`
+                    : '';
+            await this.view.webview.postMessage({
+                type: 'formattingSuccess',
+                tab: 'inspect',
+                message: `Changes applied and verified.${launchMessage} Backup: ${receipt.backup.fsPath}`,
+                elements
+            });
         } catch (e) {
             await this.view.webview.postMessage({ type: 'formattingError', tab: 'inspect', message: `Write failed: ${e instanceof Error ? e.message : String(e)}` });
         }
@@ -1109,7 +1191,11 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private async handleFormattingImportTheme(filePath: string, mode: 'override' | 'preserve'): Promise<void> {
+    private async handleFormattingImportTheme(
+        filePath: string,
+        mode: 'override' | 'preserve',
+        relaunch = false
+    ): Promise<void> {
         if (!this.view) { return; }
         const uri = this.lastWorkbookUri;
         if (!uri) {
@@ -1121,11 +1207,27 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             const theme = JSON.parse(raw) as object;
             const err = validateThemeJson(theme);
             if (err) { await this.view.webview.postMessage({ type: 'formattingError', tab: 'apply', message: `Invalid theme: ${err}` }); return; }
-            const parser = new TWBParser();
-            const doc = await parser.parseWorkbook(uri);
-            const updated = applyThemeJsonToXml(doc.xml, theme, mode);
-            await parser.writeWorkbook(uri, updated);
-            await this.view.webview.postMessage({ type: 'formattingSuccess', tab: 'apply', message: 'Theme applied.' });
+            const original = await readCurrentWorkbookXml(uri);
+            const updated = applyThemeJsonToXml(original, theme, mode);
+            if (updated === original) {
+                await this.view.webview.postMessage({
+                    type: 'formattingSuccess',
+                    tab: 'apply',
+                    message: 'The workbook already matches that theme.'
+                });
+                return;
+            }
+            const receipt = await applyWorkbookXmlMutation(uri, original, updated, { relaunch });
+            const launchMessage = receipt.launchedWith
+                ? ' Opened in Tableau.'
+                : receipt.launchError
+                    ? ` Saved, but Tableau did not open: ${receipt.launchError}.`
+                    : '';
+            await this.view.webview.postMessage({
+                type: 'formattingSuccess',
+                tab: 'apply',
+                message: `Theme applied and verified.${launchMessage} Backup: ${receipt.backup.fsPath}`
+            });
         } catch (e) {
             await this.view.webview.postMessage({ type: 'formattingError', tab: 'apply', message: `Failed: ${e instanceof Error ? e.message : String(e)}` });
         }
@@ -1195,25 +1297,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         return (await parser.parseWorkbook(uri)).xml;
     }
 
-    /** Writes through the open editor (undo-able, no disk/buffer conflict) when one exists. */
-    private async writeWorkbookXml(uri: vscode.Uri, xml: string): Promise<void> {
-        const openDoc = vscode.workspace.textDocuments.find(d => d.uri.toString() === uri.toString());
-        if (openDoc) {
-            const edit = new vscode.WorkspaceEdit();
-            const fullRange = new vscode.Range(openDoc.positionAt(0), openDoc.positionAt(openDoc.getText().length));
-            edit.replace(uri, fullRange, xml);
-            const applied = await vscode.workspace.applyEdit(edit);
-            if (!applied) {
-                throw new Error('Editor rejected the workbook edit.');
-            }
-            await openDoc.save();
-            return;
-        }
-        const parser = new TWBParser();
-        await parser.writeWorkbook(uri, xml);
-    }
-
-    private async stripWorkbookFormatting(rawOptions: unknown): Promise<void> {
+    private async stripWorkbookFormatting(rawOptions: unknown, relaunch = false): Promise<void> {
         const options = coerceStripOptions(rawOptions);
 
         const workbookUri = this.resolveStripTarget();
@@ -1235,8 +1319,21 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 return;
             }
 
-            await this.writeWorkbookXml(workbookUri, updatedXml);
-            await this.postFormatStripStatus('Formatting stripped successfully.', 'success');
+            const receipt = await applyWorkbookXmlMutation(
+                workbookUri,
+                originalXml,
+                updatedXml,
+                { relaunch }
+            );
+            const launchMessage = receipt.launchedWith
+                ? ' Opened in Tableau.'
+                : receipt.launchError
+                    ? ` Saved, but Tableau did not open: ${receipt.launchError}.`
+                    : '';
+            await this.postFormatStripStatus(
+                `Formatting stripped and verified.${launchMessage} Backup: ${receipt.backup.fsPath}`,
+                'success'
+            );
             void this.scanWorkbookFormatting();
         } catch (error: unknown) {
             if (error instanceof WorkbookError) {
@@ -1906,6 +2003,20 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         <span id="wb-calcs-badge" style="margin-left:auto;font-size:10px;color:var(--vscode-descriptionForeground);font-weight:400">0</span>
       </div>
       <div class="ssb" id="wb-calcs-content" style="display:none"></div>
+      <div class="fs" id="wb-add-calc-form" style="margin:6px 8px 10px">
+        <div class="fl" style="font-weight:600;margin-bottom:6px">Add calculated field</div>
+        <div class="fg"><label class="fl" for="wb-calc-datasource">Datasource</label><select id="wb-calc-datasource" class="bf" disabled><option value="">Open a workbook</option></select></div>
+        <div class="fg"><label class="fl" for="wb-calc-name">Field name</label><input type="text" id="wb-calc-name" placeholder="Profit Ratio"></div>
+        <div class="fg"><label class="fl" for="wb-calc-datatype">Result datatype</label><select id="wb-calc-datatype" class="bf">
+          <option value="real">Number (real)</option><option value="integer">Integer</option><option value="string">String</option><option value="boolean">Boolean</option><option value="date">Date</option><option value="datetime">Date &amp; time</option>
+        </select></div>
+        <div class="fg"><label class="fl" for="wb-calc-formula">Formula</label><textarea id="wb-calc-formula" rows="6" spellcheck="false" placeholder="SUM([Profit]) / SUM([Sales])" style="width:100%;resize:vertical;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border);padding:6px;font-family:var(--vscode-editor-font-family);font-size:12px"></textarea></div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;margin:5px 0"><input type="checkbox" id="wb-calc-replace"> Replace a calculated field with the same name</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;margin:5px 0"><input type="checkbox" id="wb-calc-relaunch"> Open in Tableau after the verified write</label>
+        <button class="bt bp bf" id="wb-add-calc-btn" disabled><svg class="ic"><use href="#i-plus"/></svg> Add to Workbook</button>
+        <div id="wb-add-calc-status" class="fmt-status hidden"></div>
+        <div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-top:6px">Creates a timestamped backup and rolls back if persisted XML verification fails.</div>
+      </div>
       <div class="ssh c">
         <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
         Fields
@@ -1933,6 +2044,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
       <button class="bt bs" id="open-formatting-panel-btn" title="Open Formatting Panel" style="margin-left:auto;padding:1px 7px;font-size:11px" onclick="vscode.postMessage({type:'openFormattingPanel'})">&#8599;</button>
     </div>
     <div class="sb">
+      <label style="display:flex;align-items:center;gap:6px;font-size:11px;padding:6px 8px;color:var(--vscode-descriptionForeground)"><input type="checkbox" id="fmt-relaunch-after-write"> Open in Tableau after a verified formatting write</label>
       <div id="fmt-inspect-groups"></div>
       <div class="fmt-action-bar">
         <button class="bt bp" id="fmt-apply-edits-btn" disabled>Apply</button>
@@ -2234,6 +2346,31 @@ function coerceStripOptions(raw: unknown): FormatStripOptions {
         bold: obj['bold'] === true,
         fontSize: obj['fontSize'] === true,
         fontColor: obj['fontColor'] === true,
+    };
+}
+
+function coerceCalculationInput(raw: unknown): WorkbookCalculationInput | null {
+    if (!raw || typeof raw !== 'object') {
+        return null;
+    }
+    const value = raw as Record<string, unknown>;
+    const datasource = typeof value['datasource'] === 'string' ? value['datasource'].trim() : '';
+    const caption = typeof value['caption'] === 'string' ? value['caption'].trim() : '';
+    const formula = typeof value['formula'] === 'string' ? value['formula'].trim() : '';
+    const datatype = value['datatype'];
+    const datatypes: TableauCalculationDatatype[] = [
+        'string', 'real', 'integer', 'boolean', 'date', 'datetime'
+    ];
+    if (!datasource || !caption || !formula ||
+        typeof datatype !== 'string' || !datatypes.includes(datatype as TableauCalculationDatatype)) {
+        return null;
+    }
+    return {
+        datasource,
+        caption,
+        formula,
+        datatype: datatype as TableauCalculationDatatype,
+        replaceExisting: value['replaceExisting'] === true,
     };
 }
 

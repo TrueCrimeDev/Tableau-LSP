@@ -891,7 +891,37 @@ if (requiredElements.some((element) => !element)) {
         setFormatStripStatus('Select at least one option.', 'error')
         return
       }
-      vscode.postMessage({ type: 'stripFormatting', options })
+      vscode.postMessage({
+        type: 'stripFormatting',
+        options,
+        relaunch: /** @type {HTMLInputElement|null} */ (document.getElementById('fmt-relaunch-after-write'))?.checked ?? false,
+      })
+    })
+  }
+
+  const addWorkbookCalculationBtn = document.getElementById('wb-add-calc-btn')
+  if (addWorkbookCalculationBtn) {
+    addWorkbookCalculationBtn.addEventListener('click', () => {
+      const datasource = /** @type {HTMLSelectElement|null} */ (document.getElementById('wb-calc-datasource'))?.value.trim() || ''
+      const caption = /** @type {HTMLInputElement|null} */ (document.getElementById('wb-calc-name'))?.value.trim() || ''
+      const formula = /** @type {HTMLTextAreaElement|null} */ (document.getElementById('wb-calc-formula'))?.value.trim() || ''
+      const datatype = /** @type {HTMLSelectElement|null} */ (document.getElementById('wb-calc-datatype'))?.value || 'string'
+      if (!datasource || !caption || !formula) {
+        setCalculationMutationStatus('Choose a datasource and enter both a name and formula.', 'error')
+        return
+      }
+      setCalculationMutationStatus('Validating and writing the workbook…', 'info')
+      vscode.postMessage({
+        type: 'addWorkbookCalculation',
+        calculation: {
+          datasource,
+          caption,
+          formula,
+          datatype,
+          replaceExisting: /** @type {HTMLInputElement|null} */ (document.getElementById('wb-calc-replace'))?.checked ?? false,
+        },
+        relaunch: /** @type {HTMLInputElement|null} */ (document.getElementById('wb-calc-relaunch'))?.checked ?? false,
+      })
     })
   }
 
@@ -1542,6 +1572,10 @@ if (requiredElements.some((element) => !element)) {
     el.textContent = msg
     el.className = 'fmt-status ' + tone
   }
+  function fmtShouldRelaunch() {
+    var el = document.getElementById('fmt-relaunch-after-write')
+    return el instanceof HTMLInputElement ? el.checked : false
+  }
   function fmtRenderExport() {
     var ph = document.getElementById('fmt-export-placeholder')
     var pre = document.getElementById('fmt-json-preview')
@@ -1561,7 +1595,7 @@ if (requiredElements.some((element) => !element)) {
   }
 
   document.getElementById('fmt-apply-edits-btn') && document.getElementById('fmt-apply-edits-btn').addEventListener('click', function () {
-    vscode.postMessage({ type: 'applyFormattingEdits', edits: fmtState.pendingEdits })
+    vscode.postMessage({ type: 'applyFormattingEdits', edits: fmtState.pendingEdits, relaunch: fmtShouldRelaunch() })
   })
   document.getElementById('fmt-reset-edits-btn') && document.getElementById('fmt-reset-edits-btn').addEventListener('click', function () {
     fmtState.pendingEdits = {}
@@ -1574,7 +1608,7 @@ if (requiredElements.some((element) => !element)) {
     if (!fmtState.importFilePath) { return }
     var modeInput = document.querySelector('input[name="fmt-apply-mode"]:checked')
     var mode = modeInput ? modeInput.value : 'override'
-    vscode.postMessage({ type: 'importFormattingTheme', path: fmtState.importFilePath, mode: mode })
+    vscode.postMessage({ type: 'importFormattingTheme', path: fmtState.importFilePath, mode: mode, relaunch: fmtShouldRelaunch() })
   })
   document.getElementById('fmt-save-json-btn') && document.getElementById('fmt-save-json-btn').addEventListener('click', function () {
     if (fmtState.jsonPreview) { vscode.postMessage({ type: 'saveFormattingJson', json: fmtState.jsonPreview }) }
@@ -1739,6 +1773,17 @@ window.addEventListener('message', (event) => {
     }
     if (message.type === 'formatStripScan') {
       updateStripLabels(message.result)
+      return
+    }
+    if (message.type === 'calculationMutationResult') {
+      const tone = message.tone || (message.success === true ? 'success' : message.success === false ? 'error' : 'info')
+      setCalculationMutationStatus(message.message || 'Workbook calculation update complete.', tone)
+      if (tone === 'success') {
+        const name = document.getElementById('wb-calc-name')
+        const formula = document.getElementById('wb-calc-formula')
+        if (name instanceof HTMLInputElement) { name.value = '' }
+        if (formula instanceof HTMLTextAreaElement) { formula.value = '' }
+      }
       return
     }
     if (message.type === 'calcPortfolioLoaded') {
@@ -2291,6 +2336,7 @@ function renderWorkbookData(data) {
       })
     }
     _renderedFilePath = null
+    renderCalculationEditor(null)
     return
   }
 
@@ -2307,6 +2353,7 @@ function renderWorkbookData(data) {
 
   renderDatasources(data.datasources || [])
   renderCalcFields(data.calculations || [])
+  renderCalculationEditor(data)
   renderFields(data.fields || [])
   renderWorksheets(data.worksheets || [])
   renderWorkbookPaletteList(data.palettes || [])
@@ -2521,6 +2568,39 @@ function renderCalcFields(calcs) {
       )
     }),
   )
+}
+
+function renderCalculationEditor(data) {
+  const select = document.getElementById('wb-calc-datasource')
+  const button = document.getElementById('wb-add-calc-btn')
+  if (!(select instanceof HTMLSelectElement) || !(button instanceof HTMLButtonElement)) {
+    return
+  }
+  const isPlainWorkbook = Boolean(data && typeof data.filePath === 'string' && data.filePath.toLowerCase().endsWith('.twb'))
+  const datasources = isPlainWorkbook && Array.isArray(data.datasources)
+    ? data.datasources.filter(function (item) {
+        const caption = item && typeof item.caption === 'string' ? item.caption : ''
+        return caption && caption.toLowerCase() !== 'parameters'
+      })
+    : []
+  select.innerHTML = datasources.map(function (item) {
+    const caption = item.caption
+    return '<option value="' + escapeHtml(caption) + '">' + escapeHtml(caption) + '</option>'
+  }).join('')
+  select.disabled = datasources.length === 0
+  button.disabled = datasources.length === 0
+  if (!isPlainWorkbook && data) {
+    setCalculationMutationStatus('Calculation writes currently require an unpackaged .twb file.', 'info')
+  } else if (!data) {
+    setCalculationMutationStatus('', 'info')
+  }
+}
+
+function setCalculationMutationStatus(message, tone) {
+  const el = document.getElementById('wb-add-calc-status')
+  if (!el) { return }
+  el.textContent = message || ''
+  el.className = message ? 'fmt-status ' + (tone || 'info') : 'fmt-status hidden'
 }
 
 function renderFields(fields) {

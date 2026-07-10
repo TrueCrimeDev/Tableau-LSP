@@ -171,6 +171,20 @@ export class WorkbookFieldContextManager implements vscode.Disposable {
         return this.activeWorkbookUri ? this.contexts.get(this.activeWorkbookUri) : undefined;
     }
 
+    /** Connect a workbook discovered outside the current VS Code workspace. */
+    public async connectWorkbook(uri: vscode.Uri): Promise<void> {
+        if (!isWorkbookUri(uri)) {
+            throw new Error('Only .twb and .twbx workbooks can provide Tableau field context.');
+        }
+        await this.indexWorkbook(uri, true);
+    }
+
+    public getActiveWorkbookPath(): string | undefined {
+        return this.activeWorkbookUri
+            ? vscode.Uri.parse(this.activeWorkbookUri).fsPath
+            : undefined;
+    }
+
     private shouldActivate(uri: vscode.Uri): boolean {
         const key = uri.toString();
         const activeEditorUri = vscode.window.activeTextEditor?.document.uri;

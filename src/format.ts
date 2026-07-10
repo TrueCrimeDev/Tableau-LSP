@@ -1,12 +1,21 @@
 
 
-import { TextEdit, Range, Position, FormattingOptions } from 'vscode-languageserver';
+import { FormattingOptions, Range, TextEdit } from 'vscode-languageserver';
+import { Token, TokenType, tokenize } from './lexer.js';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { tokenize, TokenType, Token } from './lexer.js';
 
 /**
  * R6.3: Multi-line expression formatting configuration
  */
+export interface TableauFormattingOptions extends FormattingOptions {
+    profile?: 'readable' | 'compact' | 'expanded';
+    maxLineLength?: number;
+    keywordCase?: 'upper' | 'lower' | 'preserve';
+    logicalOperatorPosition?: 'leading' | 'trailing';
+    functionArguments?: 'auto' | 'compact' | 'one-per-line';
+    finalNewline?: boolean;
+}
+
 interface MultiLineFormattingConfig {
     preserveLogicalLineBreaks: boolean;
     maxLineLength: number;
@@ -15,6 +24,11 @@ interface MultiLineFormattingConfig {
     alignParameters: boolean;
     breakAfterOperators: boolean;
     wrapLongExpressions: boolean;
+    keywordCase: 'upper' | 'lower' | 'preserve';
+    logicalOperatorPosition: 'leading' | 'trailing';
+    functionArguments: 'auto' | 'compact' | 'one-per-line';
+    finalNewline: boolean;
+    blockStyle: 'legacy' | 'readable';
 }
 
 /**
@@ -27,7 +41,33 @@ const DEFAULT_FORMATTING_CONFIG: MultiLineFormattingConfig = {
     useSpaces: true,
     alignParameters: true,
     breakAfterOperators: false,
-    wrapLongExpressions: true
+    wrapLongExpressions: true,
+    keywordCase: 'upper',
+    logicalOperatorPosition: 'leading',
+    functionArguments: 'auto',
+    finalNewline: false,
+    blockStyle: 'legacy'
+};
+
+const PROFILE_DEFAULTS: Record<NonNullable<TableauFormattingOptions['profile']>, Partial<MultiLineFormattingConfig>> = {
+    readable: {
+        maxLineLength: 100,
+        functionArguments: 'auto',
+        logicalOperatorPosition: 'leading',
+        blockStyle: 'readable',
+    },
+    compact: {
+        maxLineLength: 160,
+        functionArguments: 'compact',
+        logicalOperatorPosition: 'trailing',
+        blockStyle: 'readable',
+    },
+    expanded: {
+        maxLineLength: 80,
+        functionArguments: 'one-per-line',
+        logicalOperatorPosition: 'leading',
+        blockStyle: 'readable',
+    },
 };
 
 /**
@@ -45,7 +85,7 @@ interface ExpressionContext {
 /**
  * R6.3: Enhanced format function with multi-line expression support
  */
-export function format(document: TextDocument, options: FormattingOptions): TextEdit[] {
+export function format(document: TextDocument, options: TableauFormattingOptions): TextEdit[] {
     const config = createFormattingConfig(options);
     const tokens = tokenize(document.getText());
 
@@ -77,14 +117,50 @@ export function format(document: TextDocument, options: FormattingOptions): Text
     }
 }
 
+/** Format a selected calculation without rewriting the surrounding document. */
+export function formatRange(
+    document: TextDocument,
+    range: Range,
+    options: TableauFormattingOptions
+): TextEdit[] {
+    const selectedText = document.getText(range);
+    if (!selectedText.trim()) {
+        return [];
+    }
+    const fragment = TextDocument.create(
+        `${document.uri}#format-selection`,
+        document.languageId,
+        document.version,
+        selectedText
+    );
+    const edits = format(fragment, options);
+    if (!edits.length) {
+        return [];
+    }
+    const baseIndent = /^[\t ]*/.exec(selectedText)?.[0] ?? '';
+    const formatted = baseIndent
+        ? edits[0].newText.split('\n').map(line => line ? `${baseIndent}${line}` : line).join('\n')
+        : edits[0].newText;
+    return [TextEdit.replace(range, formatted)];
+}
+
 /**
  * R6.3: Create formatting configuration from VS Code options
  */
-function createFormattingConfig(options: FormattingOptions): MultiLineFormattingConfig {
+function createFormattingConfig(options: TableauFormattingOptions): MultiLineFormattingConfig {
+    const profileDefaults = options.profile ? PROFILE_DEFAULTS[options.profile] : {};
     return {
         ...DEFAULT_FORMATTING_CONFIG,
+        ...profileDefaults,
         indentSize: options.tabSize || DEFAULT_FORMATTING_CONFIG.indentSize,
-        useSpaces: options.insertSpaces !== false
+        useSpaces: options.insertSpaces !== false,
+        maxLineLength: options.maxLineLength ?? profileDefaults.maxLineLength ?? DEFAULT_FORMATTING_CONFIG.maxLineLength,
+        keywordCase: options.keywordCase ?? DEFAULT_FORMATTING_CONFIG.keywordCase,
+        logicalOperatorPosition: options.logicalOperatorPosition ??
+            profileDefaults.logicalOperatorPosition ?? DEFAULT_FORMATTING_CONFIG.logicalOperatorPosition,
+        functionArguments: options.functionArguments ??
+            profileDefaults.functionArguments ?? DEFAULT_FORMATTING_CONFIG.functionArguments,
+        finalNewline: options.finalNewline ?? DEFAULT_FORMATTING_CONFIG.finalNewline,
     };
 }
 
@@ -214,6 +290,7 @@ class MultiLineFormatter {
     // R6.3: Suppress the leading space that addToken would otherwise insert,
     // used to keep function calls tight (e.g. SUM([Sales]) not SUM ( [Sales] )).
     private suppressLeadingSpace: boolean = false;
+    private functionExpansionStack: boolean[] = [];
 
     constructor(config: MultiLineFormattingConfig) {
         this.config = config;
@@ -225,6 +302,7 @@ class MultiLineFormatter {
         this.result = [];
         this.preserveNextLineBreak = false;
         this.suppressLeadingSpace = false;
+        this.functionExpansionStack = [];
         
         for (let i = 0; i < tokens.length; i++) {
             const token = tokens[i];
@@ -241,7 +319,8 @@ class MultiLineFormatter {
             this.result.push(this.currentLine.trimEnd());
         }
         
-        return this.result.join('\n');
+        const formatted = this.result.join('\n');
+        return this.config.finalNewline && formatted ? `${formatted}\n` : formatted;
     }
     
     private processToken(token: Token, index: number, tokens: Token[], expressions: ExpressionContext[]): void {
@@ -253,6 +332,9 @@ class MultiLineFormatter {
                 break;
                 
             case TokenType.Then:
+                this.handleThen(token);
+                break;
+
             case TokenType.Else:
             case TokenType.Elseif:
             case TokenType.When:
@@ -280,7 +362,7 @@ class MultiLineFormatter {
                 break;
                 
             case TokenType.Comma:
-                this.handleComma(token, index, tokens);
+                this.handleComma(token);
                 break;
                 
             case TokenType.And:
@@ -292,6 +374,8 @@ class MultiLineFormatter {
             case TokenType.Minus:
             case TokenType.Star:
             case TokenType.Slash:
+            case TokenType.Percent:
+            case TokenType.Caret:
             case TokenType.Equal:
             case TokenType.EqualEqual:
             case TokenType.BangEqual:
@@ -301,6 +385,10 @@ class MultiLineFormatter {
             case TokenType.LessEqual:
                 this.handleOperator(token);
                 break;
+
+            case TokenType.Comment:
+                this.handleComment(token);
+                break;
                 
             default:
                 this.handleRegularToken(token);
@@ -309,24 +397,39 @@ class MultiLineFormatter {
     }
     
     private handleBlockStart(token: Token): void {
-        this.addToken(token.value.toUpperCase());
+        this.addToken(this.keywordValue(token));
         this.indentLevel++;
     }
-    
-    private handleBranchKeyword(token: Token): void {
-        // R6.3: Branch keywords (THEN/ELSE/ELSEIF/WHEN) start a new line at the
-        // current indent level; the value/condition that follows stays on the
-        // same line (e.g. "ELSE \"Low\"", "WHEN 'Furniture'", "ELSEIF [x] > 5").
-        // Previously non-THEN keywords forced an extra line break here, which
-        // split the keyword from its operand.
+
+    private handleThen(token: Token): void {
+        if (this.config.blockStyle === 'legacy') {
+            this.finishCurrentLine();
+            this.addToken(this.keywordValue(token));
+            return;
+        }
+        this.addToken(this.keywordValue(token));
         this.finishCurrentLine();
-        this.addToken(token.value.toUpperCase());
+    }
+
+    private handleBranchKeyword(token: Token): void {
+        this.finishCurrentLine();
+        if (this.config.blockStyle === 'legacy') {
+            this.addToken(this.keywordValue(token));
+            return;
+        }
+        const bodyIndent = this.indentLevel;
+        this.indentLevel = Math.max(0, bodyIndent - 1);
+        this.addToken(this.keywordValue(token));
+        this.indentLevel = bodyIndent;
+        if (token.type === TokenType.Else) {
+            this.finishCurrentLine();
+        }
     }
     
     private handleBlockEnd(token: Token): void {
-        this.indentLevel = Math.max(0, this.indentLevel - 1);
         this.finishCurrentLine();
-        this.addToken(token.value.toUpperCase());
+        this.indentLevel = Math.max(0, this.indentLevel - 1);
+        this.addToken(this.keywordValue(token));
         this.finishCurrentLine();
     }
     
@@ -345,15 +448,18 @@ class MultiLineFormatter {
         this.addToken(token.value);
         this.suppressLeadingSpace = true;
 
-        // R6.3: Check if this is a complex function call that should be multi-line
-        if (this.shouldBreakFunctionParameters(index, tokens)) {
+        const expand = this.shouldBreakFunctionParameters(index, tokens);
+        this.functionExpansionStack.push(expand);
+        if (expand) {
+            this.finishCurrentLine();
             this.indentLevel++;
         }
     }
 
     private handleFunctionEnd(token: Token): void {
-        // Check if we increased indent for this function
-        if (this.shouldDecreaseFunctionIndent()) {
+        const expanded = this.functionExpansionStack.pop() ?? false;
+        if (expanded) {
+            this.finishCurrentLine();
             this.indentLevel = Math.max(0, this.indentLevel - 1);
         }
         // R6.3: No space before ")".
@@ -361,13 +467,14 @@ class MultiLineFormatter {
         this.addToken(token.value);
     }
 
-    private handleComma(token: Token, index: number, tokens: Token[]): void {
+    private handleComma(token: Token): void {
         // R6.3: No space before ",", single space after.
         this.suppressLeadingSpace = true;
         this.addToken(token.value);
 
         // R6.3: Break after comma in complex expressions
-        if (this.shouldBreakAfterComma(index, tokens)) {
+        if (this.functionExpansionStack[this.functionExpansionStack.length - 1] ||
+            this.shouldBreakAfterComma()) {
             this.finishCurrentLine();
         } else {
             this.addSpace();
@@ -375,14 +482,19 @@ class MultiLineFormatter {
     }
     
     private handleLogicalOperator(token: Token): void {
-        // R6.3: Logical operators can break lines for readability
-        if (this.config.breakAfterOperators && this.shouldBreakAfterLogicalOperator()) {
+        if (!this.shouldBreakAfterLogicalOperator()) {
             this.addSpace();
-            this.addToken(token.value.toUpperCase());
+            this.addToken(this.keywordValue(token));
+            this.addSpace();
+            return;
+        }
+        if (this.config.logicalOperatorPosition === 'trailing') {
+            this.addSpace();
+            this.addToken(this.keywordValue(token));
             this.finishCurrentLine();
         } else {
-            this.addSpace();
-            this.addToken(token.value.toUpperCase());
+            this.finishCurrentLine();
+            this.addToken(this.keywordValue(token));
             this.addSpace();
         }
     }
@@ -396,9 +508,26 @@ class MultiLineFormatter {
     private handleRegularToken(token: Token): void {
         // R6.3: Handle keywords with proper casing
         if (this.isKeyword(token)) {
-            this.addToken(token.value.toUpperCase());
+            this.addToken(this.keywordValue(token));
         } else {
             this.addToken(token.value);
+        }
+    }
+
+    private handleComment(token: Token): void {
+        if (token.value.startsWith('//')) {
+            this.addToken(token.value.trimEnd());
+            this.finishCurrentLine();
+            return;
+        }
+        const lines = token.value.split(/\r?\n/);
+        for (let index = 0; index < lines.length; index++) {
+            if (lines[index]) {
+                this.addToken(lines[index].trimEnd());
+            }
+            if (index < lines.length - 1) {
+                this.finishCurrentLine();
+            }
         }
     }
     
@@ -446,45 +575,60 @@ class MultiLineFormatter {
             TokenType.True, TokenType.False, TokenType.Null
         ].includes(token.type);
     }
-    
+
+    private keywordValue(token: Token): string {
+        if (this.config.keywordCase === 'preserve') {
+            return token.value;
+        }
+        return this.config.keywordCase === 'lower'
+            ? token.value.toLowerCase()
+            : token.value.toUpperCase();
+    }
+
     private shouldBreakFunctionParameters(index: number, tokens: Token[]): boolean {
-        // R6.3: Break function parameters if the function call is complex
+        const previous = tokens[index - 1];
+        if (!previous || previous.type !== TokenType.Identifier || this.config.functionArguments === 'compact') {
+            return false;
+        }
         let parenCount = 1;
         let paramCount = 0;
-        let hasNestedCalls = false;
+        let endIndex = index;
         
         for (let i = index + 1; i < tokens.length && parenCount > 0; i++) {
             const token = tokens[i];
             
             if (token.type === TokenType.LParen) {
                 parenCount++;
-                hasNestedCalls = true;
             } else if (token.type === TokenType.RParen) {
                 parenCount--;
+                if (parenCount === 0) {
+                    endIndex = i;
+                }
             } else if (token.type === TokenType.Comma && parenCount === 1) {
                 paramCount++;
             }
         }
-        
-        return paramCount > 2 || hasNestedCalls;
+
+        if (paramCount === 0) {
+            return false;
+        }
+        if (this.config.functionArguments === 'one-per-line') {
+            return true;
+        }
+        const callLength = Math.max(0, tokens[endIndex].end - previous.start);
+        return this.config.wrapLongExpressions &&
+            (this.currentLine.trimEnd().length + callLength > this.config.maxLineLength || paramCount >= 3);
     }
     
-    private shouldDecreaseFunctionIndent(): boolean {
-        // This is a simplified check - in a real implementation, 
-        // we'd track which functions had their indent increased
-        return false;
-    }
-    
-    private shouldBreakAfterComma(index: number, tokens: Token[]): boolean {
+    private shouldBreakAfterComma(): boolean {
         // R6.3: Break after comma in complex parameter lists
         return this.config.wrapLongExpressions && 
                this.currentLine.length > this.config.maxLineLength * 0.7;
     }
     
     private shouldBreakAfterLogicalOperator(): boolean {
-        // R6.3: Break after logical operators in complex conditions
-        return this.config.wrapLongExpressions && 
-               this.currentLine.length > this.config.maxLineLength * 0.6;
+        return this.config.wrapLongExpressions &&
+            (this.config.breakAfterOperators || this.currentLine.length > this.config.maxLineLength * 0.75);
     }
 }
 

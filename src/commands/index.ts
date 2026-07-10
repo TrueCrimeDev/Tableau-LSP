@@ -1,6 +1,7 @@
 // src/commands/index.ts
 
 import * as vscode from 'vscode';
+import { addWorkbookCalculationCommand } from './addWorkbookCalculation.js';
 import { copyPreferencesToRepositoryCommand } from './copyPreferencesToRepository.js';
 import { formatExpressionCommand } from './formatExpression.js';
 import { insertCaseStatementCommand } from './insertCaseStatement.js';
@@ -12,6 +13,7 @@ import { showParsingGuideCommand } from './showParsingGuide.js';
 import { toggleCommentsCommand } from './toggleComments.js';
 import { validateExpressionCommand } from './validateExpression.js';
 import { registerLoggingCommands } from './loggingCommands.js';
+import { selectFormattingProfileCommand } from './selectFormattingProfile.js';
 
 /**
  * R9.1: Register all keyboard shortcut commands
@@ -24,6 +26,8 @@ export function registerCommands(context: vscode.ExtensionContext): void {
     const commands = [
         // Formatting and validation
         vscode.commands.registerCommand('tableau-language-support.formatExpression', formatExpressionCommand),
+        vscode.commands.registerCommand('tableau-language-support.formatting.selectProfile', selectFormattingProfileCommand),
+        vscode.commands.registerCommand('tableau-language-support.workbook.addCalculation', addWorkbookCalculationCommand),
         vscode.commands.registerCommand('tableau-language-support.validateExpression', validateExpressionCommand),
         
         // Code insertion shortcuts

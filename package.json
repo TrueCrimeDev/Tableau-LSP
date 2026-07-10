@@ -2,7 +2,7 @@
   "name": "tableau-language-support",
   "displayName": "Tableau Language Support",
   "description": "Complete language support for Tableau calculation language with syntax highlighting, IntelliSense, validation, formatting, 100+ snippets, keyboard shortcuts, and advanced analytics patterns",
-  "version": "1.7.0",
+  "version": "1.7.2",
   "publisher": "TrueCrimeAudit",
   "icon": "images/tableau-icon.png",
   "license": "MIT",
@@ -265,6 +265,91 @@
           "description": "Enable automatic formatting for Tableau expressions",
           "default": false
         },
+        "tableau-language-support.formatting.profile": {
+          "scope": "resource",
+          "type": "string",
+          "enum": [
+            "readable",
+            "compact",
+            "expanded"
+          ],
+          "enumDescriptions": [
+            "Balanced line wrapping for everyday calculations.",
+            "Keep function arguments and logical expressions on fewer lines.",
+            "Put complex function arguments and long conditions on separate lines."
+          ],
+          "description": "Formatting profile for Tableau calculations",
+          "default": "readable"
+        },
+        "tableau-language-support.formatting.maxLineLength": {
+          "scope": "resource",
+          "type": "integer",
+          "minimum": 40,
+          "maximum": 240,
+          "description": "Preferred maximum line length before expressions are wrapped",
+          "default": 100
+        },
+        "tableau-language-support.formatting.keywordCase": {
+          "scope": "resource",
+          "type": "string",
+          "enum": [
+            "upper",
+            "lower",
+            "preserve"
+          ],
+          "description": "Case used for Tableau calculation keywords",
+          "default": "upper"
+        },
+        "tableau-language-support.formatting.logicalOperatorPosition": {
+          "scope": "resource",
+          "type": "string",
+          "enum": [
+            "leading",
+            "trailing"
+          ],
+          "description": "Place AND/OR at the start or end of wrapped condition lines",
+          "default": "leading"
+        },
+        "tableau-language-support.formatting.functionArguments": {
+          "scope": "resource",
+          "type": "string",
+          "enum": [
+            "auto",
+            "compact",
+            "one-per-line"
+          ],
+          "description": "Control wrapping of function arguments",
+          "default": "auto"
+        },
+        "tableau-language-support.formatting.finalNewline": {
+          "scope": "resource",
+          "type": "boolean",
+          "description": "End formatted calculations with a newline",
+          "default": false
+        },
+        "tableau-language-support.local.repositoryPaths": {
+          "scope": "window",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional Tableau repository paths. When empty, standard local and OneDrive Documents locations are discovered automatically.",
+          "default": []
+        },
+        "tableau-language-support.local.executablePath": {
+          "scope": "window",
+          "type": "string",
+          "description": "Optional path to tableau.exe. When empty, installed Tableau Desktop versions are discovered automatically.",
+          "default": ""
+        },
+        "tableau-language-support.local.maxArtifactsPerKind": {
+          "scope": "window",
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 500,
+          "description": "Maximum recent workbooks, datasources, connectors, extracts, and logs retained by local discovery",
+          "default": 50
+        },
         "tableau-language-support.codeLens.enabled": {
           "scope": "resource",
           "type": "boolean",
@@ -341,6 +426,36 @@
       {
         "command": "tableau-language-support.formatExpression",
         "title": "Format Tableau Expression",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.formatting.selectProfile",
+        "title": "Select Calculation Formatting Profile",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.workbook.addCalculation",
+        "title": "Add Calculation to Workbook",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.local.connectWorkbook",
+        "title": "Connect Local Workbook to LSP and Chat",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.local.openInDesktop",
+        "title": "Open Workbook in Local Tableau Desktop",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.local.showStatus",
+        "title": "Show Local Connector Status",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.local.openRepository",
+        "title": "Open Local Tableau Repository",
         "category": "Tableau"
       },
       {
@@ -494,6 +609,7 @@
     "clean": "rimraf out",
     "test:all": "npm run compile && npx jest --runInBand",
     "test:unit": "jest",
+    "test:deterministic": "jest --runInBand --detectOpenHandles src/tests/integration/localTableauFeatures.deterministic.test.ts src/tests/unit/workbookCalculations.test.ts src/tests/unit/workbookEditService.test.ts",
     "test:incremental": "npm run compile && npx jest --testPathPattern=incremental",
     "test:error": "npm run compile && npx jest --testPathPattern=errorRecovery",
     "test:performance": "npm run compile && npx jest --config=./src/tests/performance/jest.performance.config.js",

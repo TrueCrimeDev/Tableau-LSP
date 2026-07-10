@@ -308,4 +308,26 @@ describe('WorkbookFieldContextManager lifecycle', () => {
             .toContain('workspace/B/fields.d.twbl');
         manager.dispose();
     });
+
+    it('connects a repository workbook outside the VS Code workspace on demand', async () => {
+        workspaceState.fs.readFile = jest.fn().mockResolvedValue(Buffer.from(XML_C));
+        const manager = new WorkbookFieldContextManager(() => client as any);
+        await manager.initialize();
+
+        await manager.connectWorkbook(uri('C:/external/My Tableau Repository/Workbooks/Local.twb'));
+
+        expect(manager.getActiveWorkbookPath()).toContain('Local.twb');
+        expect(client.sendNotification).toHaveBeenLastCalledWith(
+            'tableau/workbookFieldContext',
+            expect.objectContaining({
+                workbook: 'Local.twb',
+                datasourceFields: expect.arrayContaining([
+                    expect.objectContaining({ name: 'C Field', datasource: 'C' }),
+                ]),
+            })
+        );
+        await expect(manager.connectWorkbook(uri('C:/external/source.tds')))
+            .rejects.toThrow('Only .twb and .twbx');
+        manager.dispose();
+    });
 });

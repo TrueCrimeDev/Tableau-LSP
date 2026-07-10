@@ -115,6 +115,7 @@ export class ActivationManager {
                     { scheme: 'file', pattern: '**/*.twbl' }
                 ],
                 synchronize: {
+                    configurationSection: 'tableau-language-support',
                     fileEvents: vscode.workspace.createFileSystemWatcher('**/*.twbl')
                 }
             };
