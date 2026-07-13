@@ -1,0 +1,26 @@
+# Normalize line endings: source and docs are LF in the index and on checkout.
+# This stops the recurring whole-tree CRLF churn from Windows-side editors.
+*.ts    text eol=lf
+*.js    text eol=lf
+*.mjs   text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.svg   text eol=lf
+*.sh    text eol=lf
+
+# PowerShell and Windows batch scripts keep CRLF
+*.ps1   text eol=crlf
+*.cmd   text eol=crlf
+*.bat   text eol=crlf
+
+# Tableau workbooks and binaries: never touch line endings
+*.twb   -text
+*.twbx  binary
+*.hyper binary
+*.vsix  binary
+*.png   binary
+*.xlsx  binary

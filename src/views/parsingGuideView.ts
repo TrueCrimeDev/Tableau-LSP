@@ -65,6 +65,24 @@ const log = getLogger();
 const LOG_CAT = 'WorkbookInspector';
 const BUILD_STAMP = 'v6-2026-02-24';
 const COMMON_CALCULATIONS_STATE_KEY = 'tableau-language-support.commonCalculations';
+const THEME_VAULT_STATE_KEY = 'tableauLsp.themeVault';
+
+// Commands the "Most Used Commands" webview rows may trigger. The webview can
+// only request IDs from this list — never execute arbitrary strings it sends.
+const SIDEBAR_COMMAND_ALLOWLIST: readonly string[] = [
+    'tableau-language-support.formatExpression',
+    'tableau-language-support.validateExpression',
+    'tableau-language-support.insertIfStatement',
+    'tableau-language-support.insertCaseStatement',
+    'tableau-language-support.insertLodExpression',
+    'tableau-language-support.showFunctionHelp',
+    'tableau-lsp.extractCalculationsPython',
+];
+
+interface ThemeVaultTheme {
+    name: string;
+    palettes: PaletteDefinition[];
+}
 
 export const PARSING_GUIDE_VIEW_ID = 'tableauLanguageSupport.parsingGuide';
 export const PARSING_GUIDE_CONTAINER_ID = 'tableauLsp';
@@ -94,7 +112,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 return;
             }
 
-            const payload = message as { type?: string; palettes?: unknown; palette?: unknown; paletteName?: unknown; path?: string; formula?: string; options?: unknown; edits?: unknown; mode?: string; json?: string; element?: string; calculation?: unknown; commonCalculation?: unknown; commonCalculationName?: unknown; relaunch?: boolean; };
+            const payload = message as { type?: string; palettes?: unknown; palette?: unknown; paletteName?: unknown; path?: string; formula?: string; options?: unknown; edits?: unknown; mode?: string; json?: string; element?: string; calculation?: unknown; commonCalculation?: unknown; commonCalculationName?: unknown; relaunch?: boolean; commandId?: unknown; themeName?: unknown; };
             switch (payload.type) {
                 case 'openPreferencesTemplate':
                     void this.openPreferencesTemplate();
@@ -186,6 +204,23 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'importPaletteFromFile':
                     void this.importPaletteFromFile();
+                    break;
+                case 'executeCommand':
+                    if (typeof payload.commandId === 'string' && SIDEBAR_COMMAND_ALLOWLIST.includes(payload.commandId)) {
+                        void vscode.commands.executeCommand(payload.commandId);
+                    }
+                    break;
+                case 'requestThemes':
+                    void this.postThemes();
+                    break;
+                case 'saveTheme':
+                    void this.saveTheme();
+                    break;
+                case 'deleteTheme':
+                    void this.deleteTheme(typeof payload.themeName === 'string' ? payload.themeName : '');
+                    break;
+                case 'applyThemeToWorkbook':
+                    void this.applyThemePalettesToWorkbook(payload.palettes);
                     break;
                 case 'revealFile':
                     if (typeof payload.path === 'string') {
@@ -474,11 +509,118 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private async applyPaletteToWorkbook(rawPalette: unknown): Promise<void> {
+    private getStoredThemes(): ThemeVaultTheme[] {
+        const raw = this.context.globalState.get<unknown>(THEME_VAULT_STATE_KEY);
+        if (!Array.isArray(raw)) {
+            return [];
+        }
+        const themes: ThemeVaultTheme[] = [];
+        for (const entry of raw) {
+            if (!entry || typeof entry !== 'object') { continue; }
+            const name = (entry as { name?: unknown }).name;
+            if (typeof name !== 'string' || name.trim().length === 0) { continue; }
+            themes.push({
+                name: name.trim(),
+                palettes: coercePalettes((entry as { palettes?: unknown }).palettes)
+            });
+        }
+        return themes;
+    }
+
+    private async postThemes(): Promise<void> {
+        if (!this.view) {
+            return;
+        }
+        await this.view.webview.postMessage({
+            type: 'themesLoaded',
+            themes: this.getStoredThemes()
+        });
+    }
+
+    private async saveTheme(): Promise<void> {
+        try {
+            const name = await vscode.window.showInputBox({
+                prompt: 'Theme name',
+                placeHolder: 'My Theme',
+                validateInput: value => value.trim().length === 0 ? 'Theme name is required.' : undefined
+            });
+            if (name === undefined) {
+                return;
+            }
+            const trimmed = name.trim();
+
+            // Snapshot the current palette library as the theme's palettes.
+            const loadResult = await loadPreferencesText(this.context, true);
+            const palettes = parsePalettes(loadResult.text);
+            if (palettes.length === 0) {
+                await this.postStatus('No palettes in the library to save as a theme.', 'error');
+                return;
+            }
+
+            const themes = this.getStoredThemes().filter(theme => theme.name !== trimmed);
+            themes.push({ name: trimmed, palettes });
+            await this.context.globalState.update(THEME_VAULT_STATE_KEY, themes);
+            await this.postThemes();
+            await this.postStatus(`Saved theme "${trimmed}" (${palettes.length} palette${palettes.length === 1 ? '' : 's'}).`, 'success');
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            await this.postStatus(`Failed to save theme: ${message}`, 'error');
+        }
+    }
+
+    private async deleteTheme(themeName: string): Promise<void> {
+        try {
+            if (!themeName) {
+                await this.postStatus('Invalid theme name.', 'error');
+                return;
+            }
+            const themes = this.getStoredThemes();
+            const filteredThemes = themes.filter(theme => theme.name !== themeName);
+            if (filteredThemes.length === themes.length) {
+                await this.postStatus(`Theme "${themeName}" not found.`, 'error');
+                return;
+            }
+            await this.context.globalState.update(THEME_VAULT_STATE_KEY, filteredThemes);
+            await this.postThemes();
+            await this.postStatus(`Theme "${themeName}" deleted.`, 'success');
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            await this.postStatus(`Failed to delete theme: ${message}`, 'error');
+        }
+    }
+
+    private async applyThemePalettesToWorkbook(rawPalettes: unknown): Promise<void> {
+        const palettes = coercePalettes(rawPalettes);
+        if (palettes.length === 0) {
+            await this.postStatus('Theme has no palettes to apply.', 'error');
+            return;
+        }
+        // Apply sequentially — each apply is a read-modify-write of the workbook,
+        // so concurrent applies would clobber each other. Stop on the first
+        // cancel or error so a declined dialog aborts the whole theme.
+        let applied = 0;
+        for (const palette of palettes) {
+            const outcome = await this.applyPaletteToWorkbook(palette);
+            if (outcome !== 'applied') {
+                await this.postStatus(
+                    `Theme apply stopped: ${applied} of ${palettes.length} palettes applied.`,
+                    outcome === 'cancelled' ? 'info' : 'error'
+                );
+                return;
+            }
+            applied++;
+        }
+        await this.postStatus(
+            `Applied theme: ${applied} palette${applied === 1 ? '' : 's'} added to workbook.`,
+            'success'
+        );
+    }
+
+    private async applyPaletteToWorkbook(rawPalette: unknown): Promise<'applied' | 'cancelled' | 'error'> {
         const initialPalette = coercePalette(rawPalette);
         if (!initialPalette) {
             await this.postStatus('Invalid palette data.', 'error');
-            return;
+            return 'error';
         }
         let palette: PaletteDefinition = initialPalette;
 
@@ -495,12 +637,12 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         }
         if (!workbookUri) {
             await this.postStatus('No active workbook file. Open a .twb file first.', 'error');
-            return;
+            return 'error';
         }
         const path = workbookUri.path.toLowerCase();
         if (path.endsWith('.twbx')) {
             await this.postStatus('Packaged workbooks (.twbx) are not yet supported.', 'error');
-            return;
+            return 'error';
         }
 
         try {
@@ -520,7 +662,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
 
                 if (!choice || choice === 'Cancel') {
                     await this.postStatus('Cancelled palette application.', 'info');
-                    return;
+                    return 'cancelled';
                 }
 
                 if (choice === 'Rename') {
@@ -540,7 +682,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
 
                     if (!newName) {
                         await this.postStatus('Cancelled palette application.', 'info');
-                        return;
+                        return 'cancelled';
                     }
 
                     palette = {
@@ -553,20 +695,22 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             const updateResult = parser.upsertPalette(workbookDoc, palette);
             if (!updateResult.hasChanges) {
                 await this.postStatus('No workbook changes were required.', 'info');
-                return;
+                return 'applied';
             }
 
             await parser.writeWorkbook(workbookUri, updateResult.updatedXml);
             const action = existingPalette ? 'updated' : 'added';
             await this.postStatus(`Successfully ${action} palette "${palette.name}".`, 'success');
+            return 'applied';
         } catch (error: unknown) {
             if (error instanceof WorkbookError) {
                 await this.postStatus(`Workbook error: ${error.message}`, 'error');
-                return;
+                return 'error';
             }
 
             const message = error instanceof Error ? error.message : String(error);
             await this.postStatus(`Failed to apply palette to workbook: ${message}`, 'error');
+            return 'error';
         }
     }
 
@@ -858,7 +1002,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 }),
                 calculations: calculations.map(c => ({
                     caption: c.title,
-                    datatype: '',
+                    datatype: c.datatype ?? '',
                     formula: normalizeFormula(c.formula),
                     datasource: c.datasource
                 })),
@@ -1516,6 +1660,8 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         .ssh:hover { color: var(--vscode-foreground); }
         .ssh .cv { width: 16px; display: inline-flex; align-items: center; justify-content: center; transition: transform 0.15s; }
         .ssh.c .cv { transform: rotate(-90deg); }
+        .ssh .ha { margin-left: auto; display: flex; gap: 2px; opacity: 0; transition: opacity 0.1s; }
+        .ssh:hover .ha { opacity: 1; }
 
         /* ——— Unified Row Item (Palette Library + Theme Vault) ——— */
         .ri {
@@ -1966,7 +2112,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         .fmt-action-bar { padding: 6px 12px; display: flex; gap: 4px; border-top: 1px solid var(--vscode-panel-border); }
         .fmt-status { padding: 4px 12px; font-size: 11px; }
         .fmt-status.error { color: var(--vscode-errorForeground); }
-        .fmt-status.success { color: #7BC96F; }
+        .fmt-status.success { color: var(--vscode-testing-iconPassed, #73c991); }
         .fmt-status.hidden { display: none; }
         .fmt-filename { font-size: 11px; color: var(--vscode-descriptionForeground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
         .fmt-json-pre { background: var(--vscode-textCodeBlock-background); border: 1px solid var(--vscode-widget-border); padding: 6px 8px; font-family: var(--vscode-editor-font-family); font-size: 11px; white-space: pre; overflow: auto; max-height: 220px; margin-bottom: 6px; }
@@ -2321,6 +2467,9 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
       <div class="ssh">
         <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
         Theme Vault
+        <div class="ha">
+          <button class="ib" id="save-theme-btn" title="Save Current Palettes as Theme"><svg class="ic"><use href="#i-save"/></svg></button>
+        </div>
       </div>
       <div class="ssb" id="theme-list"></div>
 
@@ -2382,13 +2531,13 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
       </div>
       <div class="ssb">
         <div class="cmdl">
-          <div class="cmdi"><span class="cic"><svg class="ic"><use href="#i-code"/></svg></span><span><code>Format Tableau Expression</code></span></div>
-          <div class="cmdi"><span class="cic"><svg class="ic"><use href="#i-check"/></svg></span><span><code>Validate Tableau Expression</code></span></div>
-          <div class="cmdi"><span class="cic"><svg class="ic"><use href="#i-branch"/></svg></span><span><code>Insert IF Statement</code></span></div>
-          <div class="cmdi"><span class="cic"><svg class="ic"><use href="#i-list"/></svg></span><span><code>Insert CASE Statement</code></span></div>
-          <div class="cmdi"><span class="cic"><svg class="ic"><use href="#i-layers"/></svg></span><span><code>Insert LOD Expression</code></span></div>
-          <div class="cmdi"><span class="cic"><svg class="ic"><use href="#i-help"/></svg></span><span><code>Show Function Help</code></span></div>
-          <div class="cmdi"><span class="cic"><svg class="ic"><use href="#i-export"/></svg></span><span><code>Extract Calculations</code></span></div>
+          <div class="cmdi" data-command="tableau-language-support.formatExpression"><span class="cic"><svg class="ic"><use href="#i-code"/></svg></span><span><code>Format Tableau Expression</code></span></div>
+          <div class="cmdi" data-command="tableau-language-support.validateExpression"><span class="cic"><svg class="ic"><use href="#i-check"/></svg></span><span><code>Validate Tableau Expression</code></span></div>
+          <div class="cmdi" data-command="tableau-language-support.insertIfStatement"><span class="cic"><svg class="ic"><use href="#i-branch"/></svg></span><span><code>Insert IF Statement</code></span></div>
+          <div class="cmdi" data-command="tableau-language-support.insertCaseStatement"><span class="cic"><svg class="ic"><use href="#i-list"/></svg></span><span><code>Insert CASE Statement</code></span></div>
+          <div class="cmdi" data-command="tableau-language-support.insertLodExpression"><span class="cic"><svg class="ic"><use href="#i-layers"/></svg></span><span><code>Insert LOD Expression</code></span></div>
+          <div class="cmdi" data-command="tableau-language-support.showFunctionHelp"><span class="cic"><svg class="ic"><use href="#i-help"/></svg></span><span><code>Show Function Help</code></span></div>
+          <div class="cmdi" data-command="tableau-lsp.extractCalculationsPython"><span class="cic"><svg class="ic"><use href="#i-export"/></svg></span><span><code>Extract Calculations</code></span></div>
         </div>
       </div>
       <div class="ssh">
@@ -2478,10 +2627,14 @@ function coercePalette(rawPalette: unknown): PaletteDefinition | null {
         return null;
     }
 
+    // Only accept 6-digit hex colors — anything else could carry raw XML
+    // through to the Preferences.tps / workbook writers, which emit color
+    // values unescaped.
     const colors = rawPalette.colors
         .filter((color): color is string => typeof color === 'string')
         .map(color => color.trim())
-        .filter(Boolean);
+        .filter(color => /^#?[0-9a-fA-F]{6}$/.test(color))
+        .map(color => (color.startsWith('#') ? color : `#${color}`));
 
     if (colors.length === 0) {
         return null;

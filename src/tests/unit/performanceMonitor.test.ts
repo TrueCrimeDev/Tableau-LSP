@@ -25,7 +25,10 @@ describe('Performance Monitor', () => {
             
             expect(result.operation).toBe('test-operation');
             expect(result.duration).toBeGreaterThan(0);
-            expect(result.duration).toBeGreaterThanOrEqual(10);
+            // The busy-wait is gated on Date.now() (1ms granularity) while the monitor
+            // measures with performance.now(), so the measured duration can undershoot
+            // the wait by up to 1ms.
+            expect(result.duration).toBeGreaterThanOrEqual(9);
         });
 
         it('should measure multiple operations independently', () => {

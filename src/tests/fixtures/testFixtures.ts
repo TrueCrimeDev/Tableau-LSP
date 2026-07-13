@@ -1,1 +1,662 @@
-// src/tests/fixtures/testFixtures.ts\n\nimport { TextDocument } from 'vscode-languageserver-textdocument';\nimport { Position, Range, Diagnostic, DiagnosticSeverity, CompletionItem, CompletionItemKind, Hover, SignatureHelp, SignatureInformation, ParameterInformation } from 'vscode-languageserver';\nimport { Symbol, SymbolType, ParsedDocument, CachedDocument } from '../../common.js';\n\n/**\n * R8.1: Comprehensive test fixtures and mock data for consistent testing\n * \n * This module provides reusable test fixtures, mock data, and helper functions\n * to ensure consistent and comprehensive testing across all components.\n */\n\n/**\n * Common Tableau expressions for testing\n */\nexport const TABLEAU_EXPRESSIONS = {\n    SIMPLE_IF: 'IF [Sales] > 100 THEN \"High\" ELSE \"Low\" END',\n    NESTED_IF: `\n        IF [Sales] > 1000 THEN \"Excellent\"\n        ELSEIF [Sales] > 500 THEN \"Good\"\n        ELSEIF [Sales] > 100 THEN \"Average\"\n        ELSE \"Poor\"\n        END\n    `,\n    SIMPLE_CASE: `\n        CASE [Category]\n            WHEN 'Furniture' THEN 'F'\n            WHEN 'Technology' THEN 'T'\n            ELSE 'O'\n        END\n    `,\n    COMPLEX_CASE: `\n        CASE \n            WHEN [Sales] > 1000 AND [Profit] > 100 THEN \"High Performance\"\n            WHEN [Sales] > 500 OR [Profit] > 50 THEN \"Medium Performance\"\n            ELSE \"Low Performance\"\n        END\n    `,\n    LOD_FIXED: '{ FIXED [Region] : SUM([Sales]) }',\n    LOD_INCLUDE: '{ INCLUDE [Category] : AVG([Profit]) }',\n    LOD_EXCLUDE: '{ EXCLUDE [Sub-Category] : COUNT([Orders]) }',\n    AGGREGATE_FUNCTIONS: [\n        'SUM([Sales])',\n        'AVG([Profit])',\n        'COUNT([Orders])',\n        'MIN([Discount])',\n        'MAX([Quantity])'\n    ],\n    STRING_FUNCTIONS: [\n        'LEFT([Customer Name], 5)',\n        'RIGHT([Product Name], 10)',\n        'MID([Description], 2, 8)',\n        'LEN([Category])',\n        'UPPER([Region])',\n        'LOWER([Segment])'\n    ],\n    DATE_FUNCTIONS: [\n        'YEAR([Order Date])',\n        'MONTH([Ship Date])',\n        'DAY([Order Date])',\n        'DATEADD(\"month\", 1, [Order Date])',\n        'DATEDIFF(\"day\", [Order Date], [Ship Date])'\n    ],\n    MATH_FUNCTIONS: [\n        'ROUND([Sales], 2)',\n        'ABS([Profit])',\n        'CEILING([Discount])',\n        'FLOOR([Quantity])',\n        'SQRT([Sales])'\n    ],\n    COMPLEX_EXPRESSIONS: [\n        'SUM(IF [Region] = \"East\" THEN [Sales] ELSE 0 END)',\n        'AVG(CASE WHEN [Category] = \"Furniture\" THEN [Profit] END)',\n        '{ FIXED [Customer ID] : SUM([Sales]) } / { FIXED : SUM([Sales]) }',\n        'RUNNING_SUM(SUM([Sales]))',\n        'WINDOW_AVG(SUM([Profit]), -2, 0)'\n    ],\n    MALFORMED_EXPRESSIONS: [\n        'IF [Sales] > 100 THEN \"High\" ELSE \"Low\"', // Missing END\n        'CASE [Category] WHEN \"Furniture\" THEN \"F\" ELSE \"O\"', // Missing END\n        'SUM([Sales]', // Missing closing parenthesis\n        'IF [Sales] > 100 THEN THEN \"High\" ELSE \"Low\" END', // Duplicate THEN\n        '{ FIXED [Region] : SUM([Sales]', // Missing closing brace\n        'LEFT([Customer Name], )', // Missing parameter\n        'DATEADD(\"month\", [Order Date])', // Missing parameter\n        'IF THEN \"High\" ELSE \"Low\" END' // Missing condition\n    ]\n};\n\n/**\n * Field definitions for testing\n */\nexport const TABLEAU_FIELDS = {\n    DIMENSIONS: [\n        { name: 'Region', type: 'string', description: 'Sales region' },\n        { name: 'Category', type: 'string', description: 'Product category' },\n        { name: 'Sub-Category', type: 'string', description: 'Product sub-category' },\n        { name: 'Customer Name', type: 'string', description: 'Customer name' },\n        { name: 'Product Name', type: 'string', description: 'Product name' },\n        { name: 'Segment', type: 'string', description: 'Customer segment' },\n        { name: 'Order Date', type: 'date', description: 'Order date' },\n        { name: 'Ship Date', type: 'date', description: 'Ship date' }\n    ],\n    MEASURES: [\n        { name: 'Sales', type: 'number', description: 'Sales amount' },\n        { name: 'Profit', type: 'number', description: 'Profit amount' },\n        { name: 'Quantity', type: 'number', description: 'Quantity ordered' },\n        { name: 'Discount', type: 'number', description: 'Discount percentage' },\n        { name: 'Orders', type: 'number', description: 'Number of orders' }\n    ],\n    CALCULATED_FIELDS: [\n        { name: 'Profit Ratio', expression: '[Profit] / [Sales]', type: 'number' },\n        { name: 'Sales Category', expression: 'IF [Sales] > 100 THEN \"High\" ELSE \"Low\" END', type: 'string' },\n        { name: 'Days to Ship', expression: 'DATEDIFF(\"day\", [Order Date], [Ship Date])', type: 'number' }\n    ]\n};\n\n/**\n * Test document factory\n */\nexport class TestDocumentFactory {\n    static create(\n        content: string,\n        uri: string = 'test://test.twbl',\n        version: number = 1,\n        languageId: string = 'tableau'\n    ): TextDocument {\n        return TextDocument.create(uri, languageId, version, content);\n    }\n    \n    static createWithExpression(expression: string): TextDocument {\n        return this.create(expression);\n    }\n    \n    static createMultiLine(lines: string[]): TextDocument {\n        return this.create(lines.join('\\n'));\n    }\n    \n    static createLarge(baseExpression: string, repetitions: number = 100): TextDocument {\n        const lines = Array(repetitions).fill(baseExpression);\n        return this.createMultiLine(lines);\n    }\n    \n    static createWithComments(expression: string, comments: string[]): TextDocument {\n        const lines = [];\n        comments.forEach(comment => lines.push(`// ${comment}`));\n        lines.push(expression);\n        return this.createMultiLine(lines);\n    }\n}\n\n/**\n * Position and Range helpers\n */\nexport class TestPositionFactory {\n    static create(line: number = 0, character: number = 0): Position {\n        return { line, character };\n    }\n    \n    static createRange(\n        startLine: number = 0,\n        startChar: number = 0,\n        endLine: number = 0,\n        endChar: number = 10\n    ): Range {\n        return Range.create(\n            { line: startLine, character: startChar },\n            { line: endLine, character: endChar }\n        );\n    }\n    \n    static findInDocument(document: TextDocument, searchText: string): Position | null {\n        const content = document.getText();\n        const lines = content.split('\\n');\n        \n        for (let line = 0; line < lines.length; line++) {\n            const character = lines[line].indexOf(searchText);\n            if (character !== -1) {\n                return { line, character };\n            }\n        }\n        \n        return null;\n    }\n    \n    static findRangeInDocument(document: TextDocument, searchText: string): Range | null {\n        const position = this.findInDocument(document, searchText);\n        if (!position) return null;\n        \n        return Range.create(\n            position,\n            { line: position.line, character: position.character + searchText.length }\n        );\n    }\n}\n\n/**\n * Symbol factory for testing\n */\nexport class TestSymbolFactory {\n    static create(\n        name: string,\n        type: SymbolType,\n        range: Range,\n        text?: string,\n        children?: Symbol[]\n    ): Symbol {\n        return {\n            name,\n            type,\n            range,\n            text,\n            children,\n            arguments: [],\n            parent: undefined,\n            end: undefined\n        };\n    }\n    \n    static createFunction(\n        name: string,\n        range: Range,\n        args: string[] = []\n    ): Symbol {\n        return {\n            name,\n            type: SymbolType.FunctionCall,\n            range,\n            arguments: args.map(arg => ({\n                text: arg,\n                range: range // Simplified for testing\n            })),\n            children: [],\n            parent: undefined,\n            end: undefined\n        };\n    }\n    \n    static createField(name: string, range: Range): Symbol {\n        return this.create(name, SymbolType.FieldReference, range, `[${name}]`);\n    }\n    \n    static createKeyword(name: string, range: Range): Symbol {\n        return this.create(name, SymbolType.Keyword, range, name.toUpperCase());\n    }\n    \n    static createExpression(name: string, range: Range, children: Symbol[] = []): Symbol {\n        return {\n            name,\n            type: SymbolType.Expression,\n            range,\n            children,\n            arguments: [],\n            parent: undefined,\n            end: undefined\n        };\n    }\n}\n\n/**\n * Diagnostic factory for testing\n */\nexport class TestDiagnosticFactory {\n    static create(\n        range: Range,\n        message: string,\n        severity: DiagnosticSeverity = DiagnosticSeverity.Error,\n        code?: string\n    ): Diagnostic {\n        return {\n            range,\n            message,\n            severity,\n            code,\n            source: 'tableau-lsp'\n        };\n    }\n    \n    static createError(range: Range, message: string, code?: string): Diagnostic {\n        return this.create(range, message, DiagnosticSeverity.Error, code);\n    }\n    \n    static createWarning(range: Range, message: string, code?: string): Diagnostic {\n        return this.create(range, message, DiagnosticSeverity.Warning, code);\n    }\n    \n    static createInfo(range: Range, message: string, code?: string): Diagnostic {\n        return this.create(range, message, DiagnosticSeverity.Information, code);\n    }\n}\n\n/**\n * Completion item factory for testing\n */\nexport class TestCompletionFactory {\n    static create(\n        label: string,\n        kind: CompletionItemKind,\n        detail?: string,\n        documentation?: string,\n        insertText?: string\n    ): CompletionItem {\n        return {\n            label,\n            kind,\n            detail,\n            documentation,\n            insertText: insertText || label\n        };\n    }\n    \n    static createFunction(\n        name: string,\n        detail: string,\n        documentation: string,\n        insertText?: string\n    ): CompletionItem {\n        return this.create(\n            name,\n            CompletionItemKind.Function,\n            detail,\n            documentation,\n            insertText || `${name}($1)$0`\n        );\n    }\n    \n    static createField(name: string, type: string): CompletionItem {\n        return this.create(\n            name,\n            CompletionItemKind.Field,\n            `${type} field`,\n            `Field: ${name}`,\n            `[${name}]`\n        );\n    }\n    \n    static createKeyword(keyword: string, documentation: string): CompletionItem {\n        return this.create(\n            keyword,\n            CompletionItemKind.Keyword,\n            'Keyword',\n            documentation,\n            keyword.toUpperCase()\n        );\n    }\n}\n\n/**\n * Hover factory for testing\n */\nexport class TestHoverFactory {\n    static create(contents: string | string[], range?: Range): Hover {\n        return {\n            contents: Array.isArray(contents) ? contents : [contents],\n            range\n        };\n    }\n    \n    static createFunction(\n        name: string,\n        signature: string,\n        description: string,\n        examples: string[] = []\n    ): Hover {\n        const contents = [\n            `**${name}**`,\n            `\\`\\`\\`tableau\\n${signature}\\n\\`\\`\\``,\n            description\n        ];\n        \n        if (examples.length > 0) {\n            contents.push('**Examples:**');\n            examples.forEach(example => {\n                contents.push(`\\`\\`\\`tableau\\n${example}\\n\\`\\`\\``);\n            });\n        }\n        \n        return this.create(contents);\n    }\n    \n    static createField(name: string, type: string, description: string): Hover {\n        return this.create([\n            `**[${name}]**`,\n            `Type: ${type}`,\n            description\n        ]);\n    }\n}\n\n/**\n * Signature help factory for testing\n */\nexport class TestSignatureFactory {\n    static create(\n        signatures: SignatureInformation[],\n        activeSignature: number = 0,\n        activeParameter: number = 0\n    ): SignatureHelp {\n        return {\n            signatures,\n            activeSignature,\n            activeParameter\n        };\n    }\n    \n    static createSignature(\n        label: string,\n        documentation: string,\n        parameters: ParameterInformation[] = []\n    ): SignatureInformation {\n        return {\n            label,\n            documentation,\n            parameters\n        };\n    }\n    \n    static createParameter(\n        label: string,\n        documentation: string\n    ): ParameterInformation {\n        return {\n            label,\n            documentation\n        };\n    }\n    \n    static createFunctionSignature(\n        name: string,\n        params: Array<{ name: string; type: string; description: string }>,\n        returnType: string,\n        description: string\n    ): SignatureInformation {\n        const paramLabels = params.map(p => `${p.name}: ${p.type}`).join(', ');\n        const label = `${name}(${paramLabels}) -> ${returnType}`;\n        \n        const parameters = params.map(p => this.createParameter(\n            `${p.name}: ${p.type}`,\n            p.description\n        ));\n        \n        return this.createSignature(label, description, parameters);\n    }\n}\n\n/**\n * Parsed document factory for testing\n */\nexport class TestParsedDocumentFactory {\n    static create(\n        document: TextDocument,\n        symbols: Symbol[] = [],\n        diagnostics: Diagnostic[] = []\n    ): ParsedDocument {\n        return {\n            document,\n            symbols,\n            diagnostics,\n            lineSymbols: new Map(),\n            lastChangeVersion: document.version,\n            changedLines: new Set()\n        };\n    }\n    \n    static createCached(\n        document: TextDocument,\n        symbols: Symbol[] = [],\n        diagnostics: Diagnostic[] = []\n    ): CachedDocument {\n        const lineSymbols = new Map<number, Symbol[]>();\n        \n        // Organize symbols by line\n        symbols.forEach(symbol => {\n            const line = symbol.range.start.line;\n            if (!lineSymbols.has(line)) {\n                lineSymbols.set(line, []);\n            }\n            lineSymbols.get(line)!.push(symbol);\n        });\n        \n        return {\n            document,\n            symbols,\n            diagnostics,\n            lineSymbols,\n            lastChangeVersion: document.version,\n            changedLines: new Set()\n        };\n    }\n    \n    static createWithExpression(expression: string): ParsedDocument {\n        const document = TestDocumentFactory.createWithExpression(expression);\n        \n        // Create basic symbols based on expression type\n        const symbols: Symbol[] = [];\n        const range = TestPositionFactory.createRange(0, 0, 0, expression.length);\n        \n        if (expression.includes('IF')) {\n            symbols.push(TestSymbolFactory.createKeyword('IF', range));\n        }\n        if (expression.includes('CASE')) {\n            symbols.push(TestSymbolFactory.createKeyword('CASE', range));\n        }\n        if (expression.includes('SUM(')) {\n            symbols.push(TestSymbolFactory.createFunction('SUM', range, ['[Sales]']));\n        }\n        \n        return this.create(document, symbols);\n    }\n}\n\n/**\n * Mock data generators\n */\nexport class TestMockData {\n    static generateRandomExpression(): string {\n        const expressions = [\n            ...TABLEAU_EXPRESSIONS.AGGREGATE_FUNCTIONS,\n            ...TABLEAU_EXPRESSIONS.STRING_FUNCTIONS,\n            ...TABLEAU_EXPRESSIONS.DATE_FUNCTIONS,\n            ...TABLEAU_EXPRESSIONS.MATH_FUNCTIONS\n        ];\n        \n        return expressions[Math.floor(Math.random() * expressions.length)];\n    }\n    \n    static generateRandomField(): { name: string; type: string; description: string } {\n        const allFields = [...TABLEAU_FIELDS.DIMENSIONS, ...TABLEAU_FIELDS.MEASURES];\n        return allFields[Math.floor(Math.random() * allFields.length)];\n    }\n    \n    static generateComplexExpression(): string {\n        const templates = [\n            'IF {field1} > {value} THEN {result1} ELSE {result2} END',\n            'CASE {field1} WHEN \"{value}\" THEN {result1} ELSE {result2} END',\n            '{ FIXED {field1} : {aggregation}({field2}) }',\n            '{aggregation}(IF {field1} = \"{value}\" THEN {field2} END)'\n        ];\n        \n        const template = templates[Math.floor(Math.random() * templates.length)];\n        const field1 = this.generateRandomField();\n        const field2 = this.generateRandomField();\n        const aggregation = ['SUM', 'AVG', 'COUNT', 'MIN', 'MAX'][Math.floor(Math.random() * 5)];\n        \n        return template\n            .replace('{field1}', `[${field1.name}]`)\n            .replace('{field2}', `[${field2.name}]`)\n            .replace('{aggregation}', aggregation)\n            .replace('{value}', field1.type === 'string' ? 'Test' : '100')\n            .replace('{result1}', '\"High\"')\n            .replace('{result2}', '\"Low\"');\n    }\n    \n    static generateTestSuite(componentName: string, testCount: number = 10): string {\n        const tests = [];\n        \n        for (let i = 0; i < testCount; i++) {\n            const expression = this.generateRandomExpression();\n            tests.push(`\n        it('should handle ${expression.split('(')[0]} function', () => {\n            const document = TestDocumentFactory.createWithExpression('${expression}');\n            const result = ${componentName}(document);\n            expect(result).toBeDefined();\n        });\n            `);\n        }\n        \n        return `\n// Auto-generated tests for ${componentName}\ndescribe('${componentName} - Generated Tests', () => {\n    ${tests.join('')}\n});\n        `;\n    }\n}\n\n/**\n * Test utilities and helpers\n */\nexport class TestUtils {\n    static async waitFor(condition: () => boolean, timeout: number = 1000): Promise<void> {\n        const start = Date.now();\n        while (!condition() && Date.now() - start < timeout) {\n            await new Promise(resolve => setTimeout(resolve, 10));\n        }\n        if (!condition()) {\n            throw new Error('Condition not met within timeout');\n        }\n    }\n    \n    static measurePerformance<T>(fn: () => T): { result: T; duration: number } {\n        const start = Date.now();\n        const result = fn();\n        const duration = Date.now() - start;\n        return { result, duration };\n    }\n    \n    static async measureAsyncPerformance<T>(fn: () => Promise<T>): Promise<{ result: T; duration: number }> {\n        const start = Date.now();\n        const result = await fn();\n        const duration = Date.now() - start;\n        return { result, duration };\n    }\n    \n    static createMemorySnapshot(): { heapUsed: number; heapTotal: number } {\n        if (typeof process !== 'undefined' && process.memoryUsage) {\n            const usage = process.memoryUsage();\n            return {\n                heapUsed: usage.heapUsed,\n                heapTotal: usage.heapTotal\n            };\n        }\n        return { heapUsed: 0, heapTotal: 0 };\n    }\n    \n    static compareMemorySnapshots(\n        before: { heapUsed: number; heapTotal: number },\n        after: { heapUsed: number; heapTotal: number }\n    ): { heapUsedDiff: number; heapTotalDiff: number } {\n        return {\n            heapUsedDiff: after.heapUsed - before.heapUsed,\n            heapTotalDiff: after.heapTotal - before.heapTotal\n        };\n    }\n    \n    static generateStressTestData(count: number): TextDocument[] {\n        const documents: TextDocument[] = [];\n        \n        for (let i = 0; i < count; i++) {\n            const expression = TestMockData.generateComplexExpression();\n            const document = TestDocumentFactory.create(\n                expression,\n                `test://stress-test-${i}.twbl`,\n                1\n            );\n            documents.push(document);\n        }\n        \n        return documents;\n    }\n}\n\n/**\n * Export all test data for easy access\n */\nexport const TEST_DATA = {\n    EXPRESSIONS: TABLEAU_EXPRESSIONS,\n    FIELDS: TABLEAU_FIELDS,\n    FACTORIES: {\n        Document: TestDocumentFactory,\n        Position: TestPositionFactory,\n        Symbol: TestSymbolFactory,\n        Diagnostic: TestDiagnosticFactory,\n        Completion: TestCompletionFactory,\n        Hover: TestHoverFactory,\n        Signature: TestSignatureFactory,\n        ParsedDocument: TestParsedDocumentFactory\n    },\n    MOCK: TestMockData,\n    UTILS: TestUtils\n};\n"
+// src/tests/fixtures/testFixtures.ts
+
+import { TextDocument } from 'vscode-languageserver-textdocument';
+import { Position, Range, Diagnostic, DiagnosticSeverity, CompletionItem, CompletionItemKind, Hover, SignatureHelp, SignatureInformation, ParameterInformation } from 'vscode-languageserver';
+import { Symbol, SymbolType, ParsedDocument, CachedDocument } from '../../common.js';
+
+/**
+ * R8.1: Comprehensive test fixtures and mock data for consistent testing
+ * 
+ * This module provides reusable test fixtures, mock data, and helper functions
+ * to ensure consistent and comprehensive testing across all components.
+ */
+
+/**
+ * Common Tableau expressions for testing
+ */
+export const TABLEAU_EXPRESSIONS = {
+    SIMPLE_IF: 'IF [Sales] > 100 THEN "High" ELSE "Low" END',
+    NESTED_IF: `
+        IF [Sales] > 1000 THEN "Excellent"
+        ELSEIF [Sales] > 500 THEN "Good"
+        ELSEIF [Sales] > 100 THEN "Average"
+        ELSE "Poor"
+        END
+    `,
+    SIMPLE_CASE: `
+        CASE [Category]
+            WHEN 'Furniture' THEN 'F'
+            WHEN 'Technology' THEN 'T'
+            ELSE 'O'
+        END
+    `,
+    COMPLEX_CASE: `
+        CASE 
+            WHEN [Sales] > 1000 AND [Profit] > 100 THEN "High Performance"
+            WHEN [Sales] > 500 OR [Profit] > 50 THEN "Medium Performance"
+            ELSE "Low Performance"
+        END
+    `,
+    LOD_FIXED: '{ FIXED [Region] : SUM([Sales]) }',
+    LOD_INCLUDE: '{ INCLUDE [Category] : AVG([Profit]) }',
+    LOD_EXCLUDE: '{ EXCLUDE [Sub-Category] : COUNT([Orders]) }',
+    AGGREGATE_FUNCTIONS: [
+        'SUM([Sales])',
+        'AVG([Profit])',
+        'COUNT([Orders])',
+        'MIN([Discount])',
+        'MAX([Quantity])'
+    ],
+    STRING_FUNCTIONS: [
+        'LEFT([Customer Name], 5)',
+        'RIGHT([Product Name], 10)',
+        'MID([Description], 2, 8)',
+        'LEN([Category])',
+        'UPPER([Region])',
+        'LOWER([Segment])'
+    ],
+    DATE_FUNCTIONS: [
+        'YEAR([Order Date])',
+        'MONTH([Ship Date])',
+        'DAY([Order Date])',
+        'DATEADD("month", 1, [Order Date])',
+        'DATEDIFF("day", [Order Date], [Ship Date])'
+    ],
+    MATH_FUNCTIONS: [
+        'ROUND([Sales], 2)',
+        'ABS([Profit])',
+        'CEILING([Discount])',
+        'FLOOR([Quantity])',
+        'SQRT([Sales])'
+    ],
+    COMPLEX_EXPRESSIONS: [
+        'SUM(IF [Region] = "East" THEN [Sales] ELSE 0 END)',
+        'AVG(CASE WHEN [Category] = "Furniture" THEN [Profit] END)',
+        '{ FIXED [Customer ID] : SUM([Sales]) } / { FIXED : SUM([Sales]) }',
+        'RUNNING_SUM(SUM([Sales]))',
+        'WINDOW_AVG(SUM([Profit]), -2, 0)'
+    ],
+    MALFORMED_EXPRESSIONS: [
+        'IF [Sales] > 100 THEN "High" ELSE "Low"', // Missing END
+        'CASE [Category] WHEN "Furniture" THEN "F" ELSE "O"', // Missing END
+        'SUM([Sales]', // Missing closing parenthesis
+        'IF [Sales] > 100 THEN THEN "High" ELSE "Low" END', // Duplicate THEN
+        '{ FIXED [Region] : SUM([Sales]', // Missing closing brace
+        'LEFT([Customer Name], )', // Missing parameter
+        'DATEADD("month", [Order Date])', // Missing parameter
+        'IF THEN "High" ELSE "Low" END' // Missing condition
+    ]
+};
+
+/**
+ * Field definitions for testing
+ */
+export const TABLEAU_FIELDS = {
+    DIMENSIONS: [
+        { name: 'Region', type: 'string', description: 'Sales region' },
+        { name: 'Category', type: 'string', description: 'Product category' },
+        { name: 'Sub-Category', type: 'string', description: 'Product sub-category' },
+        { name: 'Customer Name', type: 'string', description: 'Customer name' },
+        { name: 'Product Name', type: 'string', description: 'Product name' },
+        { name: 'Segment', type: 'string', description: 'Customer segment' },
+        { name: 'Order Date', type: 'date', description: 'Order date' },
+        { name: 'Ship Date', type: 'date', description: 'Ship date' }
+    ],
+    MEASURES: [
+        { name: 'Sales', type: 'number', description: 'Sales amount' },
+        { name: 'Profit', type: 'number', description: 'Profit amount' },
+        { name: 'Quantity', type: 'number', description: 'Quantity ordered' },
+        { name: 'Discount', type: 'number', description: 'Discount percentage' },
+        { name: 'Orders', type: 'number', description: 'Number of orders' }
+    ],
+    CALCULATED_FIELDS: [
+        { name: 'Profit Ratio', expression: '[Profit] / [Sales]', type: 'number' },
+        { name: 'Sales Category', expression: 'IF [Sales] > 100 THEN "High" ELSE "Low" END', type: 'string' },
+        { name: 'Days to Ship', expression: 'DATEDIFF("day", [Order Date], [Ship Date])', type: 'number' }
+    ]
+};
+
+/**
+ * Test document factory
+ */
+export class TestDocumentFactory {
+    static create(
+        content: string,
+        uri: string = 'test://test.twbl',
+        version: number = 1,
+        languageId: string = 'tableau'
+    ): TextDocument {
+        return TextDocument.create(uri, languageId, version, content);
+    }
+    
+    static createWithExpression(expression: string): TextDocument {
+        return this.create(expression);
+    }
+    
+    static createMultiLine(lines: string[]): TextDocument {
+        return this.create(lines.join('\n'));
+    }
+    
+    static createLarge(baseExpression: string, repetitions: number = 100): TextDocument {
+        const lines = Array(repetitions).fill(baseExpression);
+        return this.createMultiLine(lines);
+    }
+    
+    static createWithComments(expression: string, comments: string[]): TextDocument {
+        const lines = [];
+        comments.forEach(comment => lines.push(`// ${comment}`));
+        lines.push(expression);
+        return this.createMultiLine(lines);
+    }
+}
+
+/**
+ * Position and Range helpers
+ */
+export class TestPositionFactory {
+    static create(line: number = 0, character: number = 0): Position {
+        return { line, character };
+    }
+    
+    static createRange(
+        startLine: number = 0,
+        startChar: number = 0,
+        endLine: number = 0,
+        endChar: number = 10
+    ): Range {
+        return Range.create(
+            { line: startLine, character: startChar },
+            { line: endLine, character: endChar }
+        );
+    }
+    
+    static findInDocument(document: TextDocument, searchText: string): Position | null {
+        const content = document.getText();
+        const lines = content.split('\n');
+        
+        for (let line = 0; line < lines.length; line++) {
+            const character = lines[line].indexOf(searchText);
+            if (character !== -1) {
+                return { line, character };
+            }
+        }
+        
+        return null;
+    }
+    
+    static findRangeInDocument(document: TextDocument, searchText: string): Range | null {
+        const position = this.findInDocument(document, searchText);
+        if (!position) return null;
+        
+        return Range.create(
+            position,
+            { line: position.line, character: position.character + searchText.length }
+        );
+    }
+}
+
+/**
+ * Symbol factory for testing
+ */
+export class TestSymbolFactory {
+    static create(
+        name: string,
+        type: SymbolType,
+        range: Range,
+        text?: string,
+        children?: Symbol[]
+    ): Symbol {
+        return {
+            name,
+            type,
+            range,
+            text,
+            children,
+            arguments: [],
+            parent: undefined,
+            end: undefined
+        };
+    }
+    
+    static createFunction(
+        name: string,
+        range: Range,
+        args: string[] = []
+    ): Symbol {
+        return {
+            name,
+            type: SymbolType.FunctionCall,
+            range,
+            arguments: args.map(arg => ({
+                text: arg,
+                range: range // Simplified for testing
+            })),
+            children: [],
+            parent: undefined,
+            end: undefined
+        };
+    }
+    
+    static createField(name: string, range: Range): Symbol {
+        return this.create(name, SymbolType.FieldReference, range, `[${name}]`);
+    }
+    
+    static createKeyword(name: string, range: Range): Symbol {
+        return this.create(name, SymbolType.Keyword, range, name.toUpperCase());
+    }
+    
+    static createExpression(name: string, range: Range, children: Symbol[] = []): Symbol {
+        return {
+            name,
+            type: SymbolType.Expression,
+            range,
+            children,
+            arguments: [],
+            parent: undefined,
+            end: undefined
+        };
+    }
+}
+
+/**
+ * Diagnostic factory for testing
+ */
+export class TestDiagnosticFactory {
+    static create(
+        range: Range,
+        message: string,
+        severity: DiagnosticSeverity = DiagnosticSeverity.Error,
+        code?: string
+    ): Diagnostic {
+        return {
+            range,
+            message,
+            severity,
+            code,
+            source: 'tableau-lsp'
+        };
+    }
+    
+    static createError(range: Range, message: string, code?: string): Diagnostic {
+        return this.create(range, message, DiagnosticSeverity.Error, code);
+    }
+    
+    static createWarning(range: Range, message: string, code?: string): Diagnostic {
+        return this.create(range, message, DiagnosticSeverity.Warning, code);
+    }
+    
+    static createInfo(range: Range, message: string, code?: string): Diagnostic {
+        return this.create(range, message, DiagnosticSeverity.Information, code);
+    }
+}
+
+/**
+ * Completion item factory for testing
+ */
+export class TestCompletionFactory {
+    static create(
+        label: string,
+        kind: CompletionItemKind,
+        detail?: string,
+        documentation?: string,
+        insertText?: string
+    ): CompletionItem {
+        return {
+            label,
+            kind,
+            detail,
+            documentation,
+            insertText: insertText || label
+        };
+    }
+    
+    static createFunction(
+        name: string,
+        detail: string,
+        documentation: string,
+        insertText?: string
+    ): CompletionItem {
+        return this.create(
+            name,
+            CompletionItemKind.Function,
+            detail,
+            documentation,
+            insertText || `${name}($1)$0`
+        );
+    }
+    
+    static createField(name: string, type: string): CompletionItem {
+        return this.create(
+            name,
+            CompletionItemKind.Field,
+            `${type} field`,
+            `Field: ${name}`,
+            `[${name}]`
+        );
+    }
+    
+    static createKeyword(keyword: string, documentation: string): CompletionItem {
+        return this.create(
+            keyword,
+            CompletionItemKind.Keyword,
+            'Keyword',
+            documentation,
+            keyword.toUpperCase()
+        );
+    }
+}
+
+/**
+ * Hover factory for testing
+ */
+export class TestHoverFactory {
+    static create(contents: string | string[], range?: Range): Hover {
+        return {
+            contents: Array.isArray(contents) ? contents : [contents],
+            range
+        };
+    }
+    
+    static createFunction(
+        name: string,
+        signature: string,
+        description: string,
+        examples: string[] = []
+    ): Hover {
+        const contents = [
+            `**${name}**`,
+            `\`\`\`tableau\n${signature}\n\`\`\``,
+            description
+        ];
+        
+        if (examples.length > 0) {
+            contents.push('**Examples:**');
+            examples.forEach(example => {
+                contents.push(`\`\`\`tableau\n${example}\n\`\`\``);
+            });
+        }
+        
+        return this.create(contents);
+    }
+    
+    static createField(name: string, type: string, description: string): Hover {
+        return this.create([
+            `**[${name}]**`,
+            `Type: ${type}`,
+            description
+        ]);
+    }
+}
+
+/**
+ * Signature help factory for testing
+ */
+export class TestSignatureFactory {
+    static create(
+        signatures: SignatureInformation[],
+        activeSignature: number = 0,
+        activeParameter: number = 0
+    ): SignatureHelp {
+        return {
+            signatures,
+            activeSignature,
+            activeParameter
+        };
+    }
+    
+    static createSignature(
+        label: string,
+        documentation: string,
+        parameters: ParameterInformation[] = []
+    ): SignatureInformation {
+        return {
+            label,
+            documentation,
+            parameters
+        };
+    }
+    
+    static createParameter(
+        label: string,
+        documentation: string
+    ): ParameterInformation {
+        return {
+            label,
+            documentation
+        };
+    }
+    
+    static createFunctionSignature(
+        name: string,
+        params: Array<{ name: string; type: string; description: string }>,
+        returnType: string,
+        description: string
+    ): SignatureInformation {
+        const paramLabels = params.map(p => `${p.name}: ${p.type}`).join(', ');
+        const label = `${name}(${paramLabels}) -> ${returnType}`;
+        
+        const parameters = params.map(p => this.createParameter(
+            `${p.name}: ${p.type}`,
+            p.description
+        ));
+        
+        return this.createSignature(label, description, parameters);
+    }
+}
+
+/**
+ * Parsed document factory for testing
+ */
+export class TestParsedDocumentFactory {
+    static create(
+        document: TextDocument,
+        symbols: Symbol[] = [],
+        diagnostics: Diagnostic[] = []
+    ): ParsedDocument {
+        return {
+            document,
+            symbols,
+            diagnostics,
+            lineSymbols: new Map(),
+            lastChangeVersion: document.version,
+            changedLines: new Set()
+        };
+    }
+    
+    static createCached(
+        document: TextDocument,
+        symbols: Symbol[] = [],
+        diagnostics: Diagnostic[] = []
+    ): CachedDocument {
+        const lineSymbols = new Map<number, Symbol[]>();
+        
+        // Organize symbols by line
+        symbols.forEach(symbol => {
+            const line = symbol.range.start.line;
+            if (!lineSymbols.has(line)) {
+                lineSymbols.set(line, []);
+            }
+            lineSymbols.get(line)!.push(symbol);
+        });
+        
+        return {
+            document,
+            symbols,
+            diagnostics,
+            lineSymbols,
+            lastChangeVersion: document.version,
+            changedLines: new Set()
+        };
+    }
+    
+    static createWithExpression(expression: string): ParsedDocument {
+        const document = TestDocumentFactory.createWithExpression(expression);
+        
+        // Create basic symbols based on expression type
+        const symbols: Symbol[] = [];
+        const range = TestPositionFactory.createRange(0, 0, 0, expression.length);
+        
+        if (expression.includes('IF')) {
+            symbols.push(TestSymbolFactory.createKeyword('IF', range));
+        }
+        if (expression.includes('CASE')) {
+            symbols.push(TestSymbolFactory.createKeyword('CASE', range));
+        }
+        if (expression.includes('SUM(')) {
+            symbols.push(TestSymbolFactory.createFunction('SUM', range, ['[Sales]']));
+        }
+        
+        return this.create(document, symbols);
+    }
+}
+
+/**
+ * Mock data generators
+ */
+export class TestMockData {
+    static generateRandomExpression(): string {
+        const expressions = [
+            ...TABLEAU_EXPRESSIONS.AGGREGATE_FUNCTIONS,
+            ...TABLEAU_EXPRESSIONS.STRING_FUNCTIONS,
+            ...TABLEAU_EXPRESSIONS.DATE_FUNCTIONS,
+            ...TABLEAU_EXPRESSIONS.MATH_FUNCTIONS
+        ];
+        
+        return expressions[Math.floor(Math.random() * expressions.length)];
+    }
+    
+    static generateRandomField(): { name: string; type: string; description: string } {
+        const allFields = [...TABLEAU_FIELDS.DIMENSIONS, ...TABLEAU_FIELDS.MEASURES];
+        return allFields[Math.floor(Math.random() * allFields.length)];
+    }
+    
+    static generateComplexExpression(): string {
+        const templates = [
+            'IF {field1} > {value} THEN {result1} ELSE {result2} END',
+            'CASE {field1} WHEN "{value}" THEN {result1} ELSE {result2} END',
+            '{ FIXED {field1} : {aggregation}({field2}) }',
+            '{aggregation}(IF {field1} = "{value}" THEN {field2} END)'
+        ];
+        
+        const template = templates[Math.floor(Math.random() * templates.length)];
+        const field1 = this.generateRandomField();
+        const field2 = this.generateRandomField();
+        const aggregation = ['SUM', 'AVG', 'COUNT', 'MIN', 'MAX'][Math.floor(Math.random() * 5)];
+        
+        return template
+            .replace('{field1}', `[${field1.name}]`)
+            .replace('{field2}', `[${field2.name}]`)
+            .replace('{aggregation}', aggregation)
+            .replace('{value}', field1.type === 'string' ? 'Test' : '100')
+            .replace('{result1}', '"High"')
+            .replace('{result2}', '"Low"');
+    }
+    
+    static generateTestSuite(componentName: string, testCount: number = 10): string {
+        const tests = [];
+        
+        for (let i = 0; i < testCount; i++) {
+            const expression = this.generateRandomExpression();
+            tests.push(`
+        it('should handle ${expression.split('(')[0]} function', () => {
+            const document = TestDocumentFactory.createWithExpression('${expression}');
+            const result = ${componentName}(document);
+            expect(result).toBeDefined();
+        });
+            `);
+        }
+        
+        return `
+// Auto-generated tests for ${componentName}
+describe('${componentName} - Generated Tests', () => {
+    ${tests.join('')}
+});
+        `;
+    }
+}
+
+/**
+ * Test utilities and helpers
+ */
+export class TestUtils {
+    static async waitFor(condition: () => boolean, timeout: number = 1000): Promise<void> {
+        const start = Date.now();
+        while (!condition() && Date.now() - start < timeout) {
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        if (!condition()) {
+            throw new Error('Condition not met within timeout');
+        }
+    }
+    
+    static measurePerformance<T>(fn: () => T): { result: T; duration: number } {
+        const start = Date.now();
+        const result = fn();
+        const duration = Date.now() - start;
+        return { result, duration };
+    }
+    
+    static async measureAsyncPerformance<T>(fn: () => Promise<T>): Promise<{ result: T; duration: number }> {
+        const start = Date.now();
+        const result = await fn();
+        const duration = Date.now() - start;
+        return { result, duration };
+    }
+    
+    static createMemorySnapshot(): { heapUsed: number; heapTotal: number } {
+        if (typeof process !== 'undefined' && process.memoryUsage) {
+            const usage = process.memoryUsage();
+            return {
+                heapUsed: usage.heapUsed,
+                heapTotal: usage.heapTotal
+            };
+        }
+        return { heapUsed: 0, heapTotal: 0 };
+    }
+    
+    static compareMemorySnapshots(
+        before: { heapUsed: number; heapTotal: number },
+        after: { heapUsed: number; heapTotal: number }
+    ): { heapUsedDiff: number; heapTotalDiff: number } {
+        return {
+            heapUsedDiff: after.heapUsed - before.heapUsed,
+            heapTotalDiff: after.heapTotal - before.heapTotal
+        };
+    }
+    
+    static generateStressTestData(count: number): TextDocument[] {
+        const documents: TextDocument[] = [];
+        
+        for (let i = 0; i < count; i++) {
+            const expression = TestMockData.generateComplexExpression();
+            const document = TestDocumentFactory.create(
+                expression,
+                `test://stress-test-${i}.twbl`,
+                1
+            );
+            documents.push(document);
+        }
+        
+        return documents;
+    }
+}
+
+/**
+ * Export all test data for easy access
+ */
+export const TEST_DATA = {
+    EXPRESSIONS: TABLEAU_EXPRESSIONS,
+    FIELDS: TABLEAU_FIELDS,
+    FACTORIES: {
+        Document: TestDocumentFactory,
+        Position: TestPositionFactory,
+        Symbol: TestSymbolFactory,
+        Diagnostic: TestDiagnosticFactory,
+        Completion: TestCompletionFactory,
+        Hover: TestHoverFactory,
+        Signature: TestSignatureFactory,
+        ParsedDocument: TestParsedDocumentFactory
+    },
+    MOCK: TestMockData,
+    UTILS: TestUtils
+};

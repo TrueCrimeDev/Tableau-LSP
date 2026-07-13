@@ -1,1 +1,190 @@
-// src/tests/jest.config.js\n\nmodule.exports = {\n    // Test environment\n    testEnvironment: 'node',\n    \n    // Root directory for tests\n    rootDir: '../..',\n    \n    // Test file patterns\n    testMatch: [\n        '<rootDir>/src/tests/**/*.test.ts',\n        '<rootDir>/src/tests/**/*.test.js'\n    ],\n    \n    // Setup files\n    setupFilesAfterEnv: [\n        '<rootDir>/src/tests/jest.setup.ts'\n    ],\n    \n    // TypeScript transformation\n    transform: {\n        '^.+\\.ts$': 'ts-jest'\n    },\n    \n    // Module file extensions\n    moduleFileExtensions: [\n        'ts',\n        'js',\n        'json'\n    ],\n    \n    // Coverage configuration\n    collectCoverage: true,\n    coverageDirectory: '<rootDir>/coverage',\n    coverageReporters: [\n        'text',\n        'lcov',\n        'html',\n        'json'\n    ],\n    \n    // Coverage collection patterns\n    collectCoverageFrom: [\n        '<rootDir>/src/**/*.ts',\n        '!<rootDir>/src/tests/**',\n        '!<rootDir>/src/**/*.d.ts',\n        '!<rootDir>/src/extension.ts', // VS Code extension entry point\n        '!<rootDir>/src/server.ts'    // Server entry point (integration tested separately)\n    ],\n    \n    // Coverage thresholds\n    coverageThreshold: {\n        global: {\n            branches: 80,\n            functions: 80,\n            lines: 80,\n            statements: 80\n        },\n        // Specific thresholds for core components\n        '<rootDir>/src/documentModel.ts': {\n            branches: 85,\n            functions: 85,\n            lines: 85,\n            statements: 85\n        },\n        '<rootDir>/src/diagnosticsProvider.ts': {\n            branches: 85,\n            functions: 85,\n            lines: 85,\n            statements: 85\n        },\n        '<rootDir>/src/hoverProvider.ts': {\n            branches: 80,\n            functions: 80,\n            lines: 80,\n            statements: 80\n        },\n        '<rootDir>/src/completionProvider.ts': {\n            branches: 80,\n            functions: 80,\n            lines: 80,\n            statements: 80\n        },\n        '<rootDir>/src/signatureProvider.ts': {\n            branches: 80,\n            functions: 80,\n            lines: 80,\n            statements: 80\n        },\n        '<rootDir>/src/format.ts': {\n            branches: 75,\n            functions: 75,\n            lines: 75,\n            statements: 75\n        }\n    },\n    \n    // Test timeout\n    testTimeout: 10000,\n    \n    // Verbose output\n    verbose: true,\n    \n    // Clear mocks between tests\n    clearMocks: true,\n    \n    // Restore mocks after each test\n    restoreMocks: true,\n    \n    // Module name mapping for path resolution\n    moduleNameMapping: {\n        '^@/(.*)$': '<rootDir>/src/$1'\n    },\n    \n    // Global setup and teardown\n    globalSetup: '<rootDir>/src/tests/globalSetup.ts',\n    globalTeardown: '<rootDir>/src/tests/globalTeardown.ts',\n    \n    // Test result processor\n    testResultsProcessor: '<rootDir>/src/tests/testResultsProcessor.js',\n    \n    // Custom reporters\n    reporters: [\n        'default',\n        [\n            'jest-junit',\n            {\n                outputDirectory: '<rootDir>/test-results',\n                outputName: 'junit.xml',\n                suiteName: 'Tableau LSP Unit Tests'\n            }\n        ],\n        [\n            'jest-html-reporters',\n            {\n                publicPath: '<rootDir>/test-results',\n                filename: 'test-report.html',\n                expand: true\n            }\n        ]\n    ],\n    \n    // Error handling\n    errorOnDeprecated: true,\n    \n    // Performance monitoring\n    detectOpenHandles: true,\n    detectLeaks: true,\n    \n    // Parallel execution\n    maxWorkers: '50%',\n    \n    // Cache configuration\n    cache: true,\n    cacheDirectory: '<rootDir>/node_modules/.cache/jest',\n    \n    // Watch mode configuration\n    watchPathIgnorePatterns: [\n        '<rootDir>/node_modules/',\n        '<rootDir>/coverage/',\n        '<rootDir>/test-results/'\n    ],\n    \n    // Test categories configuration\n    projects: [\n        {\n            displayName: 'Unit Tests',\n            testMatch: ['<rootDir>/src/tests/unit/**/*.test.ts'],\n            setupFilesAfterEnv: ['<rootDir>/src/tests/jest.setup.ts']\n        },\n        {\n            displayName: 'Integration Tests',\n            testMatch: ['<rootDir>/src/tests/integration/**/*.test.ts'],\n            setupFilesAfterEnv: ['<rootDir>/src/tests/jest.setup.ts'],\n            testTimeout: 30000 // Longer timeout for integration tests\n        },\n        {\n            displayName: 'Performance Tests',\n            testMatch: ['<rootDir>/src/tests/performance/**/*.test.ts'],\n            setupFilesAfterEnv: ['<rootDir>/src/tests/jest.setup.ts'],\n            testTimeout: 60000 // Even longer timeout for performance tests\n        },\n        {\n            displayName: 'Edge Case Tests',\n            testMatch: ['<rootDir>/src/tests/edge/**/*.test.ts'],\n            setupFilesAfterEnv: ['<rootDir>/src/tests/jest.setup.ts']\n        }\n    ]\n};\n"
+// src/tests/jest.config.js
+
+module.exports = {
+    // Test environment
+    testEnvironment: 'node',
+    
+    // Root directory for tests
+    rootDir: '../..',
+    
+    // Test file patterns
+    testMatch: [
+        '<rootDir>/src/tests/**/*.test.ts',
+        '<rootDir>/src/tests/**/*.test.js'
+    ],
+    
+    // Setup files
+    setupFilesAfterEnv: [
+        '<rootDir>/src/tests/jest.setup.ts'
+    ],
+    
+    // TypeScript transformation
+    transform: {
+        '^.+\.ts$': 'ts-jest'
+    },
+    
+    // Module file extensions
+    moduleFileExtensions: [
+        'ts',
+        'js',
+        'json'
+    ],
+    
+    // Coverage configuration
+    collectCoverage: true,
+    coverageDirectory: '<rootDir>/coverage',
+    coverageReporters: [
+        'text',
+        'lcov',
+        'html',
+        'json'
+    ],
+    
+    // Coverage collection patterns
+    collectCoverageFrom: [
+        '<rootDir>/src/**/*.ts',
+        '!<rootDir>/src/tests/**',
+        '!<rootDir>/src/**/*.d.ts',
+        '!<rootDir>/src/extension.ts', // VS Code extension entry point
+        '!<rootDir>/src/server.ts'    // Server entry point (integration tested separately)
+    ],
+    
+    // Coverage thresholds
+    coverageThreshold: {
+        global: {
+            branches: 80,
+            functions: 80,
+            lines: 80,
+            statements: 80
+        },
+        // Specific thresholds for core components
+        '<rootDir>/src/documentModel.ts': {
+            branches: 85,
+            functions: 85,
+            lines: 85,
+            statements: 85
+        },
+        '<rootDir>/src/diagnosticsProvider.ts': {
+            branches: 85,
+            functions: 85,
+            lines: 85,
+            statements: 85
+        },
+        '<rootDir>/src/hoverProvider.ts': {
+            branches: 80,
+            functions: 80,
+            lines: 80,
+            statements: 80
+        },
+        '<rootDir>/src/completionProvider.ts': {
+            branches: 80,
+            functions: 80,
+            lines: 80,
+            statements: 80
+        },
+        '<rootDir>/src/signatureProvider.ts': {
+            branches: 80,
+            functions: 80,
+            lines: 80,
+            statements: 80
+        },
+        '<rootDir>/src/format.ts': {
+            branches: 75,
+            functions: 75,
+            lines: 75,
+            statements: 75
+        }
+    },
+    
+    // Test timeout
+    testTimeout: 10000,
+    
+    // Verbose output
+    verbose: true,
+    
+    // Clear mocks between tests
+    clearMocks: true,
+    
+    // Restore mocks after each test
+    restoreMocks: true,
+    
+    // Module name mapping for path resolution
+    moduleNameMapping: {
+        '^@/(.*)$': '<rootDir>/src/$1'
+    },
+    
+    // Global setup and teardown
+    globalSetup: '<rootDir>/src/tests/globalSetup.ts',
+    globalTeardown: '<rootDir>/src/tests/globalTeardown.ts',
+    
+    // Test result processor
+    testResultsProcessor: '<rootDir>/src/tests/testResultsProcessor.js',
+    
+    // Custom reporters
+    reporters: [
+        'default',
+        [
+            'jest-junit',
+            {
+                outputDirectory: '<rootDir>/test-results',
+                outputName: 'junit.xml',
+                suiteName: 'Tableau LSP Unit Tests'
+            }
+        ],
+        [
+            'jest-html-reporters',
+            {
+                publicPath: '<rootDir>/test-results',
+                filename: 'test-report.html',
+                expand: true
+            }
+        ]
+    ],
+    
+    // Error handling
+    errorOnDeprecated: true,
+    
+    // Performance monitoring
+    detectOpenHandles: true,
+    detectLeaks: true,
+    
+    // Parallel execution
+    maxWorkers: '50%',
+    
+    // Cache configuration
+    cache: true,
+    cacheDirectory: '<rootDir>/node_modules/.cache/jest',
+    
+    // Watch mode configuration
+    watchPathIgnorePatterns: [
+        '<rootDir>/node_modules/',
+        '<rootDir>/coverage/',
+        '<rootDir>/test-results/'
+    ],
+    
+    // Test categories configuration
+    projects: [
+        {
+            displayName: 'Unit Tests',
+            testMatch: ['<rootDir>/src/tests/unit/**/*.test.ts'],
+            setupFilesAfterEnv: ['<rootDir>/src/tests/jest.setup.ts']
+        },
+        {
+            displayName: 'Integration Tests',
+            testMatch: ['<rootDir>/src/tests/integration/**/*.test.ts'],
+            setupFilesAfterEnv: ['<rootDir>/src/tests/jest.setup.ts'],
+            testTimeout: 30000 // Longer timeout for integration tests
+        },
+        {
+            displayName: 'Performance Tests',
+            testMatch: ['<rootDir>/src/tests/performance/**/*.test.ts'],
+            setupFilesAfterEnv: ['<rootDir>/src/tests/jest.setup.ts'],
+            testTimeout: 60000 // Even longer timeout for performance tests
+        },
+        {
+            displayName: 'Edge Case Tests',
+            testMatch: ['<rootDir>/src/tests/edge/**/*.test.ts'],
+            setupFilesAfterEnv: ['<rootDir>/src/tests/jest.setup.ts']
+        }
+    ]
+};

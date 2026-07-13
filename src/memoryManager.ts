@@ -1,9 +1,7 @@
 // src/memoryManager.ts
 
-import { TextDocument } from 'vscode-languageserver-textdocument';
-import { parsedDocumentCache, CachedDocument, INCREMENTAL_PARSING_CONFIG } from './common.js';
+import { parsedDocumentCache, CachedDocument } from './common.js';
 import { globalDebouncer } from './requestDebouncer.js';
-import { IncrementalParser } from './incrementalParser.js';
 
 /**
  * R7.3: Comprehensive memory management system for the Tableau LSP extension
@@ -37,7 +35,7 @@ interface MemoryStats {
     requestQueueMemoryMB: number;
     lastCleanupTime: number;
     cleanupCount: number;
-    cacheHitRate: number;
+    cacheHitRate?: number; // Undefined until at least one tracked cache access
     documentsInCache: number;
     largestDocumentMB: number;
     documentsExceedingLimit: number;
@@ -79,6 +77,8 @@ export class MemoryManager {
     private activeDocuments = new Set<string>();
     private cleanupStats: CleanupStats[] = [];
     private lastMemoryStats: MemoryStats;
+    private cacheHits = 0;
+    private cacheMisses = 0;
     
     private constructor() {
         this.config = {
@@ -253,9 +253,9 @@ export class MemoryManager {
         let exceedingLimit = 0;
         let totalSizeMB = 0;
         
-        for (const [uri, cachedDoc] of parsedDocumentCache) {
+        for (const [, cachedDoc] of parsedDocumentCache) {
             const docSizeMB = this.estimateDocumentMemorySize(cachedDoc) / 1024 / 1024;
-            
+
             if (docSizeMB > largestMB) {
                 largestMB = docSizeMB;
             }
@@ -511,9 +511,17 @@ export class MemoryManager {
     }
     
     /**
-     * Mark a document as accessed (for LRU tracking)
+     * Mark a document as accessed (for LRU tracking and hit-rate tracking).
+     * A hit means the document was present in the parsed-document cache at
+     * access time; a miss means it will need to be (re)parsed.
      */
     markDocumentAccessed(uri: string): void {
+        if (parsedDocumentCache.has(uri)) {
+            this.cacheHits++;
+        } else {
+            this.cacheMisses++;
+        }
+
         const metadata = this.cacheMetadata.get(uri);
         if (metadata) {
             metadata.lastAccessed = Date.now();
@@ -712,7 +720,7 @@ export class MemoryManager {
             requestQueueMemoryMB: 0,
             lastCleanupTime: 0,
             cleanupCount: 0,
-            cacheHitRate: 0,
+            cacheHitRate: undefined,
             documentsInCache: 0,
             largestDocumentMB: 0,
             documentsExceedingLimit: 0,
@@ -726,10 +734,14 @@ export class MemoryManager {
             : 0;
     }
     
-    private calculateCacheHitRate(): number {
-        // This would require tracking cache hits/misses
-        // For now, return a placeholder
-        return 0.85; // 85% hit rate assumption
+    private calculateCacheHitRate(): number | undefined {
+        const total = this.cacheHits + this.cacheMisses;
+        if (total === 0) {
+            // No tracked cache accesses yet — report the stat as absent
+            // rather than fabricating a number.
+            return undefined;
+        }
+        return this.cacheHits / total;
     }
 }
 

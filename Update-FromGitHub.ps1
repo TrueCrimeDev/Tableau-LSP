@@ -67,6 +67,31 @@ try {
     $revision = (& git rev-parse --short HEAD).Trim()
     Write-Host "Updated $repoRoot to $remoteRef at $revision." -ForegroundColor Green
     Write-Host 'Untracked local files were left untouched.' -ForegroundColor DarkGray
+
+    if (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'package.json'))) {
+        Write-Host 'No package.json found; skipping build.' -ForegroundColor DarkGray
+    } elseif (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+        Write-Host 'npm is not available on PATH; skipping build. Run "npm ci" and "npm run compile" manually.' -ForegroundColor Yellow
+    } else {
+        try {
+            Write-Host 'Installing dependencies (npm ci)...' -ForegroundColor Cyan
+            & npm ci
+            if ($LASTEXITCODE -ne 0) {
+                throw "npm ci failed with exit code $LASTEXITCODE."
+            }
+
+            Write-Host 'Compiling extension (npm run compile)...' -ForegroundColor Cyan
+            & npm run compile
+            if ($LASTEXITCODE -ne 0) {
+                throw "npm run compile failed with exit code $LASTEXITCODE."
+            }
+
+            Write-Host 'Build completed; out/ is up to date.' -ForegroundColor Green
+        } catch {
+            Write-Warning "Build failed: $_"
+            Write-Warning 'The pull succeeded; out/ may be stale. Fix the build and run "npm run compile" manually.'
+        }
+    }
 } finally {
     Pop-Location
 }

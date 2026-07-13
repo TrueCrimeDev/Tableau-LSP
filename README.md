@@ -12,6 +12,22 @@ A VS Code extension that provides language server features for Tableau calculati
 - **Document Symbols**: Lists all functions and expressions in the current document.
 - **Validation**: Validates Tableau expressions for syntax errors and provides diagnostics.
 - **Calculation Extraction**: Extract and analyze calculations, datasources, and fields from Tableau workbooks (.twb/.twbx files) with advanced processing including XML cleaning, name resolution, normalization, and deduplication.
+- **Workbook Field Context**: Opening or selecting a `.twb`/`.twbx` indexes its datasource fields into one authoritative schema shared by the extension host and language server, giving datasource-aware IntelliSense: completion, hover, diagnostics, references, field swapping, and go-to-definition understand `[Datasource].[Field]`.
+- **@tableau Chat Participant**: Ask Copilot Chat about the active workbook (`@tableau what borders are set?`) with `/borders`, `/calcs`, and `/fields` commands, grounded in a parsed workbook digest.
+
+### Tableau Tools Sidebar
+
+The Tableau Tools activity-bar view bundles workbook inspection and formatting tooling:
+
+- **Workbook inspector**: Browse the active workbook's datasources, calculated fields, fields, worksheets, and custom palettes, and extract calculations with one click.
+- **Add Calculated Field**: Insert a calculated field into a `.twb` datasource with transactional backups, persisted-XML verification, and rollback, plus a nested Common Calculations library of reusable templates.
+- **Palette Library**: Read and edit color palettes in Tableau's `Preferences.tps` — create, import, archive, and delete palettes (categorical, sequential, diverging) and apply one to the active workbook.
+- **Advanced Gradient Generator**: Build a sequential ramp from a base color with a configurable step count and easing curve.
+- **Multi-Stop Gradient**: Blend between start and end colors in LAB, RGB, or HSL with easing, then apply the result to the palette editor.
+- **Theme Vault**: Save, load, and delete named multi-palette themes.
+- **Workbook Formatting**: Inspect and edit worksheet formatting, apply an imported theme (override or preserve existing), and export the workbook's current theme as JSON.
+- **Format Stripper**: Strip borders, bold, font sizes, and font colors from the active workbook, with live scan counts per option.
+- **Calculation Bank & Portfolio**: Load reusable calculations from `_calc_bank.twbl` and insert stock calculation examples at the cursor.
 
 ## Enhanced Features
 
@@ -118,7 +134,7 @@ Keyword case, maximum line length, logical operator position, function argument 
 
 ## Requirements
 
-- Visual Studio Code 1.60.0 or higher
+- Visual Studio Code 1.95.0 or higher (required by the Chat/Language Model APIs)
 
 ## Extension Settings
 
@@ -136,17 +152,7 @@ This extension contributes the following settings:
 
 ## Release Notes
 
-### 2.0.0
-
-- Added enhanced document model with multi-line expression support
-- Implemented context-aware hover information with rich formatting
-- Improved validation with expression-specific rules
-- Added comprehensive testing framework
-- Optimized performance with caching mechanisms
-
-### 1.0.0
-
-- Initial release with basic language server features
+See [CHANGELOG.md](./CHANGELOG.md) for the full version history, or the [GitHub releases page](https://github.com/TrueCrimeDev/Tableau-LSP/releases) for packaged builds.
 
 ## Debug & Reload Workflow
 
@@ -186,5 +192,5 @@ From the repository root, run:
 This fetches `origin`, switches to `main`, and performs a fast-forward-only pull. It refuses to continue when tracked files have local changes and leaves untracked workbook fixtures untouched. Another branch or remote can be selected explicitly:
 
 ```powershell
-.\Update-FromGitHub.ps1 -Remote origin -Branch codex/tableau-1.7.2-release
+.\Update-FromGitHub.ps1 -Remote origin -Branch main
 ```

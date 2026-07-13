@@ -99,3 +99,33 @@ client/*.js
 
 # VS Code webview/browser cache (removed from history 2026-07-06)
 .vscode/vscode-devdata/
+
+# Editor local history / assistant state
+.history/
+.codex/
+
+# Dev-host extension cache (vendored third-party extensions — never commit)
+.vscode/dev-extensions/
+
+# Recovery snapshots and generated test reports
+recovery_exports/
+test-results/
+
+# Manual-test sandbox and scratch workbooks at repo root
+Tableau/
+/BorderTest*.twb
+/Test.twb
+/Test.twbx
+/Test.twb Files/
+/DataTable*.twb
+/EmployeeData.csv
+/_Calculations.notes
+/Mockup.html
+/Other_Files.md
+/scratch_*.mjs
+/show_twb_thumbnails.py
+
+# Screenshot pastes and generated thumbnails
+/image*.png
+/*.thumb.png
+images/* - Copy.png
