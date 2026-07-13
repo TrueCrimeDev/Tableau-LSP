@@ -4,6 +4,7 @@ export interface ExtractedCalculation {
     title: string;
     formula: string;
     raw?: string;
+    datatype?: string;
 }
 
 export interface ExtractedField {

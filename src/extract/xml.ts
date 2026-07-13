@@ -112,7 +112,8 @@ export function extractCalcsFromXml(
                     datasource: datasourceLabel,
                     title: columnTitle,
                     formula: normalized,
-                    raw: rawFormula
+                    raw: rawFormula,
+                    datatype: getString(column, 'datatype')
                 });
             }
         }
@@ -154,7 +155,8 @@ export function extractCalcsFromXml(
                 datasource: datasourceName,
                 title: columnTitle,
                 formula: normalized,
-                raw: rawFormula
+                raw: rawFormula,
+                datatype: getString(column, 'datatype')
             });
         }
     }

@@ -532,6 +532,7 @@ const state = {
   calcBankCalcs: [],
   calcPortfolioGroups: [],
   commonCalculations: [],
+  savedThemes: [],
 }
 
 const requiredElements = [
@@ -863,6 +864,14 @@ if (requiredElements.some((element) => !element)) {
     })
   }
 
+  const saveThemeButton = document.getElementById('save-theme-btn')
+  if (saveThemeButton) {
+    saveThemeButton.addEventListener('click', (event) => {
+      event.stopPropagation()
+      vscode.postMessage({ type: 'saveTheme' })
+    })
+  }
+
   const openInTableauBtn = document.getElementById('open-in-tableau-btn')
   if (openInTableauBtn) {
     openInTableauBtn.addEventListener('click', () => {
@@ -1128,6 +1137,48 @@ if (requiredElements.some((element) => !element)) {
     if (Number.isNaN(index)) {
       return
     }
+    const action = button.dataset.action
+    if (
+      action === 'load-saved-theme' ||
+      action === 'apply-saved-theme' ||
+      action === 'delete-saved-theme'
+    ) {
+      const savedTheme = state.savedThemes[index]
+      if (!savedTheme) {
+        setStatus('No theme available.', 'error')
+        return
+      }
+      if (action === 'delete-saved-theme') {
+        vscode.postMessage({ type: 'deleteTheme', themeName: savedTheme.name })
+        return
+      }
+      const palettes = coercePaletteList(savedTheme.palettes)
+      if (palettes.length === 0) {
+        setStatus('Theme has no palettes.', 'error')
+        return
+      }
+      if (action === 'load-saved-theme') {
+        palettes.forEach((palette) => {
+          upsertPalette({
+            name: palette.name,
+            type: palette.type,
+            colors: palette.colors.slice(),
+          })
+        })
+        vscode.postMessage({ type: 'savePalettes', palettes: state.palettes })
+        setStatus(
+          'Theme "' + savedTheme.name + '" loaded into the palette library.',
+          'success',
+        )
+      } else {
+        vscode.postMessage({ type: 'applyThemeToWorkbook', palettes })
+        setStatus(
+          'Applying theme "' + savedTheme.name + '" to workbook…',
+          'info',
+        )
+      }
+      return
+    }
     const theme = themePresets[index]
     if (!theme) {
       setStatus('No theme available.', 'error')
@@ -1138,7 +1189,6 @@ if (requiredElements.some((element) => !element)) {
       setStatus('Theme has no colors.', 'error')
       return
     }
-    const action = button.dataset.action
     if (action === 'load-theme') {
       const palette = {
         name: ensureUniqueName(theme.name),
@@ -1326,6 +1376,7 @@ if (requiredElements.some((element) => !element)) {
 
   renderAll()
   vscode.postMessage({ type: 'requestPalettes' })
+  vscode.postMessage({ type: 'requestThemes' })
 }
 
 // Message handler and workbook/context init are intentionally OUTSIDE the
@@ -1744,6 +1795,10 @@ window.addEventListener('message', (event) => {
       updateSourceLabel(message.sourceLabel, message.sourcePath)
       renderAll()
     }
+    if (message.type === 'themesLoaded') {
+      state.savedThemes = Array.isArray(message.themes) ? message.themes : []
+      renderThemes()
+    }
     if (message.type === 'paletteStatus') {
       setStatus(message.message || 'Update complete.', message.tone || 'info')
     }
@@ -1901,6 +1956,23 @@ vscode.postMessage({ type: 'requestContext' })
 vscode.postMessage({ type: 'parseWorkbook' })
 vscode.postMessage({ type: 'requestCalcPortfolio' })
 vscode.postMessage({ type: 'requestCommonCalculations' })
+
+// "Most Used Commands" rows — delegate clicks to the extension host, which
+// validates the command ID against its allowlist before executing.
+document.addEventListener('click', function (event) {
+  const target = event.target
+  if (!(target instanceof Element)) {
+    return
+  }
+  const item = target.closest('.cmdi[data-command]')
+  if (!item) {
+    return
+  }
+  vscode.postMessage({
+    type: 'executeCommand',
+    commandId: item.getAttribute('data-command'),
+  })
+})
 
 ;(function setupCalcBank() {
   const refreshBtn = document.getElementById('calc-bank-refresh')
@@ -2207,7 +2279,48 @@ function renderThemes() {
   if (!themeList) {
     return
   }
-  themeList.innerHTML = themePresets
+  const groupLabel = (text) =>
+    '<div style="padding:3px 16px 1px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--vscode-descriptionForeground)">' +
+    text +
+    '</div>'
+  const savedRows = state.savedThemes
+    .map((theme, index) => {
+      const palettes = Array.isArray(theme.palettes) ? theme.palettes : []
+      const colors = normalizeColorList(palettes.length ? palettes[0].colors : [])
+      const gradient = buildGradient(colors)
+      const name = escapeHtml(theme.name)
+      const count = palettes.length
+      return (
+        '<div class="ri" title="' +
+        count +
+        ' palette' +
+        (count === 1 ? '' : 's') +
+        '">' +
+        '<div class="cb" style="background:' +
+        gradient +
+        '"></div>' +
+        '<span class="lb">' +
+        name +
+        '</span>' +
+        '<span class="mt">' +
+        count +
+        '</span>' +
+        '<div class="ra">' +
+        '<button class="ib" data-action="load-saved-theme" data-index="' +
+        index +
+        '" title="Load into Palette Library"><svg class="ic"><use href="#i-load"/></svg></button>' +
+        '<button class="ib" data-action="apply-saved-theme" data-index="' +
+        index +
+        '" title="Apply to Workbook"><svg class="ic"><use href="#i-arrow"/></svg></button>' +
+        '<button class="ib" data-action="delete-saved-theme" data-index="' +
+        index +
+        '" title="Delete"><svg class="ic"><use href="#i-trash"/></svg></button>' +
+        '</div>' +
+        '</div>'
+      )
+    })
+    .join('')
+  const presetRows = themePresets
     .map((theme, index) => {
       const colors = normalizeColorList(theme.colors)
       const gradient = buildGradient(colors)
@@ -2235,6 +2348,9 @@ function renderThemes() {
       )
     })
     .join('')
+  themeList.innerHTML = state.savedThemes.length
+    ? groupLabel('Saved Themes') + savedRows + groupLabel('Presets') + presetRows
+    : presetRows
 }
 
 function renderScalePreview() {

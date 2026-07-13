@@ -2,6 +2,25 @@
 
 All notable changes to the "tableau-language-support" extension will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Theme Vault persistence — save, load, and delete named multi-palette themes from the sidebar.
+- Clickable Most Used Commands in the sidebar Commands & Reference section.
+- Datatype badges on calculated fields in the workbook inspector.
+
+### Fixed
+
+- README version requirement (was 1.60.0, minimum is 1.95.0) and stale release notes.
+- CI now runs the unit test suite (699 tests under `src/tests/unit`); a wall-clock timing assertion was made tolerant of 1ms clock-granularity skew so the suite is stable on shared runners.
+- Cancelling the duplicate-palette dialog while applying a theme now aborts the remaining palettes instead of writing them anyway.
+- Calculated-field datatype badges read the datatype from the calculation's own column definition instead of a document-wide scan that could pick up connection schema columns.
+
+### Documentation
+
+- The sidebar palette/formatting suite (Palette Library, Advanced and Multi-Stop gradient generators, Theme Vault, Calculation Bank/Portfolio) shipped progressively across 1.6.x–1.7.x but was previously undocumented; it is now covered in the README.
+
 ## [1.7.3] - 2026-07-10
 
 ### Added

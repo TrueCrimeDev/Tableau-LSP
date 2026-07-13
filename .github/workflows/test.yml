@@ -2,9 +2,9 @@ name: Test Suite
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main ]
   schedule:
     # Run tests daily at 2 AM UTC
     - cron: '0 2 * * *'
@@ -37,6 +37,9 @@ jobs:
 
     - name: Run deterministic feature tests
       run: npm run test:deterministic
+
+    - name: Run unit tests
+      run: npm run test:unit
 
     - name: Build project
       run: npm run build
