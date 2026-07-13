@@ -2,7 +2,7 @@
 
 All notable changes to the "tableau-language-support" extension will be documented in this file.
 
-## [Unreleased]
+## [1.8.0] - 2026-07-13
 
 ### Added
 
