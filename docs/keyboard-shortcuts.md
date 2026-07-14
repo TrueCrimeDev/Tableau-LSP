@@ -8,13 +8,15 @@ This document describes all available keyboard shortcuts for the Tableau Languag
 |----------|---------|-------------|
 | `Ctrl+Shift+S` (`Cmd+Shift+S` on Mac) | Insert Snippet | Opens the snippet picker for Tableau templates |
 | `Ctrl+Shift+F` (`Cmd+Shift+F` on Mac) | Format Expression | Formats the current Tableau expression |
-| `Ctrl+Shift+V` (`Cmd+Shift+V` on Mac) | Validate Expression | Validates the current expression and shows diagnostics |
-| `Ctrl+Shift+I` (`Cmd+Shift+I` on Mac) | Insert IF Statement | Inserts an IF statement template |
-| `Ctrl+Shift+C` (`Cmd+Shift+C` on Mac) | Insert CASE Statement | Inserts a CASE statement template |
-| `Ctrl+Shift+L` (`Cmd+Shift+L` on Mac) | Insert LOD Expression | Shows LOD expression type picker and inserts template |
-| `Ctrl+Shift+H` (`Cmd+Shift+H` on Mac) | Show Function Help | Shows help for function at cursor or function reference |
+| `Ctrl+Alt+T V` (all platforms, incl. Mac) | Validate Expression | Validates the current expression and shows diagnostics |
+| `Ctrl+Alt+T I` (all platforms, incl. Mac) | Insert IF Statement | Inserts an IF statement template |
+| `Ctrl+Alt+T C` (all platforms, incl. Mac) | Insert CASE Statement | Inserts a CASE statement template |
+| `Ctrl+Alt+T L` (all platforms, incl. Mac) | Insert LOD Expression | Shows LOD expression type picker and inserts template |
+| `Ctrl+Alt+T H` (all platforms, incl. Mac) | Show Function Help | Shows help for function at cursor or function reference |
 | `Ctrl+/` (`Cmd+/` on Mac) | Toggle Comments | Toggles line comments for current line or selection |
-| `Ctrl+Shift+R` (`Cmd+Shift+R` on Mac) | Restart Language Server | Restarts the Tableau language server |
+| `Ctrl+Alt+T R` (all platforms, incl. Mac) | Restart Language Server | Restarts the Tableau language server |
+
+The `Ctrl+Alt+T …` two-step chords deliberately use `Ctrl` on **every** platform, including macOS — `Cmd+Alt+T` is already taken by VS Code's built-in "Close Other Editors in Group" on Mac, while `Ctrl+Alt+T` is unbound in core VS Code everywhere.
 | `Ctrl+Shift+T` (`Cmd+Shift+T` on Mac) | Run Tests | Runs Tableau LSP tests |
 
 ## Detailed Command Descriptions
@@ -39,7 +41,7 @@ Formats the current Tableau calculation according to the configured formatting r
 - Keyword capitalization
 - Line break preservation for readability
 
-#### Validate Expression (`Ctrl+Shift+V`)
+#### Validate Expression (`Ctrl+Alt+T V`)
 Triggers immediate validation of the current Tableau expression and displays any errors or warnings in the Problems panel.
 
 **What it checks:**
@@ -51,7 +53,7 @@ Triggers immediate validation of the current Tableau expression and displays any
 
 ### Code Generation Shortcuts
 
-#### Insert IF Statement (`Ctrl+Shift+I`)
+#### Insert IF Statement (`Ctrl+Alt+T I`)
 Inserts a properly formatted IF statement template with placeholders for easy completion.
 
 **Template:**
@@ -64,14 +66,14 @@ END
 ```
 
 **Usage:**
-1. Press `Ctrl+Shift+I`
+1. Press `Ctrl+Alt+T`, then `I`
 2. Fill in the condition
 3. Tab to next placeholder
 4. Fill in the true value
 5. Tab to next placeholder
 6. Fill in the false value
 
-#### Insert CASE Statement (`Ctrl+Shift+C`)
+#### Insert CASE Statement (`Ctrl+Alt+T C`)
 Inserts a properly formatted CASE statement template with placeholders.
 
 **Template:**
@@ -83,7 +85,7 @@ ELSE ${6:default_result}
 END
 ```
 
-#### Insert LOD Expression (`Ctrl+Shift+L`)
+#### Insert LOD Expression (`Ctrl+Alt+T L`)
 Shows a quick pick menu for different LOD expression types (FIXED, INCLUDE, EXCLUDE) and inserts the selected template.
 
 **Available Types:**
@@ -93,7 +95,7 @@ Shows a quick pick menu for different LOD expression types (FIXED, INCLUDE, EXCL
 
 ### Utility Shortcuts
 
-#### Show Function Help (`Ctrl+Shift+H`)
+#### Show Function Help (`Ctrl+Alt+T H`)
 Shows detailed help for the function at the cursor position, or opens a function reference if no specific function is detected.
 
 **Features:**
@@ -114,7 +116,7 @@ Toggles line comments (`//`) for the current line or selected lines.
 
 ### System Shortcuts
 
-#### Restart Language Server (`Ctrl+Shift+R`)
+#### Restart Language Server (`Ctrl+Alt+T R`)
 Restarts the Tableau language server. Useful when the server becomes unresponsive or after configuration changes.
 
 **When to use:**
@@ -183,6 +185,11 @@ This prevents conflicts with other extensions and ensures shortcuts only trigger
 4. **Restart VS Code**: Sometimes required after changing shortcuts
 5. **Check extension status**: Ensure Tableau LSP extension is active
 
+### Platform Notes for the `Ctrl+Alt+T` Chord Prefix
+
+- **macOS**: Use `Ctrl+Alt+T`, **not** `Cmd+Alt+T`. The chords intentionally use the Control key on macOS as well, because `Cmd+Alt+T` is bound by VS Code core to "Close Other Editors in Group". If you rebind the chords to a `Cmd`-based prefix, you take over (shadow) that built-in shortcut while a `.twbl` editor has focus.
+- **GNOME / Ubuntu Linux**: Many GNOME-based desktops bind `Ctrl+Alt+T` system-wide to "open a terminal", so the chord prefix never reaches VS Code and these shortcuts appear dead. Either rebind or disable the OS-level shortcut (Settings → Keyboard → Shortcuts → "Launch terminal"), or run the commands from the Command Palette (`Ctrl+Shift+P`, then type the command name) or rebind the chords in VS Code's Keyboard Shortcuts editor.
+
 ### Conflicting Shortcuts
 
 If a shortcut conflicts with another extension:
@@ -196,7 +203,7 @@ If a shortcut conflicts with another extension:
 
 If shortcuts feel slow:
 
-1. Try restarting the language server (`Ctrl+Shift+R`)
+1. Try restarting the language server (`Ctrl+Alt+T R`)
 2. Check if large files are causing performance issues
 3. Verify system resources are available
 4. Consider disabling other extensions temporarily
@@ -207,9 +214,9 @@ If shortcuts feel slow:
 
 1. **Use snippets first**: `Ctrl+Shift+S` for common patterns
 2. **Format regularly**: `Ctrl+Shift+F` to maintain clean code
-3. **Validate frequently**: `Ctrl+Shift+V` to catch errors early
+3. **Validate frequently**: `Ctrl+Alt+T V` to catch errors early
 4. **Comment liberally**: `Ctrl+/` for documentation
-5. **Get help quickly**: `Ctrl+Shift+H` when unsure about functions
+5. **Get help quickly**: `Ctrl+Alt+T H` when unsure about functions
 
 ### Learning Tips
 

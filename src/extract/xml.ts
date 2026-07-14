@@ -9,7 +9,8 @@ import {
     ExtractedWorksheet,
     ExtractedHierarchy,
     ExtractedConnection,
-    DashboardZone
+    DashboardZone,
+    WorksheetFieldUsage
 } from './types.js';
 
 const parserOptions = {
@@ -19,7 +20,7 @@ const parserOptions = {
     trimValues: false
 };
 
-interface XmlNode {
+export interface XmlNode {
     [key: string]: unknown;
 }
 
@@ -32,24 +33,41 @@ export interface XmlPreprocessor {
 }
 
 /**
- * Extracts calculations from Tableau workbook XML
+ * Parses workbook XML into the node tree shared by all extractors.
  *
- * @param xml - The XML content to parse
- * @param workbookName - The name of the workbook file
- * @param preprocessor - Optional preprocessor for cleaning/transforming XML
- * @returns Array of extracted calculations
+ * Callers that run several extractors over the same XML should call this once
+ * and hand the returned root to each extractor's `parsedRoot` parameter, so
+ * the (potentially multi-MB) document is only parsed a single time.
+ *
+ * @param xml - The XML content to parse (already cleaned/resolved as needed)
+ * @returns The parsed root node, or undefined for blank input
  */
-export function extractCalcsFromXml(
-    xml: string,
-    workbookName: string,
-    preprocessor?: XmlPreprocessor
-): ExtractedCalculation[] {
+export function parseWorkbookXml(xml: string): XmlNode | undefined {
+    const trimmed = xml.trim();
+    if (!trimmed) {
+        return undefined;
+    }
+    let parsed: unknown;
+    try {
+        const parser = new XMLParser(parserOptions);
+        parsed = parser.parse(trimmed);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to parse Tableau workbook XML: ${message}`);
+    }
+    return toNode(parsed);
+}
+
+/**
+ * Shared extractor entry point: applies the optional preprocessor pipeline to
+ * the XML string and parses it. Kept separate from parseWorkbookXml so the
+ * string-based extractor signatures behave exactly as before.
+ */
+function parsePreprocessedXml(xml: string, preprocessor?: XmlPreprocessor): XmlNode | undefined {
     let processedXml = xml.trim();
     if (!processedXml) {
-        return [];
+        return undefined;
     }
-
-    // Apply preprocessing pipeline if provided
     if (preprocessor) {
         if (preprocessor.clean) {
             processedXml = preprocessor.clean(processedXml);
@@ -58,17 +76,25 @@ export function extractCalcsFromXml(
             processedXml = preprocessor.resolveNames(processedXml);
         }
     }
+    return parseWorkbookXml(processedXml);
+}
 
-    let parsed: unknown;
-    try {
-        const parser = new XMLParser(parserOptions);
-        parsed = parser.parse(processedXml);
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Failed to parse Tableau workbook XML: ${message}`);
-    }
-
-    const root = toNode(parsed);
+/**
+ * Extracts calculations from Tableau workbook XML
+ *
+ * @param xml - The XML content to parse
+ * @param workbookName - The name of the workbook file
+ * @param preprocessor - Optional preprocessor for cleaning/transforming XML
+ * @param parsedRoot - Optional pre-parsed root (see parseWorkbookXml); skips string parsing entirely
+ * @returns Array of extracted calculations
+ */
+export function extractCalcsFromXml(
+    xml: string,
+    workbookName: string,
+    preprocessor?: XmlPreprocessor,
+    parsedRoot?: XmlNode
+): ExtractedCalculation[] {
+    const root = parsedRoot ?? parsePreprocessedXml(xml, preprocessor);
     if (!root) {
         return [];
     }
@@ -244,6 +270,19 @@ function stripBrackets(value: string | undefined): string | undefined {
     return trimmed;
 }
 
+function firstFiniteNumber(...values: Array<string | undefined>): number | undefined {
+    for (const value of values) {
+        if (value === undefined) {
+            continue;
+        }
+        const parsed = Number(value);
+        if (Number.isFinite(parsed)) {
+            return parsed;
+        }
+    }
+    return undefined;
+}
+
 function coalesceString(...values: Array<string | undefined>): string {
     for (const value of values) {
         if (value && value.trim()) {
@@ -357,38 +396,16 @@ function resolveDatasourceName(ref: string | undefined, datasources: XmlNode[]):
  * @param xml - The XML content to parse
  * @param workbookName - The name of the workbook file
  * @param preprocessor - Optional preprocessor for cleaning/transforming XML
+ * @param parsedRoot - Optional pre-parsed root (see parseWorkbookXml); skips string parsing entirely
  * @returns Array of extracted datasources
  */
 export function extractDatasourcesFromXml(
     xml: string,
     workbookName: string,
-    preprocessor?: XmlPreprocessor
+    preprocessor?: XmlPreprocessor,
+    parsedRoot?: XmlNode
 ): ExtractedDatasource[] {
-    let processedXml = xml.trim();
-    if (!processedXml) {
-        return [];
-    }
-
-    // Apply preprocessing pipeline if provided
-    if (preprocessor) {
-        if (preprocessor.clean) {
-            processedXml = preprocessor.clean(processedXml);
-        }
-        if (preprocessor.resolveNames) {
-            processedXml = preprocessor.resolveNames(processedXml);
-        }
-    }
-
-    let parsed: unknown;
-    try {
-        const parser = new XMLParser(parserOptions);
-        parsed = parser.parse(processedXml);
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Failed to parse Tableau workbook XML: ${message}`);
-    }
-
-    const root = toNode(parsed);
+    const root = parsedRoot ?? parsePreprocessedXml(xml, preprocessor);
     if (!root) {
         return [];
     }
@@ -429,6 +446,7 @@ export function extractDatasourcesFromXml(
  * @param xml - The XML content to parse
  * @param workbookName - The name of the workbook file
  * @param preprocessor - Optional preprocessor for cleaning/transforming XML
+ * @param parsedRoot - Optional pre-parsed root (see parseWorkbookXml); skips string parsing entirely
  * @returns Array of extracted fields
  */
 /**
@@ -467,33 +485,10 @@ function getTextValue(node: XmlNode, key: string): string | undefined {
 export function extractFieldsFromXml(
     xml: string,
     workbookName: string,
-    preprocessor?: XmlPreprocessor
+    preprocessor?: XmlPreprocessor,
+    parsedRoot?: XmlNode
 ): ExtractedField[] {
-    let processedXml = xml.trim();
-    if (!processedXml) {
-        return [];
-    }
-
-    // Apply preprocessing pipeline if provided
-    if (preprocessor) {
-        if (preprocessor.clean) {
-            processedXml = preprocessor.clean(processedXml);
-        }
-        if (preprocessor.resolveNames) {
-            processedXml = preprocessor.resolveNames(processedXml);
-        }
-    }
-
-    let parsed: unknown;
-    try {
-        const parser = new XMLParser(parserOptions);
-        parsed = parser.parse(processedXml);
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Failed to parse Tableau workbook XML: ${message}`);
-    }
-
-    const root = toNode(parsed);
+    const root = parsedRoot ?? parsePreprocessedXml(xml, preprocessor);
     if (!root) {
         return [];
     }
@@ -595,38 +590,16 @@ export function extractFieldsFromXml(
  * @param xml - The XML content to parse
  * @param workbookName - The name of the workbook file
  * @param preprocessor - Optional preprocessor for cleaning/transforming XML
+ * @param parsedRoot - Optional pre-parsed root (see parseWorkbookXml); skips string parsing entirely
  * @returns Array of extracted parameters
  */
 export function extractParametersFromXml(
     xml: string,
     workbookName: string,
-    preprocessor?: XmlPreprocessor
+    preprocessor?: XmlPreprocessor,
+    parsedRoot?: XmlNode
 ): ExtractedParameter[] {
-    let processedXml = xml.trim();
-    if (!processedXml) {
-        return [];
-    }
-
-    // Apply preprocessing pipeline if provided
-    if (preprocessor) {
-        if (preprocessor.clean) {
-            processedXml = preprocessor.clean(processedXml);
-        }
-        if (preprocessor.resolveNames) {
-            processedXml = preprocessor.resolveNames(processedXml);
-        }
-    }
-
-    let parsed: unknown;
-    try {
-        const parser = new XMLParser(parserOptions);
-        parsed = parser.parse(processedXml);
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Failed to parse Tableau workbook XML: ${message}`);
-    }
-
-    const root = toNode(parsed);
+    const root = parsedRoot ?? parsePreprocessedXml(xml, preprocessor);
     if (!root) {
         return [];
     }
@@ -720,38 +693,16 @@ export function extractParametersFromXml(
  * @param xml - The XML content to parse
  * @param workbookName - The name of the workbook file
  * @param preprocessor - Optional preprocessor for cleaning/transforming XML
+ * @param parsedRoot - Optional pre-parsed root (see parseWorkbookXml); skips string parsing entirely
  * @returns Array of extracted filters
  */
 export function extractFiltersFromXml(
     xml: string,
     workbookName: string,
-    preprocessor?: XmlPreprocessor
+    preprocessor?: XmlPreprocessor,
+    parsedRoot?: XmlNode
 ): ExtractedFilter[] {
-    let processedXml = xml.trim();
-    if (!processedXml) {
-        return [];
-    }
-
-    // Apply preprocessing pipeline if provided
-    if (preprocessor) {
-        if (preprocessor.clean) {
-            processedXml = preprocessor.clean(processedXml);
-        }
-        if (preprocessor.resolveNames) {
-            processedXml = preprocessor.resolveNames(processedXml);
-        }
-    }
-
-    let parsed: unknown;
-    try {
-        const parser = new XMLParser(parserOptions);
-        parsed = parser.parse(processedXml);
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Failed to parse Tableau workbook XML: ${message}`);
-    }
-
-    const root = toNode(parsed);
+    const root = parsedRoot ?? parsePreprocessedXml(xml, preprocessor);
     if (!root) {
         return [];
     }
@@ -823,38 +774,16 @@ export function extractFiltersFromXml(
  * @param xml - The XML content to parse
  * @param workbookName - The name of the workbook file
  * @param preprocessor - Optional preprocessor for cleaning/transforming XML
+ * @param parsedRoot - Optional pre-parsed root (see parseWorkbookXml); skips string parsing entirely
  * @returns Array of extracted dashboards
  */
 export function extractDashboardsFromXml(
     xml: string,
     workbookName: string,
-    preprocessor?: XmlPreprocessor
+    preprocessor?: XmlPreprocessor,
+    parsedRoot?: XmlNode
 ): ExtractedDashboard[] {
-    let processedXml = xml.trim();
-    if (!processedXml) {
-        return [];
-    }
-
-    // Apply preprocessing pipeline if provided
-    if (preprocessor) {
-        if (preprocessor.clean) {
-            processedXml = preprocessor.clean(processedXml);
-        }
-        if (preprocessor.resolveNames) {
-            processedXml = preprocessor.resolveNames(processedXml);
-        }
-    }
-
-    let parsed: unknown;
-    try {
-        const parser = new XMLParser(parserOptions);
-        parsed = parser.parse(processedXml);
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Failed to parse Tableau workbook XML: ${message}`);
-    }
-
-    const root = toNode(parsed);
+    const root = parsedRoot ?? parsePreprocessedXml(xml, preprocessor);
     if (!root) {
         return [];
     }
@@ -876,10 +805,14 @@ export function extractDashboardsFromXml(
     for (const dashboard of dashboardNodes) {
         const name = getString(dashboard, 'name') || 'Unknown Dashboard';
 
-        // Extract size
+        // Extract size (fixed sizes may use maxwidth/maxheight instead)
         const sizeNode = toNode(dashboard.size);
-        const width = sizeNode ? Number(getString(sizeNode, 'width')) : undefined;
-        const height = sizeNode ? Number(getString(sizeNode, 'height')) : undefined;
+        const width = sizeNode
+            ? firstFiniteNumber(getString(sizeNode, 'width'), getString(sizeNode, 'maxwidth'))
+            : undefined;
+        const height = sizeNode
+            ? firstFiniteNumber(getString(sizeNode, 'height'), getString(sizeNode, 'maxheight'))
+            : undefined;
 
         // Extract zones
         const zones: DashboardZone[] = [];
@@ -887,11 +820,18 @@ export function extractDashboardsFromXml(
             const zoneNodes = getChildNodes(node, 'zone');
             for (const zone of zoneNodes) {
                 const zoneName = getString(zone, 'name');
-                const zoneType = getString(zone, 'type') || 'unknown';
+                // Modern workbooks write the zone type to 'type-v2'
+                // (layout-basic, layout-flow, text, ...); worksheet zones
+                // carry a name but no type attribute at all.
+                const zoneType = getString(zone, 'type') || getString(zone, 'type-v2') || 'unknown';
                 const x = Number(getString(zone, 'x')) || 0;
                 const y = Number(getString(zone, 'y')) || 0;
                 const w = Number(getString(zone, 'w')) || 0;
                 const h = Number(getString(zone, 'h')) || 0;
+
+                // A named zone with no recognizable type is a worksheet zone.
+                const isWorksheetZone = zoneType === 'worksheet'
+                    || (Boolean(zoneName) && zoneType === 'unknown');
 
                 zones.push({
                     name: zoneName,
@@ -900,7 +840,7 @@ export function extractDashboardsFromXml(
                     y: y,
                     w: w,
                     h: h,
-                    worksheet: zoneType === 'worksheet' ? zoneName : undefined
+                    worksheet: isWorksheetZone ? zoneName : undefined
                 });
 
                 // Recursively extract nested zones
@@ -909,6 +849,11 @@ export function extractDashboardsFromXml(
         };
 
         extractZones(dashboard);
+        // Modern workbooks nest zones under a <zones> wrapper element.
+        const zonesWrapper = toNode(dashboard.zones);
+        if (zonesWrapper) {
+            extractZones(zonesWrapper);
+        }
 
         dashboards.push({
             workbook: workbookLabel,
@@ -928,38 +873,16 @@ export function extractDashboardsFromXml(
  * @param xml - The XML content to parse
  * @param workbookName - The name of the workbook file
  * @param preprocessor - Optional preprocessor for cleaning/transforming XML
+ * @param parsedRoot - Optional pre-parsed root (see parseWorkbookXml); skips string parsing entirely
  * @returns Array of extracted worksheets
  */
 export function extractWorksheetsFromXml(
     xml: string,
     workbookName: string,
-    preprocessor?: XmlPreprocessor
+    preprocessor?: XmlPreprocessor,
+    parsedRoot?: XmlNode
 ): ExtractedWorksheet[] {
-    let processedXml = xml.trim();
-    if (!processedXml) {
-        return [];
-    }
-
-    // Apply preprocessing pipeline if provided
-    if (preprocessor) {
-        if (preprocessor.clean) {
-            processedXml = preprocessor.clean(processedXml);
-        }
-        if (preprocessor.resolveNames) {
-            processedXml = preprocessor.resolveNames(processedXml);
-        }
-    }
-
-    let parsed: unknown;
-    try {
-        const parser = new XMLParser(parserOptions);
-        parsed = parser.parse(processedXml);
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Failed to parse Tableau workbook XML: ${message}`);
-    }
-
-    const root = toNode(parsed);
+    const root = parsedRoot ?? parsePreprocessedXml(xml, preprocessor);
     if (!root) {
         return [];
     }
@@ -1047,38 +970,16 @@ export function extractWorksheetsFromXml(
  * @param xml - The XML content to parse
  * @param workbookName - The name of the workbook file
  * @param preprocessor - Optional preprocessor for cleaning/transforming XML
+ * @param parsedRoot - Optional pre-parsed root (see parseWorkbookXml); skips string parsing entirely
  * @returns Array of extracted hierarchies
  */
 export function extractHierarchiesFromXml(
     xml: string,
     workbookName: string,
-    preprocessor?: XmlPreprocessor
+    preprocessor?: XmlPreprocessor,
+    parsedRoot?: XmlNode
 ): ExtractedHierarchy[] {
-    let processedXml = xml.trim();
-    if (!processedXml) {
-        return [];
-    }
-
-    // Apply preprocessing pipeline if provided
-    if (preprocessor) {
-        if (preprocessor.clean) {
-            processedXml = preprocessor.clean(processedXml);
-        }
-        if (preprocessor.resolveNames) {
-            processedXml = preprocessor.resolveNames(processedXml);
-        }
-    }
-
-    let parsed: unknown;
-    try {
-        const parser = new XMLParser(parserOptions);
-        parsed = parser.parse(processedXml);
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Failed to parse Tableau workbook XML: ${message}`);
-    }
-
-    const root = toNode(parsed);
+    const root = parsedRoot ?? parsePreprocessedXml(xml, preprocessor);
     if (!root) {
         return [];
     }
@@ -1169,38 +1070,16 @@ export function extractHierarchiesFromXml(
  * @param xml - The XML content to parse
  * @param workbookName - The name of the workbook file
  * @param preprocessor - Optional preprocessor for cleaning/transforming XML
+ * @param parsedRoot - Optional pre-parsed root (see parseWorkbookXml); skips string parsing entirely
  * @returns Array of extracted datasources with connection information
  */
 export function extractDatasourcesWithConnectionsFromXml(
     xml: string,
     workbookName: string,
-    preprocessor?: XmlPreprocessor
+    preprocessor?: XmlPreprocessor,
+    parsedRoot?: XmlNode
 ): ExtractedDatasource[] {
-    let processedXml = xml.trim();
-    if (!processedXml) {
-        return [];
-    }
-
-    // Apply preprocessing pipeline if provided
-    if (preprocessor) {
-        if (preprocessor.clean) {
-            processedXml = preprocessor.clean(processedXml);
-        }
-        if (preprocessor.resolveNames) {
-            processedXml = preprocessor.resolveNames(processedXml);
-        }
-    }
-
-    let parsed: unknown;
-    try {
-        const parser = new XMLParser(parserOptions);
-        parsed = parser.parse(processedXml);
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Failed to parse Tableau workbook XML: ${message}`);
-    }
-
-    const root = toNode(parsed);
+    const root = parsedRoot ?? parsePreprocessedXml(xml, preprocessor);
     if (!root) {
         return [];
     }
@@ -1263,4 +1142,115 @@ export function extractDatasourcesWithConnectionsFromXml(
     }
 
     return datasources;
+}
+
+/**
+ * Recursively collects nodes with a given tag name anywhere under a node.
+ * Mirrors collectColumnNodes: FCP-mangled wrappers can bury the target tag
+ * under unexpected intermediate elements, so walk everything.
+ */
+function collectNodesByKey(node: XmlNode, key: string, out: XmlNode[]): void {
+    for (const childKey of Object.keys(node)) {
+        const value = node[childKey];
+        if (childKey === key) {
+            out.push(...toNodeArray(value));
+            continue;
+        }
+        if (typeof value === 'object' && value !== null) {
+            for (const child of toNodeArray(value)) {
+                collectNodesByKey(child, key, out);
+            }
+        }
+    }
+}
+
+/**
+ * Extracts, per worksheet and datasource, the field names the worksheet
+ * references. Source: each <worksheet><table><view><datasource-dependencies
+ * datasource='DS'> block — field names come from its <column> children
+ * (caption > bracket-stripped name, same precedence as deriveColumnTitle)
+ * and from <column-instance column='[Field]'> attributes (the instance
+ * grammar '[agg:Field:nk]' lives in name=, while column= holds the plain
+ * field reference).
+ *
+ * @param xml - The XML content to parse
+ * @param preprocessor - Optional preprocessor for cleaning/transforming XML
+ * @param parsedRoot - Optional pre-parsed root (see parseWorkbookXml); skips string parsing entirely
+ * @returns One entry per worksheet + datasource pair, fields deduped
+ */
+export function extractWorksheetFieldUsage(
+    xml: string,
+    preprocessor?: XmlPreprocessor,
+    parsedRoot?: XmlNode
+): WorksheetFieldUsage[] {
+    const root = parsedRoot ?? parsePreprocessedXml(xml, preprocessor);
+    if (!root) {
+        return [];
+    }
+
+    const workbookNode = toNode(root.workbook) ?? toNode(root.Workbook) ?? root;
+
+    const usages: WorksheetFieldUsage[] = [];
+
+    const worksheetsContainer = toNode(workbookNode.worksheets) ?? toNode(workbookNode.Worksheets);
+    const worksheetNodes = getChildNodes(worksheetsContainer, 'worksheet');
+
+    for (const worksheet of worksheetNodes) {
+        const worksheetName = getString(worksheet, 'name') || 'Unknown Worksheet';
+
+        // FCP-tolerant: find dependency blocks anywhere under the worksheet
+        // rather than assuming the exact table/view nesting survived cleaning.
+        const depNodes: XmlNode[] = [];
+        collectNodesByKey(worksheet, 'datasource-dependencies', depNodes);
+
+        // One output entry per datasource, even when a datasource appears in
+        // several dependency blocks; fields deduped case-insensitively.
+        const byDatasource = new Map<string, { datasource: string; seen: Set<string>; fields: string[] }>();
+
+        for (const dep of depNodes) {
+            const datasource = stripBrackets(getString(dep, 'datasource')) || 'Unknown';
+            const dsKey = datasource.toLowerCase();
+            let existing = byDatasource.get(dsKey);
+            if (!existing) {
+                existing = { datasource, seen: new Set<string>(), fields: [] };
+                byDatasource.set(dsKey, existing);
+            }
+            const entry = existing;
+
+            const addField = (fieldName: string | undefined): void => {
+                if (!fieldName) {
+                    return;
+                }
+                const key = fieldName.toLowerCase();
+                if (entry.seen.has(key)) {
+                    return;
+                }
+                entry.seen.add(key);
+                entry.fields.push(fieldName);
+            };
+
+            for (const column of getChildNodes(dep, 'column')) {
+                // Same precedence as deriveColumnTitle, but skip anonymous columns
+                // instead of emitting its 'Unnamed Calculation' placeholder.
+                if (!getString(column, 'caption') && !getString(column, 'alias') && !getString(column, 'name')) {
+                    continue;
+                }
+                addField(deriveColumnTitle(column));
+            }
+
+            for (const instance of getChildNodes(dep, 'column-instance')) {
+                addField(stripBrackets(getString(instance, 'column')));
+            }
+        }
+
+        for (const entry of byDatasource.values()) {
+            usages.push({
+                worksheet: worksheetName,
+                datasource: entry.datasource,
+                fields: entry.fields
+            });
+        }
+    }
+
+    return usages;
 }

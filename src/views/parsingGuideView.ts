@@ -22,14 +22,25 @@ import { cleanXmlContent } from '../extract/xmlCleaner.js';
 import { resolveNames } from '../extract/nameResolver.js';
 import {
     extractCalcsFromXml,
+    extractDashboardsFromXml,
     extractDatasourcesWithConnectionsFromXml,
     extractFieldsFromXml,
-    extractWorksheetsFromXml
+    extractFiltersFromXml,
+    extractHierarchiesFromXml,
+    extractParametersFromXml,
+    extractWorksheetFieldUsage,
+    extractWorksheetsFromXml,
+    parseWorkbookXml
 } from '../extract/xml.js';
 import { filterAndDedupe, normalize, normalizeFormula } from '../extract/normalize.js';
 import { generateNotesFile } from '../extract/outputGenerator.js';
 import { extractFromFile } from '../extract/zip.js';
-import { ExtractedField } from '../extract/types.js';
+import {
+    ExtractedCalculation,
+    ExtractedField,
+    ExtractedParameter,
+    WorksheetFieldUsage
+} from '../extract/types.js';
 import { generateFieldDefsSection, upsertDatasourceSection } from '../extract/fieldDefsGenerator.js';
 import { getLogger } from '../logging/logger.js';
 import {
@@ -83,6 +94,357 @@ const SIDEBAR_COMMAND_ALLOWLIST: readonly string[] = [
 interface ThemeVaultTheme {
     name: string;
     palettes: PaletteDefinition[];
+}
+
+/** Per-calculation usage + lineage facts posted with 'workbookParsed'. */
+interface CalcUsageInfo {
+    /** Worksheets referencing the calculation directly, sorted. */
+    sheets: string[];
+    /** Calc/field/parameter captions the formula references. */
+    uses: string[];
+    /** Calculations whose formulas reference this one. */
+    usedBy: string[];
+    /** Not on any sheet and not referenced by any live calculation. */
+    unused: boolean;
+}
+
+/** 'workbookParsed' payload: RichWorkbookData plus usage/lineage extensions. */
+interface SidebarWorkbookPayload extends Omit<RichWorkbookData, 'calculations'> {
+    calculations: Array<RichWorkbookData['calculations'][number] & CalcUsageInfo>;
+    parameters: Array<{
+        name: string;
+        datatype: string;
+        value: string;
+        domainType: string;
+        minValue: string;
+        maxValue: string;
+        allowableValues: string[];
+    }>;
+    filters: Array<{ worksheet: string; field: string; filterClass: string }>;
+    dashboards: Array<{
+        name: string;
+        width?: number;
+        height?: number;
+        zoneCount: number;
+        worksheets: string[];
+    }>;
+    hierarchies: Array<{ name: string; fields: string[] }>;
+    /**
+     * False when no worksheet field-usage data could be extracted, so the
+     * webview knows the per-calc unused/sheet metadata carries no evidence
+     * and suppresses it.
+     */
+    usageDataAvailable: boolean;
+}
+
+// Captions are matched loosely across extractor outputs: brackets stripped,
+// trimmed, case-insensitive.
+function normalizeUsageKey(value: string): string {
+    return value.replace(/^\[|\]$/g, '').trim().toLowerCase();
+}
+
+// Single pass over the formula that blanks out string literals and both
+// comment forms, so bracket text inside them never looks like a reference
+// (mirrors the webview highlighter's stash precedence, minus HTML escaping).
+function stripCommentsAndStrings(formula: string): string {
+    // Tableau stores formulas in XML attributes with newlines encoded as
+    // numeric character references. Decode them first (same replace chain as
+    // normalizeFormula) so a '//' line comment ends at the real newline
+    // instead of swallowing the rest of the formula.
+    const decoded = formula
+        .replace(/&#13;/g, '\r')
+        .replace(/&#10;/g, '\n')
+        .replace(/&#xD;/gi, '\r')
+        .replace(/&#xA;/gi, '\n');
+    let out = '';
+    let i = 0;
+    const n = decoded.length;
+    while (i < n) {
+        const ch = decoded[i];
+        // Bracketed identifiers are opaque tokens with the highest scanning
+        // precedence (Tableau's lexer: ']]' escapes ']'). Copied through
+        // verbatim so quotes or '//' inside a field name never open a
+        // string or comment.
+        if (ch === '[') {
+            out += ch;
+            i += 1;
+            while (i < n) {
+                if (decoded[i] === ']') {
+                    if (decoded[i + 1] === ']') {
+                        out += ']]';
+                        i += 2;
+                        continue;
+                    }
+                    out += ']';
+                    i += 1;
+                    break;
+                }
+                out += decoded[i];
+                i += 1;
+            }
+            continue;
+        }
+        if (ch === '/' && decoded[i + 1] === '/') {
+            while (i < n && decoded[i] !== '\n') { i += 1; }
+            continue;
+        }
+        if (ch === '/' && decoded[i + 1] === '*') {
+            i += 2;
+            while (i < n && !(decoded[i] === '*' && decoded[i + 1] === '/')) { i += 1; }
+            i += 2;
+            continue;
+        }
+        if (ch === '"' || ch === '\'') {
+            const quote = ch;
+            i += 1;
+            while (i < n && decoded[i] !== quote) { i += 1; }
+            i += 1;
+            out += ' ';
+            continue;
+        }
+        out += ch;
+        i += 1;
+    }
+    return out;
+}
+
+// [Token] references in a formula, with [Parameters].[X] pulled out first so
+// the two-token parameter form doesn't also surface as a 'Parameters' ref.
+function collectFormulaRefs(formula: string): { refs: string[]; paramRefs: string[] } {
+    const stripped = stripCommentsAndStrings(formula);
+    const paramRefs: string[] = [];
+    const withoutParams = stripped.replace(
+        /\[Parameters\]\s*\.\s*\[([^\]]+)\]/gi,
+        (_match, name: string) => {
+            paramRefs.push(name);
+            return ' ';
+        }
+    );
+    const refs: string[] = [];
+    const pattern = /\[([^\]]+)\]/g;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(withoutParams)) !== null) {
+        refs.push(match[1]);
+    }
+    return { refs, paramRefs };
+}
+
+// Builds per-calculation usage facts: direct worksheet usage, a dependency
+// graph over calc/field/parameter references, and transitive liveness.
+// Everything is map-based — O(calcs × refs), no per-calc scans of the XML.
+function computeCalculationUsage(
+    calculations: ExtractedCalculation[],
+    fields: ExtractedField[],
+    parameters: ExtractedParameter[],
+    fieldUsage: WorksheetFieldUsage[]
+): CalcUsageInfo[] {
+    // Worksheet usage: (field name, datasource) -> set of worksheet names.
+    // Exact pair keys only — a caption-only, any-datasource fallback would
+    // borrow other datasources' sheets and suppress legitimate 'unused' flags.
+    const sheetsByNameAndDs = new Map<string, Set<string>>();
+    for (const usage of fieldUsage) {
+        const dsKey = normalizeUsageKey(usage.datasource);
+        for (const field of usage.fields) {
+            const nameKey = normalizeUsageKey(field);
+            const pairKey = `${nameKey}\u001f${dsKey}`;
+            let pair = sheetsByNameAndDs.get(pairKey);
+            if (!pair) {
+                pair = new Set<string>();
+                sheetsByNameAndDs.set(pairKey, pair);
+            }
+            pair.add(usage.worksheet);
+        }
+    }
+
+    // Reference resolution lookups. Precedence per token: same-datasource
+    // calc, then same-datasource field, then parameter, then — label only —
+    // a cross-datasource calc.
+    const calcIndicesByName = new Map<string, number[]>();
+    calculations.forEach((calc, index) => {
+        const key = normalizeUsageKey(calc.title);
+        const list = calcIndicesByName.get(key);
+        if (list) {
+            list.push(index);
+        } else {
+            calcIndicesByName.set(key, [index]);
+        }
+    });
+    const fieldLabelByNameAndDs = new Map<string, string>();
+    for (const field of fields) {
+        const display = field.caption ?? field.name;
+        const fieldDsKey = normalizeUsageKey(field.datasource);
+        for (const key of [normalizeUsageKey(display), normalizeUsageKey(field.name)]) {
+            const pairKey = `${key}\u001f${fieldDsKey}`;
+            if (!fieldLabelByNameAndDs.has(pairKey)) {
+                fieldLabelByNameAndDs.set(pairKey, display);
+            }
+        }
+    }
+    const paramLabelByKey = new Map<string, string>();
+    for (const parameter of parameters) {
+        const display = parameter.caption ?? parameter.name;
+        for (const key of [normalizeUsageKey(display), normalizeUsageKey(parameter.name)]) {
+            if (!paramLabelByKey.has(key)) {
+                paramLabelByKey.set(key, display);
+            }
+        }
+    }
+
+    const usesByIndex: string[][] = [];
+    const calcEdgesByIndex: number[][] = [];
+    const usedBySources: Array<Set<number>> = calculations.map(() => new Set<number>());
+
+    calculations.forEach((calc, index) => {
+        const uses: string[] = [];
+        const usesSeen = new Set<string>();
+        const addUse = (label: string): void => {
+            const key = normalizeUsageKey(label);
+            if (!usesSeen.has(key)) {
+                usesSeen.add(key);
+                uses.push(label);
+            }
+        };
+        const calcEdges: number[] = [];
+        const calcDsKey = normalizeUsageKey(calc.datasource);
+        const { refs, paramRefs } = collectFormulaRefs(calc.formula);
+        for (const ref of refs) {
+            const key = normalizeUsageKey(ref);
+            const candidates = calcIndicesByName.get(key);
+            // 1. Same-datasource calculation: full lineage + liveness edge.
+            const sameDs = candidates?.find(
+                candidate => normalizeUsageKey(calculations[candidate].datasource) === calcDsKey
+            );
+            if (sameDs !== undefined) {
+                if (sameDs !== index) {
+                    calcEdges.push(sameDs);
+                    addUse(calculations[sameDs].title);
+                    usedBySources[sameDs].add(index);
+                }
+                continue;
+            }
+            // 2. Field in the formula's own datasource.
+            const fieldLabel = fieldLabelByNameAndDs.get(`${key}\u001f${calcDsKey}`);
+            if (fieldLabel !== undefined) {
+                addUse(fieldLabel);
+                continue;
+            }
+            // 3. Parameter.
+            const paramLabel = paramLabelByKey.get(key);
+            if (paramLabel !== undefined) {
+                addUse(paramLabel);
+                continue;
+            }
+            // 4. Cross-datasource calc, last resort. A bare [X] reference
+            // cannot actually target another datasource, so record the label
+            // for the tooltip but create no liveness or usedBy edge.
+            if (candidates && candidates.length > 0 && candidates[0] !== index) {
+                addUse(calculations[candidates[0]].title);
+            }
+        }
+        for (const ref of paramRefs) {
+            // The [Parameters].[X] form is unambiguous even when X is not in
+            // the extracted parameter list, so keep the token itself then.
+            addUse(paramLabelByKey.get(normalizeUsageKey(ref)) ?? ref);
+        }
+        usesByIndex.push(uses);
+        calcEdgesByIndex.push(calcEdges);
+    });
+
+    // Direct sheet usage per calc: exact (caption, datasource) key only.
+    const sheetsByIndex: string[][] = calculations.map(calc => {
+        const nameKey = normalizeUsageKey(calc.title);
+        const set = sheetsByNameAndDs.get(`${nameKey}\u001f${normalizeUsageKey(calc.datasource)}`);
+        return set ? Array.from(set).sort((a, b) => a.localeCompare(b)) : [];
+    });
+
+    // Transitive liveness: live calcs are those on a sheet plus everything a
+    // live calc (transitively) references. The live set doubles as the
+    // visited set, so cyclic calc graphs terminate.
+    const live = new Set<number>();
+    const queue: number[] = [];
+    sheetsByIndex.forEach((sheets, index) => {
+        if (sheets.length > 0) {
+            live.add(index);
+            queue.push(index);
+        }
+    });
+    while (queue.length > 0) {
+        const current = queue.pop() as number;
+        for (const dependency of calcEdgesByIndex[current]) {
+            if (!live.has(dependency)) {
+                live.add(dependency);
+                queue.push(dependency);
+            }
+        }
+    }
+
+    // With no worksheet usage data at all (calc-only workbook, or the
+    // dependency blocks did not survive cleaning/resolution) the liveness
+    // seed is empty and 'unused' would be pure noise — flag nothing then.
+    const usageDataAvailable = fieldUsage.length > 0;
+
+    return calculations.map((_calc, index) => ({
+        sheets: sheetsByIndex[index],
+        uses: usesByIndex[index],
+        usedBy: Array.from(new Set(
+            Array.from(usedBySources[index]).map(source => calculations[source].title)
+        )),
+        unused: usageDataAvailable ? !live.has(index) : false
+    }));
+}
+
+// Human-readable field label from a filter's column reference, e.g.
+// "[federated.x].[none:Category:nk]" -> "Category". Raw internal calc IDs
+// survive name resolution in the '[none:Calculation_N:nk]' column form
+// (resolveNames' reference map skips bracketed column names), so tokens of
+// that shape are resolved against the internal-name -> caption map here.
+function filterFieldLabel(column: string, calcCaptions?: Map<string, string>): string {
+    const groups: string[] = [];
+    const pattern = /\[([^\]]+)\]/g;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(column)) !== null) {
+        groups.push(match[1]);
+    }
+    let label = groups.length > 0 ? groups[groups.length - 1] : column;
+    const parts = label.split(':');
+    if (parts.length >= 3) {
+        label = parts.slice(1, -1).join(':');
+    } else if (label.startsWith(':')) {
+        // Internal refs like ':Measure Names' carry a bare leading colon.
+        label = label.slice(1);
+    }
+    if (calcCaptions && /^Calculation_[\d-]+$/.test(label)) {
+        label = calcCaptions.get(label) ?? label;
+    }
+    return label;
+}
+
+// Internal 'Calculation_<id>' name -> user caption, scraped from the cleaned
+// but still UNRESOLVED workbook XML (after resolveNames the internal names
+// are gone from column declarations). Matches <column> tags with name and
+// caption in either attribute order and either quote style.
+function buildCalcCaptionMap(cleanedXml: string): Map<string, string> {
+    const captionByInternalName = new Map<string, string>();
+    const decodeEntities = (value: string): string => value
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, '\'')
+        .replace(/&amp;/g, '&');
+    const nameFirst = /<column\s[^>]*?\bname=(["'])\[?(Calculation_[\d-]+)\]?\1[^>]*?\bcaption=(["'])([^>]*?)\3/g;
+    const captionFirst = /<column\s[^>]*?\bcaption=(["'])([^>]*?)\1[^>]*?\bname=(["'])\[?(Calculation_[\d-]+)\]?\3/g;
+    let match: RegExpExecArray | null;
+    while ((match = nameFirst.exec(cleanedXml)) !== null) {
+        if (!captionByInternalName.has(match[2])) {
+            captionByInternalName.set(match[2], decodeEntities(match[4]));
+        }
+    }
+    while ((match = captionFirst.exec(cleanedXml)) !== null) {
+        if (!captionByInternalName.has(match[4])) {
+            captionByInternalName.set(match[4], decodeEntities(match[2]));
+        }
+    }
+    return captionByInternalName;
 }
 
 export const PARSING_GUIDE_VIEW_ID = 'tableauLanguageSupport.parsingGuide';
@@ -975,14 +1337,24 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             const cleaned = cleanXmlContent(xml);
             const resolved = resolveNames(cleaned);
 
-            // Extract all data
-            const calculations = extractCalcsFromXml(resolved, fileName);
-            const datasourcesRaw = extractDatasourcesWithConnectionsFromXml(resolved, fileName);
+            // Extract all data. The resolved XML is parsed exactly once and
+            // the root shared across extractors — re-parsing the multi-MB
+            // document per extractor dominated sidebar refresh time.
+            const workbookRoot = parseWorkbookXml(resolved);
+            const calculations = extractCalcsFromXml(resolved, fileName, undefined, workbookRoot);
+            const datasourcesRaw = extractDatasourcesWithConnectionsFromXml(resolved, fileName, undefined, workbookRoot);
             // Field extraction must use the cleaned, unresolved datasource
             // metadata. resolveNames rewrites internal names to captions and
             // can turn one physical column into two apparent fields.
             const fields = extractFieldsFromXml(cleaned, fileName);
-            const worksheets = extractWorksheetsFromXml(resolved, fileName);
+            const worksheets = extractWorksheetsFromXml(resolved, fileName, undefined, workbookRoot);
+            const fieldUsage = extractWorksheetFieldUsage(resolved, undefined, workbookRoot);
+            const parametersRaw = extractParametersFromXml(resolved, fileName, undefined, workbookRoot);
+            const filtersRaw = extractFiltersFromXml(resolved, fileName, undefined, workbookRoot);
+            const dashboardsRaw = extractDashboardsFromXml(resolved, fileName, undefined, workbookRoot);
+            const hierarchiesRaw = extractHierarchiesFromXml(resolved, fileName, undefined, workbookRoot);
+            const calcUsage = computeCalculationUsage(calculations, fields, parametersRaw, fieldUsage);
+            const calcCaptionsByInternalName = buildCalcCaptionMap(cleaned);
 
             // Parse custom palettes directly from the XML we already have
             // (avoids a second file read via TWBParser).
@@ -1005,7 +1377,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 : fileName;
             this.lastExtractedWorkbookUri = uri.toString();
 
-            const richData: RichWorkbookData = {
+            const richData: SidebarWorkbookPayload = {
                 fileName,
                 filePath: uri.fsPath,
                 tableauVersion,
@@ -1038,18 +1410,59 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                         fields: dsFields
                     };
                 }),
-                calculations: calculations.map(c => ({
+                calculations: calculations.map((c, index) => ({
                     caption: c.title,
                     datatype: c.datatype ?? '',
                     formula: normalizeFormula(c.formula),
-                    datasource: c.datasource
+                    datasource: c.datasource,
+                    sheets: calcUsage[index].sheets,
+                    uses: calcUsage[index].uses,
+                    usedBy: calcUsage[index].usedBy,
+                    unused: calcUsage[index].unused
                 })),
                 fields: fields.map(f => ({
                     name: f.caption ?? f.name,
                     datatype: f.datatype ?? ''
                 })),
                 worksheets: worksheets.map(w => w.name),
-                palettes
+                palettes,
+                parameters: parametersRaw.map(p => ({
+                    name: p.caption ?? p.name,
+                    datatype: p.datatype ?? '',
+                    value: p.value ?? '',
+                    domainType: p.domainType ?? '',
+                    minValue: p.minValue ?? '',
+                    maxValue: p.maxValue ?? '',
+                    allowableValues: (p.allowableValues ?? []).slice(0, 12)
+                })),
+                filters: filtersRaw.map(f => ({
+                    worksheet: f.worksheet,
+                    field: filterFieldLabel(f.column, calcCaptionsByInternalName),
+                    filterClass: f.class
+                })),
+                dashboards: dashboardsRaw.map(d => {
+                    const zones = d.zones ?? [];
+                    const seenZoneSheets = new Set<string>();
+                    const zoneSheets: string[] = [];
+                    for (const zone of zones) {
+                        if (zone.worksheet && !seenZoneSheets.has(zone.worksheet)) {
+                            seenZoneSheets.add(zone.worksheet);
+                            zoneSheets.push(zone.worksheet);
+                        }
+                    }
+                    return {
+                        name: d.name,
+                        width: Number.isFinite(d.width) ? d.width : undefined,
+                        height: Number.isFinite(d.height) ? d.height : undefined,
+                        zoneCount: zones.length,
+                        worksheets: zoneSheets
+                    };
+                }),
+                hierarchies: hierarchiesRaw.map(h => ({
+                    name: h.caption ?? h.name,
+                    fields: h.fields
+                })),
+                usageDataAvailable: fieldUsage.length > 0
             };
 
             const posted = await this.view.webview.postMessage({
@@ -2240,6 +2653,17 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
           margin-left: 6px; flex-shrink: 0; text-transform: uppercase;
           letter-spacing: 0.03em;
         }
+        /* Calc usage meta: sheet count, or 'unused' warning pill */
+        .tree-item .ti-usage {
+          font-size: 10px; color: var(--vscode-descriptionForeground);
+          margin-left: 6px; flex-shrink: 0; white-space: nowrap;
+        }
+        .tree-item .ti-unused {
+          font-size: 10px; color: var(--vscode-editorWarning-foreground);
+          border: 1px solid var(--vscode-editorWarning-foreground);
+          border-radius: 7px; padding: 0 5px; line-height: 14px;
+          margin-left: 6px; flex-shrink: 0; white-space: nowrap;
+        }
         .tree-item .ti-actions {
           display: flex; gap: 0; margin-right: 2px; opacity: 0; flex-shrink: 0;
         }
@@ -2854,6 +3278,46 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
     <div class="sb" id="calc-portfolio-sb">
       <div style="padding:6px 8px 2px;font-size:11px;color:var(--vscode-descriptionForeground)">Stock examples — click to insert at the cursor, hover to preview.</div>
       <div id="calc-portfolio-list"><div style="padding:8px;font-size:11px;color:var(--vscode-descriptionForeground)">Loading examples…</div></div>
+    </div>
+
+    <!-- ====== PARAMETERS ====== -->
+    <div class="sh c">
+      <span class="cv"><svg class="ic" style="width:10px;height:10px"><use href="#i-chev-d"/></svg></span>
+      Parameters
+      <span class="bg" id="wb-params-badge">0</span>
+    </div>
+    <div class="sb c">
+      <div id="wb-params-content"><div class="sub-empty">No parameters found.</div></div>
+    </div>
+
+    <!-- ====== SHEET FILTERS ====== -->
+    <div class="sh c">
+      <span class="cv"><svg class="ic" style="width:10px;height:10px"><use href="#i-chev-d"/></svg></span>
+      Sheet Filters
+      <span class="bg" id="wb-filters-badge">0</span>
+    </div>
+    <div class="sb c">
+      <div id="wb-filters-content"><div class="sub-empty">No sheet filters found.</div></div>
+    </div>
+
+    <!-- ====== DASHBOARDS ====== -->
+    <div class="sh c">
+      <span class="cv"><svg class="ic" style="width:10px;height:10px"><use href="#i-chev-d"/></svg></span>
+      Dashboards
+      <span class="bg" id="wb-dashboards-badge">0</span>
+    </div>
+    <div class="sb c">
+      <div id="wb-dashboards-content"><div class="sub-empty">No dashboards found.</div></div>
+    </div>
+
+    <!-- ====== HIERARCHIES ====== -->
+    <div class="sh c">
+      <span class="cv"><svg class="ic" style="width:10px;height:10px"><use href="#i-chev-d"/></svg></span>
+      Hierarchies
+      <span class="bg" id="wb-hierarchies-badge">0</span>
+    </div>
+    <div class="sb c">
+      <div id="wb-hierarchies-content"><div class="sub-empty">No hierarchies found.</div></div>
     </div>
 
     <!-- ====== COMMANDS & REFERENCE ====== -->

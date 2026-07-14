@@ -2,6 +2,22 @@
 
 All notable changes to the "tableau-language-support" extension will be documented in this file.
 
+## [1.11.0] - 2026-07-14
+
+### Added
+
+- **Field-usage analysis** — every calculated field in the workbook inspector now shows how many worksheets use it, and calculations unused by any worksheet or live calculation get an "unused" badge (suppressed when the workbook has no worksheets to judge by). The formula hover shows the calc's lineage: the sheets it appears on, the fields/calcs/parameters it uses, and the calcs that use it.
+- **Four new sidebar sections** surfacing data the extension already parsed: Parameters (with current values and domains), Sheet Filters (grouped per worksheet, calc references resolved to captions), Dashboards (size and expandable worksheet-zone lists), and Hierarchies.
+
+### Changed
+
+- Extension keyboard shortcuts no longer override core VS Code chords (`Ctrl+Shift+L` select-all-occurrences, `Ctrl+Shift+V`, `Ctrl+Shift+I`, `Ctrl+Shift+C`, `Ctrl+Shift+H`, `Ctrl+Shift+R`). All six moved to `Ctrl+Alt+T` two-step chords (e.g. `Ctrl+Alt+T L` inserts an LOD expression); `Ctrl+/` comment toggling is unchanged.
+
+### Fixed
+
+- Dashboard zone extraction understands the modern `type-v2` zone format, so dashboards no longer report zero zones.
+- Sidebar workbook parsing runs one XML parse instead of one per extractor.
+
 ## [1.10.0] - 2026-07-14
 
 ### Added

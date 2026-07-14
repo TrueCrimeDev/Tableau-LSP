@@ -2,7 +2,7 @@
   "name": "tableau-language-support",
   "displayName": "Tableau Language Support",
   "description": "Complete language support for Tableau calculation language with syntax highlighting, IntelliSense, validation, formatting, 100+ snippets, keyboard shortcuts, and advanced analytics patterns",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "publisher": "TrueCrimeAudit",
   "icon": "images/tableau-icon.png",
   "license": "MIT",
@@ -570,32 +570,27 @@
     "keybindings": [
       {
         "command": "tableau-language-support.validateExpression",
-        "key": "ctrl+shift+v",
-        "mac": "cmd+shift+v",
+        "key": "ctrl+alt+t v",
         "when": "editorTextFocus && resourceExtname == .twbl"
       },
       {
         "command": "tableau-language-support.insertIfStatement",
-        "key": "ctrl+shift+i",
-        "mac": "cmd+shift+i",
+        "key": "ctrl+alt+t i",
         "when": "editorTextFocus && resourceExtname == .twbl"
       },
       {
         "command": "tableau-language-support.insertCaseStatement",
-        "key": "ctrl+shift+c",
-        "mac": "cmd+shift+c",
+        "key": "ctrl+alt+t c",
         "when": "editorTextFocus && resourceExtname == .twbl"
       },
       {
         "command": "tableau-language-support.insertLodExpression",
-        "key": "ctrl+shift+l",
-        "mac": "cmd+shift+l",
+        "key": "ctrl+alt+t l",
         "when": "editorTextFocus && resourceExtname == .twbl"
       },
       {
         "command": "tableau-language-support.showFunctionHelp",
-        "key": "ctrl+shift+h",
-        "mac": "cmd+shift+h",
+        "key": "ctrl+alt+t h",
         "when": "editorTextFocus && resourceExtname == .twbl"
       },
       {
@@ -606,8 +601,7 @@
       },
       {
         "command": "tableau-language-support.lsp.restart",
-        "key": "ctrl+shift+r",
-        "mac": "cmd+shift+r",
+        "key": "ctrl+alt+t r",
         "when": "editorTextFocus && resourceExtname == .twbl"
       },
       {
