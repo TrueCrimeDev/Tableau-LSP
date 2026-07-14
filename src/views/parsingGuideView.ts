@@ -95,6 +95,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
     private lastExtractedFields: ExtractedField[] = [];
     private lastWorkbookIdentity = '';
     private lastExtractedWorkbookUri: string | undefined;
+    private calcBankWatchers: vscode.Disposable[] = [];
 
     public constructor(private readonly context: vscode.ExtensionContext) {
         context.globalState.setKeysForSync([COMMON_CALCULATIONS_STATE_KEY]);
@@ -113,7 +114,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 return;
             }
 
-            const payload = message as { type?: string; palettes?: unknown; palette?: unknown; paletteName?: unknown; path?: string; formula?: string; options?: unknown; edits?: unknown; mode?: string; json?: string; element?: string; calculation?: unknown; commonCalculation?: unknown; commonCalculationName?: unknown; relaunch?: boolean; commandId?: unknown; themeName?: unknown; };
+            const payload = message as { type?: string; palettes?: unknown; palette?: unknown; paletteName?: unknown; path?: string; formula?: string; title?: string; options?: unknown; edits?: unknown; mode?: string; json?: string; element?: string; calculation?: unknown; commonCalculation?: unknown; commonCalculationName?: unknown; relaunch?: boolean; commandId?: unknown; themeName?: unknown; index?: unknown; };
             switch (payload.type) {
                 case 'openPreferencesTemplate':
                     void this.openPreferencesTemplate();
@@ -254,6 +255,27 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                         void this.removeCalcBankFile(payload.path);
                     }
                     break;
+                case 'addCalcToBank':
+                    void this.addCalcToBank(
+                        typeof payload.title === 'string' ? payload.title : '',
+                        typeof payload.formula === 'string' ? payload.formula : ''
+                    );
+                    break;
+                case 'openCalcBankEntry':
+                    if (typeof payload.path === 'string') {
+                        void this.openCalcBankEntry(
+                            payload.path,
+                            typeof payload.title === 'string' ? payload.title : '',
+                            typeof payload.index === 'number' && Number.isInteger(payload.index) ? payload.index : undefined
+                        );
+                    }
+                    break;
+                case 'addBankCalcToWorkbook':
+                    void this.addBankCalcToWorkbook(
+                        typeof payload.title === 'string' ? payload.title : '',
+                        typeof payload.formula === 'string' ? payload.formula : ''
+                    );
+                    break;
                 case 'requestCalcPortfolio':
                     void this.postCalcPortfolio();
                     break;
@@ -368,9 +390,16 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
 
         void this.scanWorkbookFormatting();
 
+        this.rebuildCalcBankWatchers();
+
         view.onDidDispose(() => {
+            // A stale view's dispose can fire after a successor view resolved
+            // (webview moved between containers) — only the live view may tear
+            // down state, or it would kill the successor's watchers.
             if (this.view === view) {
                 this.view = undefined;
+                for (const watcher of this.calcBankWatchers) { watcher.dispose(); }
+                this.calcBankWatchers = [];
             }
         });
     }
@@ -1072,6 +1101,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             if (!files.includes(uri.fsPath)) { files.push(uri.fsPath); }
         }
         await this.context.globalState.update(CALC_BANK_FILES_KEY, files);
+        this.rebuildCalcBankWatchers();
         await this.postCalcBankData();
     }
 
@@ -1079,7 +1109,246 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         if (!path) { return; }
         const files = this.getStoredCalcBankFiles().filter(file => file !== path);
         await this.context.globalState.update(CALC_BANK_FILES_KEY, files);
+        this.rebuildCalcBankWatchers();
         await this.postCalcBankData();
+    }
+
+    // Watches every configured bank file so external edits refresh the sidebar.
+    // Watchers are rebuilt whenever the configured list changes, so they are
+    // disposed here (and when the view is disposed) rather than parked on
+    // context.subscriptions, which would leak the stale ones.
+    private rebuildCalcBankWatchers(): void {
+        for (const watcher of this.calcBankWatchers) { watcher.dispose(); }
+        this.calcBankWatchers = [];
+        for (const uri of this.getCalcBankUris()) {
+            const watcher = vscode.workspace.createFileSystemWatcher(
+                new vscode.RelativePattern(vscode.Uri.file(dirname(uri.fsPath)), basename(uri.fsPath))
+            );
+            watcher.onDidChange(() => { void this.postCalcBankData(); });
+            watcher.onDidCreate(() => { void this.postCalcBankData(); });
+            watcher.onDidDelete(() => { void this.postCalcBankData(); });
+            this.calcBankWatchers.push(watcher);
+        }
+    }
+
+    // Bank status that still reaches the user when the sidebar webview is
+    // closed (the editor command runs without it): falls back to a toast.
+    private async notifyBank(message: string, tone: 'success' | 'error' | 'info'): Promise<void> {
+        if (this.view) {
+            await this.postStatus(message, tone);
+            return;
+        }
+        if (tone === 'error') {
+            void vscode.window.showWarningMessage(message);
+        } else {
+            void vscode.window.showInformationMessage(message);
+        }
+    }
+
+    // Chooses (or creates) the bank file that add-to-bank writes into.
+    // A single configured file is used directly; several prompt a pick; none
+    // falls back to the visible legacy workspace bank before offering a save
+    // dialog ("Add new bank file…" also lands there) and stores the choice.
+    private async pickCalcBankTarget(): Promise<{ uri: vscode.Uri; created: boolean } | undefined> {
+        const stored = this.getStoredCalcBankFiles();
+        if (stored.length === 0) {
+            // The sidebar shows <workspaceRoot>/_calc_bank.twbl when nothing is
+            // configured — additions must land in that visible bank, not a new
+            // file that would silently replace it as the fallback.
+            const folders = vscode.workspace.workspaceFolders;
+            if (folders && folders.length > 0) {
+                const legacy = vscode.Uri.joinPath(folders[0].uri, '_calc_bank.twbl');
+                try {
+                    await vscode.workspace.fs.stat(legacy);
+                    return { uri: legacy, created: false };
+                } catch {
+                    // no legacy bank — fall through to the save dialog
+                }
+            }
+        }
+        if (stored.length === 1) {
+            return { uri: vscode.Uri.file(stored[0]), created: false };
+        }
+        if (stored.length > 1) {
+            const addNewItem = { label: 'Add new bank file…', description: '' };
+            const picked = await vscode.window.showQuickPick(
+                [...stored.map(path => ({ label: basename(path), description: path })), addNewItem],
+                { placeHolder: 'Add the calculation to which bank file?' }
+            );
+            if (!picked) { return undefined; }
+            if (picked !== addNewItem) {
+                return { uri: vscode.Uri.file(picked.description), created: false };
+            }
+        }
+        const folders = vscode.workspace.workspaceFolders;
+        const chosen = await vscode.window.showSaveDialog({
+            filters: { 'Tableau calculations': ['twbl'] },
+            defaultUri: folders && folders.length > 0
+                ? vscode.Uri.joinPath(folders[0].uri, 'bank.twbl')
+                : undefined,
+            saveLabel: 'Add to Calc Bank'
+        });
+        if (!chosen) { return undefined; }
+        const files = this.getStoredCalcBankFiles();
+        if (!files.includes(chosen.fsPath)) { files.push(chosen.fsPath); }
+        await this.context.globalState.update(CALC_BANK_FILES_KEY, files);
+        return { uri: chosen, created: true };
+    }
+
+    // Appends "// Title\n<formula>\n" to a bank file, keeping exactly one
+    // blank line between blocks so parseCalcBankText reads it back cleanly.
+    // Blank lines are the format's block separator and newlines in a title
+    // would fabricate extra headers, so both are collapsed before writing.
+    private async addCalcToBank(rawTitle: string, rawFormula: string): Promise<void> {
+        const formula = rawFormula.trim().replace(/\n[ \t]*\n+/g, '\n');
+        if (!formula) {
+            await this.notifyBank('Cannot add an empty formula to the Calc Bank.', 'error');
+            return;
+        }
+        const title = rawTitle.replace(/[\r\n]+/g, ' ').trim();
+        if (!title) {
+            await this.notifyBank('Calc Bank entries need a title.', 'error');
+            return;
+        }
+        const target = await this.pickCalcBankTarget();
+        if (!target) { return; }
+        let existing = '';
+        try {
+            existing = new TextDecoder('utf-8').decode(await vscode.workspace.fs.readFile(target.uri));
+        } catch (error: unknown) {
+            // Only a missing file may start a new bank. Treating a transient
+            // read failure (lock, permissions) as empty would make the write
+            // below replace the whole bank with this single entry.
+            if (!(error instanceof vscode.FileSystemError) || error.code !== 'FileNotFound') {
+                const message = error instanceof Error ? error.message : String(error);
+                await this.notifyBank(`Cannot read ${basename(target.uri.fsPath)}: ${message}`, 'error');
+                return;
+            }
+        }
+        const trimmed = existing.replace(/\s+$/, '');
+        const content = (trimmed ? trimmed + '\n\n' : '') + '// ' + title + '\n' + formula + '\n';
+        await vscode.workspace.fs.writeFile(target.uri, Buffer.from(content, 'utf-8'));
+        if (target.created) { this.rebuildCalcBankWatchers(); }
+        await this.notifyBank(`Added “${title}” to ${basename(target.uri.fsPath)}.`, 'success');
+        await this.postCalcBankData();
+    }
+
+    // "Add Selection to Calc Bank" editor command. A leading "// Title" line
+    // in the selection names the entry (and is stripped from the body so the
+    // bank block doesn't double it); otherwise the user is prompted.
+    public async addSelectionToCalcBank(): Promise<void> {
+        const editor = vscode.window.activeTextEditor;
+        const selected = editor && !editor.selection.isEmpty
+            ? editor.document.getText(editor.selection).trim()
+            : '';
+        if (!selected) {
+            void vscode.window.showWarningMessage('Select a calculation to add to the Calc Bank.');
+            return;
+        }
+        let title = '';
+        let formula = selected;
+        const lines = selected.split('\n');
+        const headerMatch = /^\/\/\s*(.+)$/.exec(lines[0].trim());
+        if (headerMatch) {
+            title = headerMatch[1].trim();
+            formula = lines.slice(1).join('\n').trim();
+        }
+        if (!title) {
+            const input = await vscode.window.showInputBox({
+                prompt: 'Title for the Calc Bank entry',
+                validateInput: value => (value.trim() ? undefined : 'Title cannot be empty.')
+            });
+            if (input === undefined) { return; }
+            title = input.trim();
+        }
+        await this.addCalcToBank(title, formula);
+    }
+
+    // Opens a bank file in an editor and jumps to the clicked entry's
+    // "// Title" header. Headers are recognised the way parseCalcBankText
+    // does — the first line of a blank-line-separated block — so duplicate
+    // titles and comment lines inside formula bodies never mislead the jump:
+    // the webview-supplied entry index selects the Nth header, with the
+    // title used only as a fallback when no index arrives.
+    private async openCalcBankEntry(path: string, title: string, index?: number): Promise<void> {
+        // Only paths the bank actually shows may be opened — the webview is
+        // not trusted to name arbitrary files.
+        if (!this.getCalcBankUris().some(uri => uri.fsPath === path)) {
+            await this.postStatus('That file is not in the Calc Bank.', 'error');
+            return;
+        }
+        try {
+            const document = await vscode.workspace.openTextDocument(vscode.Uri.file(path));
+            const editor = await vscode.window.showTextDocument(document);
+            const wanted = title.trim();
+            if (!wanted && index === undefined) { return; }
+            let ordinal = -1;
+            let atBlockStart = true;
+            for (let line = 0; line < document.lineCount; line++) {
+                const raw = document.lineAt(line).text;
+                if (!raw.trim()) { atBlockStart = true; continue; }
+                const isHeader = atBlockStart;
+                atBlockStart = false;
+                if (!isHeader) { continue; }
+                const text = raw.trim();
+                if (!text.startsWith('//')) { continue; }
+                const headerTitle = text.replace(/^\/\/\s*/, '').trim();
+                if (!headerTitle) { continue; }
+                ordinal++;
+                const hit = index !== undefined ? ordinal === index : headerTitle === wanted;
+                if (hit) {
+                    const position = new vscode.Position(line, 0);
+                    editor.selection = new vscode.Selection(position, position);
+                    editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+                    break;
+                }
+            }
+        } catch {
+            await this.postStatus(`Cannot open ${path}.`, 'error');
+        }
+    }
+
+    // Bank → workbook direct add. Delegates to addWorkbookCalculation so the
+    // validation/backup/verification pipeline matches the manual form exactly;
+    // the datasource defaults to the workbook's first non-Parameters
+    // datasource and the datatype to 'string' (the form's default selection).
+    private async addBankCalcToWorkbook(rawTitle: string, rawFormula: string): Promise<void> {
+        if (!this.view) { return; }
+        const caption = rawTitle.trim();
+        const formula = rawFormula.trim();
+        if (!caption || !formula) {
+            await this.view.webview.postMessage({
+                type: 'calculationMutationResult',
+                success: false,
+                message: 'The bank entry needs both a title and a formula.',
+                source: 'bank'
+            });
+            return;
+        }
+        let datasource = '';
+        try {
+            const xml = await this.getActiveWorkbookXml();
+            if (xml) {
+                const resolved = resolveNames(cleanXmlContent(xml));
+                const fileName = this.lastWorkbookUri ? basename(this.lastWorkbookUri.fsPath) : '';
+                const match = extractDatasourcesWithConnectionsFromXml(resolved, fileName)
+                    .map(ds => ds.caption ?? ds.name)
+                    .find(label => Boolean(label) && label.toLowerCase() !== 'parameters');
+                datasource = match ?? '';
+            }
+        } catch {
+            datasource = '';
+        }
+        if (!datasource) {
+            await this.view.webview.postMessage({
+                type: 'calculationMutationResult',
+                success: false,
+                message: 'No datasource found. Open a plain .twb workbook first.',
+                source: 'bank'
+            });
+            return;
+        }
+        await this.addWorkbookCalculation({ datasource, caption, formula, datatype: 'string' }, false, 'bank');
     }
 
     // Read+parse one bank file; an unreadable file yields an error entry instead of throwing.
@@ -1321,14 +1590,15 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private async addWorkbookCalculation(rawCalculation: unknown, relaunch = false): Promise<void> {
+    private async addWorkbookCalculation(rawCalculation: unknown, relaunch = false, source: 'form' | 'bank' = 'form'): Promise<void> {
         if (!this.view) { return; }
         const uri = this.lastWorkbookUri;
         if (!uri || !uri.path.toLowerCase().endsWith('.twb')) {
             await this.view.webview.postMessage({
                 type: 'calculationMutationResult',
                 success: false,
-                message: 'Open a plain .twb workbook before adding a calculation.'
+                message: 'Open a plain .twb workbook before adding a calculation.',
+                source
             });
             return;
         }
@@ -1337,7 +1607,8 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             await this.view.webview.postMessage({
                 type: 'calculationMutationResult',
                 success: false,
-                message: 'Provide a datasource, field name, formula, and result datatype.'
+                message: 'Provide a datasource, field name, formula, and result datatype.',
+                source
             });
             return;
         }
@@ -1353,7 +1624,8 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 success: true,
                 message: `${receipt.calculation.action === 'added' ? 'Added' : 'Updated'} ` +
                     `“${receipt.calculation.caption}” and verified the workbook.` +
-                    `${launchMessage} Backup: ${receipt.backup.fsPath}`
+                    `${launchMessage} Backup: ${receipt.backup.fsPath}`,
+                source
             });
             await this.postWorkbookData();
         } catch (error) {
@@ -1361,7 +1633,8 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             await this.view.webview.postMessage({
                 type: 'calculationMutationResult',
                 success: false,
-                message
+                message,
+                source
             });
         }
     }
@@ -1645,6 +1918,9 @@ export function registerParsingGuideView(context: vscode.ExtensionContext): void
     const provider = new ParsingGuideViewProvider(context);
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(PARSING_GUIDE_VIEW_ID, provider)
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand('tableau-language-support.addSelectionToCalcBank', () => provider.addSelectionToCalcBank())
     );
 }
 

@@ -1370,6 +1370,19 @@ if (requiredElements.some((element) => !element)) {
           formula: calc.formula || '',
         })
         setStatus('Inserted formula “' + (calc.caption || 'Unnamed') + '”', 'success')
+      } else if (action === 'addToBank') {
+        if (!data.calculations) {
+          return
+        }
+        const calc = data.calculations[idx]
+        if (!calc) {
+          return
+        }
+        vscode.postMessage({
+          type: 'addCalcToBank',
+          title: calc.caption || 'Unnamed',
+          formula: calc.formula || '',
+        })
       }
     })
   }
@@ -1863,7 +1876,9 @@ window.addEventListener('message', (event) => {
       list.innerHTML = state.calcBankFiles
         .map(function (f, fi) {
           const header =
-            '<div class="ri" title="' +
+            '<div class="ri" data-bank-path="' +
+            escapeHtml(f.path) +
+            '" title="' +
             escapeHtml(f.path) +
             '">' +
             '<svg class="ic" style="flex-shrink:0;margin-right:4px"><use href="#i-load"/></svg>' +
@@ -1893,7 +1908,7 @@ window.addEventListener('message', (event) => {
                 fi +
                 '" data-index="' +
                 ci +
-                '">' +
+                '" title="Click to open in editor">' +
                 '<span class="ti-icon"><svg class="ic"><use href="#i-fx"/></svg></span>' +
                 '<span class="ti-label">' +
                 escapeHtml(c.title) +
@@ -1909,6 +1924,11 @@ window.addEventListener('message', (event) => {
                 '" data-index="' +
                 ci +
                 '" title="Insert into active file"><svg class="ic"><use href="#i-arrow"/></svg></button>' +
+                '<button class="ib" data-action="bank-add-to-workbook" data-file="' +
+                fi +
+                '" data-index="' +
+                ci +
+                '" title="Add to Workbook"><svg class="ic"><use href="#i-plus"/></svg></button>' +
                 '</div>' +
                 '</div>'
               )
@@ -1933,7 +1953,9 @@ window.addEventListener('message', (event) => {
     if (message.type === 'calculationMutationResult') {
       const tone = message.tone || (message.success === true ? 'success' : message.success === false ? 'error' : 'info')
       setCalculationMutationStatus(message.message || 'Workbook calculation update complete.', tone)
-      if (tone === 'success') {
+      // Bank-triggered adds share this handler but must not wipe whatever the
+      // user has typed into the manual form.
+      if (tone === 'success' && message.source !== 'bank') {
         const name = document.getElementById('wb-calc-name')
         const formula = document.getElementById('wb-calc-formula')
         if (name instanceof HTMLInputElement) { name.value = '' }
@@ -2056,7 +2078,28 @@ document.addEventListener('click', function (event) {
   if (calcBankSb) {
     calcBankSb.addEventListener('click', function (event) {
       const button = event.target.closest('[data-action]')
-      if (!button || !(button instanceof HTMLElement)) { return }
+      if (!button || !(button instanceof HTMLElement)) {
+        // Plain click (not on an action button): open the entry or file in an editor.
+        const row = event.target.closest('.tree-item[data-file]')
+        if (row instanceof HTMLElement) {
+          const file = state.calcBankFiles[parseInt(row.getAttribute('data-file') || '', 10)]
+          const rowCalc = bankCalcFor(row)
+          if (file && rowCalc) {
+            vscode.postMessage({
+              type: 'openCalcBankEntry',
+              path: file.path,
+              title: rowCalc.title,
+              index: parseInt(row.getAttribute('data-index') || '', 10),
+            })
+          }
+          return
+        }
+        const header = event.target.closest('.ri[data-bank-path]')
+        if (header instanceof HTMLElement) {
+          vscode.postMessage({ type: 'openCalcBankEntry', path: header.getAttribute('data-bank-path') || '' })
+        }
+        return
+      }
       const action = button.getAttribute('data-action')
       if (action === 'bank-remove-file') {
         vscode.postMessage({
@@ -2080,6 +2123,13 @@ document.addEventListener('click', function (event) {
         vscode.postMessage({
           type: 'insertFormula',
           formula: '// ' + calc.title + '\n' + calc.formula + '\n',
+        })
+      } else if (action === 'bank-add-to-workbook') {
+        setCalculationMutationStatus('Validating and writing the workbook…', 'info')
+        vscode.postMessage({
+          type: 'addBankCalcToWorkbook',
+          title: calc.title,
+          formula: calc.formula,
         })
       }
     })
@@ -2820,6 +2870,9 @@ function renderCalcFields(calcs) {
         '<button class="ib" data-action="insert-formula" data-index="' +
         idx +
         '" title="Insert into Editor"><svg class="ic"><use href="#i-arrow"/></svg></button>' +
+        '<button class="ib" data-action="addToBank" data-index="' +
+        idx +
+        '" title="Add to Calc Bank"><svg class="ic"><use href="#i-save"/></svg></button>' +
         '</div>' +
         '</div>' +
         '<div class="tree-formula">' +

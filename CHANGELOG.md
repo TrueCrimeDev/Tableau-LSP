@@ -2,6 +2,15 @@
 
 All notable changes to the "tableau-language-support" extension will be documented in this file.
 
+## [1.10.0] - 2026-07-14
+
+### Added
+
+- "Add to Bank" write path for the Calculation Bank: a new `Tableau: Add Selection to Calc Bank` editor command (also in the `.twbl` editor context menu, using a leading `// Title` comment when present) and a save action on each workbook inspector calculated-field row. Both append a `// Title` + formula block to a chosen bank file, creating and registering a new one when needed.
+- Calc Bank files are now watched for external changes, so edits, creations, and deletions refresh the sidebar automatically.
+- Clicking a Calc Bank entry opens its bank file in the editor at that entry's header line; clicking a file group header opens the file.
+- "Add to Workbook" action on Calc Bank entries writes the calculation straight into the active workbook through the same validated, backup-protected pipeline as the Add Calculated Field form.
+
 ## [1.9.0] - 2026-07-13
 
 ### Added
