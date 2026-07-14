@@ -33,7 +33,6 @@
       "Bash(format:*)",
       "Bash(gem install:*)",
       "Bash(git force:*)",
-      "Bash(git push:*)",
       "Bash(git rebase:*)",
       "Bash(git reset --hard:*)",
       "Bash(grep -r password:*)",
