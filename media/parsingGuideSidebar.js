@@ -2292,7 +2292,34 @@ document.addEventListener('click', function (event) {
       return
     }
 
-    tooltip.innerHTML = highlightFormula(calc.formula)
+    // Compact usage line: 'Label: a, b' truncated with an ellipsis beyond
+    // five names; everything escaped.
+    function usageLine(label, names) {
+      if (!Array.isArray(names) || names.length === 0) {
+        return ''
+      }
+      var shown = names.slice(0, 5).map(escapeHtml).join(', ')
+      if (names.length > 5) {
+        shown += ', …'
+      }
+      return (
+        '<div style="opacity:.7;font-family:var(--vscode-font-family,sans-serif)">' +
+        escapeHtml(label) + ': ' + shown +
+        '</div>'
+      )
+    }
+    var usageLines =
+      usageLine('Sheets', calc.sheets) +
+      usageLine('Uses', calc.uses) +
+      usageLine('Used by', calc.usedBy)
+
+    tooltip.innerHTML =
+      highlightFormula(calc.formula) +
+      (usageLines
+        ? '<div style="margin-top:6px;border-top:1px solid var(--vscode-editorHoverWidget-border,#454545);padding-top:5px">' +
+          usageLines +
+          '</div>'
+        : '')
     tooltip.style.display = 'block'
 
     const rect = previewTarget.getBoundingClientRect()
@@ -2639,6 +2666,14 @@ function renderWorkbookData(data) {
     updateWbBadge('wb-fields-badge', 0)
     updateWbBadge('wb-sheets-badge', 0)
     updateWbBadge('wb-palettes-badge', 0)
+    renderParameters([])
+    renderSheetFilters([])
+    renderDashboards([])
+    renderHierarchies([])
+    updateWbBadge('wb-params-badge', 0)
+    updateWbBadge('wb-filters-badge', 0)
+    updateWbBadge('wb-dashboards-badge', 0)
+    updateWbBadge('wb-hierarchies-badge', 0)
     // Collapse any expanded workbook sub-sections when data is cleared
     if (workbookSbEl2) {
       workbookSbEl2.querySelectorAll('.ssh:not(.c)').forEach(function (h) {
@@ -2662,17 +2697,25 @@ function renderWorkbookData(data) {
   }
 
   renderDatasources(data.datasources || [])
-  renderCalcFields(data.calculations || [])
+  renderCalcFields(data.calculations || [], data.usageDataAvailable !== false)
   renderCalculationEditor(data)
   renderFields(data.fields || [])
   renderWorksheets(data.worksheets || [])
   renderWorkbookPaletteList(data.palettes || [])
+  renderParameters(data.parameters || [])
+  renderSheetFilters(data.filters || [])
+  renderDashboards(data.dashboards || [])
+  renderHierarchies(data.hierarchies || [])
 
   updateWbBadge('wb-datasources-badge', (data.datasources || []).length)
   updateWbBadge('wb-calcs-badge', (data.calculations || []).length)
   updateWbBadge('wb-fields-badge', (data.fields || []).length)
   updateWbBadge('wb-sheets-badge', (data.worksheets || []).length)
   updateWbBadge('wb-palettes-badge', (data.palettes || []).length)
+  updateWbBadge('wb-params-badge', (data.parameters || []).length)
+  updateWbBadge('wb-filters-badge', (data.filters || []).length)
+  updateWbBadge('wb-dashboards-badge', (data.dashboards || []).length)
+  updateWbBadge('wb-hierarchies-badge', (data.hierarchies || []).length)
 
   // Expand sub-sections only when a new workbook file is loaded, not on re-parses,
   // so the user's manually collapsed sections are preserved.
@@ -2831,7 +2874,7 @@ function renderDatasources(datasources) {
   )
 }
 
-function renderCalcFields(calcs) {
+function renderCalcFields(calcs, usageDataAvailable) {
   const el = document.getElementById('wb-calcs-content')
   if (!el) {
     return
@@ -2849,6 +2892,22 @@ function renderCalcFields(calcs) {
       const dtBadge = calc.datatype
         ? '<span class="ti-badge">' + escapeHtml(calc.datatype) + '</span>'
         : ''
+      // Without worksheet usage data there is no evidence behind either the
+      // sheet count or the unused flag — render neither.
+      var usageMeta = ''
+      if (usageDataAvailable !== false) {
+        if (calc.sheets && calc.sheets.length > 0) {
+          usageMeta =
+            '<span class="ti-usage">· ' +
+            calc.sheets.length +
+            ' sheet' +
+            (calc.sheets.length !== 1 ? 's' : '') +
+            '</span>'
+        } else if (calc.unused === true) {
+          usageMeta =
+            '<span class="ti-unused" title="Not used on any worksheet or by any live calculation">unused</span>'
+        }
+      }
       return (
         '<div class="tree-item tree-item-calc" data-action="copy-calc" data-index="' +
         idx +
@@ -2863,6 +2922,7 @@ function renderCalcFields(calcs) {
         caption +
         '</span>' +
         dtBadge +
+        usageMeta +
         '<div class="ti-actions">' +
         '<button class="ib" data-action="copy-formula" data-index="' +
         idx +
@@ -3046,6 +3106,208 @@ function renderWorkbookPaletteList(palettes) {
     })
     .join('')
 }
+
+function renderParameters(parameters) {
+  const el = document.getElementById('wb-params-content')
+  if (!el) {
+    return
+  }
+  if (!parameters || !parameters.length) {
+    el.innerHTML = '<div class="sub-empty">No parameters found.</div>'
+    return
+  }
+  el.innerHTML = joinWithShowMore(
+    parameters.map(function (p) {
+      const name = escapeHtml(p.name || 'Unknown')
+      const value = p.value ? escapeHtml(String(p.value)) : ''
+      // Hover summary: domain type plus its range bounds or list values.
+      var summary = p.domainType ? String(p.domainType) : 'all'
+      if (p.domainType === 'range' && (p.minValue || p.maxValue)) {
+        summary += ' ' + (p.minValue || '?') + ' – ' + (p.maxValue || '?')
+      } else if (
+        p.domainType === 'list' &&
+        Array.isArray(p.allowableValues) &&
+        p.allowableValues.length
+      ) {
+        var vals = p.allowableValues.slice(0, 5).join(', ')
+        if (p.allowableValues.length > 5) {
+          vals += ', …'
+        }
+        summary += ': ' + vals
+      }
+      return (
+        '<div class="tree-item" title="' + escapeHtml(summary) + '">' +
+        '<span class="ti-icon"><svg class="ic"><use href="#i-field"/></svg></span>' +
+        '<span class="ti-label">' + name + '</span>' +
+        (value ? '<span class="ti-type">' + value + '</span>' : '') +
+        '</div>'
+      )
+    }),
+  )
+}
+
+function renderSheetFilters(filters) {
+  const el = document.getElementById('wb-filters-content')
+  if (!el) {
+    return
+  }
+  if (!filters || !filters.length) {
+    el.innerHTML = '<div class="sub-empty">No sheet filters found.</div>'
+    return
+  }
+  // Group by worksheet, preserving first-seen order.
+  const order = []
+  const groups = {}
+  filters.forEach(function (f) {
+    const ws = f.worksheet || 'Unknown Worksheet'
+    if (!groups[ws]) {
+      groups[ws] = []
+      order.push(ws)
+    }
+    groups[ws].push(f)
+  })
+  el.innerHTML = order
+    .map(function (ws) {
+      const rows = groups[ws]
+        .map(function (f) {
+          return (
+            '<div class="tree-item">' +
+            '<span class="ti-icon"><svg class="ic"><use href="#i-field"/></svg></span>' +
+            '<span class="ti-label">' + escapeHtml(f.field || 'Unknown') + '</span>' +
+            (f.filterClass
+              ? '<span class="ti-type">' + escapeHtml(f.filterClass) + '</span>'
+              : '') +
+            '</div>'
+          )
+        })
+        .join('')
+      return (
+        '<div style="padding:5px 8px 1px 10px;font-size:11px;font-weight:600;color:var(--vscode-descriptionForeground)">' +
+        escapeHtml(ws) +
+        '</div>' +
+        rows
+      )
+    })
+    .join('')
+}
+
+function renderDashboards(dashboards) {
+  const el = document.getElementById('wb-dashboards-content')
+  if (!el) {
+    return
+  }
+  if (!dashboards || !dashboards.length) {
+    el.innerHTML = '<div class="sub-empty">No dashboards found.</div>'
+    return
+  }
+  el.innerHTML = joinWithShowMore(
+    dashboards.map(function (d, idx) {
+      const name = escapeHtml(d.name || 'Unknown Dashboard')
+      const zoneCount = typeof d.zoneCount === 'number' ? d.zoneCount : 0
+      const size = d.width && d.height ? d.width + '×' + d.height + ' · ' : ''
+      const meta = size + zoneCount + ' zone' + (zoneCount !== 1 ? 's' : '')
+      const sheets = Array.isArray(d.worksheets) ? d.worksheets : []
+      const zoneRows = sheets.length
+        ? sheets
+            .map(function (ws) {
+              return (
+                '<div class="tree-item">' +
+                '<span class="ti-icon"><svg class="ic"><use href="#i-grid"/></svg></span>' +
+                '<span class="ti-label">' + escapeHtml(ws) + '</span>' +
+                '</div>'
+              )
+            })
+            .join('')
+        : '<div class="sub-empty">No worksheet zones.</div>'
+      return (
+        '<div class="tree-item ti-ds" data-action="toggle-dash-zones" data-index="' +
+        idx +
+        '" title="Show worksheet zones">' +
+        '<span class="ds-cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>' +
+        '<span class="ti-icon"><svg class="ic"><use href="#i-grid"/></svg></span>' +
+        '<span class="ti-label">' + name + '</span>' +
+        '<span class="ti-type">' + escapeHtml(meta) + '</span>' +
+        '</div>' +
+        '<div class="ds-fields" id="dash-zones-' + idx + '" hidden>' +
+        zoneRows +
+        '</div>'
+      )
+    }),
+  )
+}
+
+function renderHierarchies(hierarchies) {
+  const el = document.getElementById('wb-hierarchies-content')
+  if (!el) {
+    return
+  }
+  if (!hierarchies || !hierarchies.length) {
+    el.innerHTML = '<div class="sub-empty">No hierarchies found.</div>'
+    return
+  }
+  el.innerHTML = joinWithShowMore(
+    hierarchies.map(function (h) {
+      const name = escapeHtml(h.name || 'Unknown Hierarchy')
+      const chain = Array.isArray(h.fields) ? h.fields.join(' › ') : ''
+      return (
+        '<div class="tree-item" title="' + escapeHtml(chain) + '">' +
+        '<span class="ti-icon"><svg class="ic"><use href="#i-layers"/></svg></span>' +
+        '<span class="ti-label">' + name + '</span>' +
+        (chain ? '<span class="ti-type">' + escapeHtml(chain) + '</span>' : '') +
+        '</div>'
+      )
+    }),
+  )
+}
+
+// Click delegation for the four insight sections (Parameters, Sheet Filters,
+// Dashboards, Hierarchies): they live outside #workbook-sb, so the workbook
+// handler never sees their toggle-more rows or dashboard zone toggles.
+;(function setupWorkbookInsightSections() {
+  ;[
+    'wb-params-content',
+    'wb-filters-content',
+    'wb-dashboards-content',
+    'wb-hierarchies-content',
+  ].forEach(function (id) {
+    const el = document.getElementById(id)
+    if (!el) {
+      return
+    }
+    el.addEventListener('click', function (event) {
+      const target = event.target
+      if (!(target instanceof Element)) {
+        return
+      }
+      const button = target.closest('[data-action]')
+      if (!button || !(button instanceof HTMLElement)) {
+        return
+      }
+      const action = button.dataset.action
+      if (action === 'toggle-more') {
+        const wrap = button.previousElementSibling
+        if (wrap && wrap.classList.contains('wb-more-hidden')) {
+          wrap.hidden = !wrap.hidden
+          const lbl = button.querySelector('.tree-more-label')
+          if (lbl) {
+            lbl.textContent = wrap.hidden
+              ? 'Show ' + button.dataset.remaining + ' more'
+              : 'Show less'
+          }
+          button.classList.toggle('expanded', !wrap.hidden)
+        }
+      } else if (action === 'toggle-dash-zones') {
+        const panel = document.getElementById(
+          'dash-zones-' + button.dataset.index,
+        )
+        if (panel) {
+          panel.hidden = !panel.hidden
+          button.classList.toggle('ds-open', !panel.hidden)
+        }
+      }
+    })
+  })
+})()
 
 function updateSourceLabel(label, path) {
   const sourceEl = document.getElementById('palette-source')

@@ -97,6 +97,16 @@ export interface ExtractedHierarchy {
     fields: string[];
 }
 
+/**
+ * Fields referenced by one worksheet from one datasource
+ * (from <worksheet>…<datasource-dependencies> blocks).
+ */
+export interface WorksheetFieldUsage {
+    worksheet: string;
+    datasource: string;
+    fields: string[];
+}
+
 export interface ExtractionSummary {
     workbooks: number;
     datasources: number;
