@@ -129,3 +129,6 @@ Tableau/
 /image*.png
 /*.thumb.png
 images/* - Copy.png
+
+# Release archive copies of the vsix
+/tableau-language-support-*.zip
