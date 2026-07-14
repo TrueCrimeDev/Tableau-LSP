@@ -2,7 +2,7 @@
   "name": "tableau-language-support",
   "displayName": "Tableau Language Support",
   "description": "Complete language support for Tableau calculation language with syntax highlighting, IntelliSense, validation, formatting, 100+ snippets, keyboard shortcuts, and advanced analytics patterns",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "publisher": "TrueCrimeAudit",
   "icon": "images/tableau-icon.png",
   "license": "MIT",
@@ -552,8 +552,21 @@
         "command": "tableau-lsp.extractCalculationsPython",
         "title": "Extract Calculations",
         "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.addSelectionToCalcBank",
+        "title": "Add Selection to Calc Bank",
+        "category": "Tableau"
       }
     ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "tableau-language-support.addSelectionToCalcBank",
+          "when": "editorLangId == twbl && editorHasSelection"
+        }
+      ]
+    },
     "keybindings": [
       {
         "command": "tableau-language-support.validateExpression",
