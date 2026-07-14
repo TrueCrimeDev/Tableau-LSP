@@ -2,6 +2,12 @@
 
 All notable changes to the "tableau-language-support" extension will be documented in this file.
 
+## [1.9.0] - 2026-07-13
+
+### Added
+
+- Calculation Bank is now backed by user-chosen `.twbl` files: add files via the sidebar's + button (persisted across sessions), remove them per file, and copy or insert individual calculations with hover actions. Falls back to the legacy workspace `_calc_bank.twbl` when no files are configured.
+
 ## [1.8.0] - 2026-07-13
 
 ### Added

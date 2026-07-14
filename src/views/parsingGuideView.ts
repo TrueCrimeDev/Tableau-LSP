@@ -66,6 +66,7 @@ const LOG_CAT = 'WorkbookInspector';
 const BUILD_STAMP = 'v6-2026-02-24';
 const COMMON_CALCULATIONS_STATE_KEY = 'tableau-language-support.commonCalculations';
 const THEME_VAULT_STATE_KEY = 'tableauLsp.themeVault';
+const CALC_BANK_FILES_KEY = 'tableauLsp.calcBank.files';
 
 // Commands the "Most Used Commands" webview rows may trigger. The webview can
 // only request IDs from this list — never execute arbitrary strings it sends.
@@ -244,6 +245,14 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 }
                 case 'requestCalcBank':
                     void this.postCalcBankData();
+                    break;
+                case 'addCalcBankFile':
+                    void this.addCalcBankFile();
+                    break;
+                case 'removeCalcBankFile':
+                    if (typeof payload.path === 'string') {
+                        void this.removeCalcBankFile(payload.path);
+                    }
                     break;
                 case 'requestCalcPortfolio':
                     void this.postCalcPortfolio();
@@ -1033,23 +1042,75 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    private getStoredCalcBankFiles(): string[] {
+        const raw = this.context.globalState.get<unknown>(CALC_BANK_FILES_KEY);
+        if (!Array.isArray(raw)) { return []; }
+        return raw.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+    }
+
+    // Configured bank file URIs; falls back to the legacy <workspaceRoot>/_calc_bank.twbl
+    // when the user has not added any files, so existing users see no change.
+    private getCalcBankUris(): vscode.Uri[] {
+        const stored = this.getStoredCalcBankFiles();
+        if (stored.length > 0) {
+            return stored.map(path => vscode.Uri.file(path));
+        }
+        const folders = vscode.workspace.workspaceFolders;
+        if (!folders || folders.length === 0) { return []; }
+        return [vscode.Uri.joinPath(folders[0].uri, '_calc_bank.twbl')];
+    }
+
+    private async addCalcBankFile(): Promise<void> {
+        const uris = await vscode.window.showOpenDialog({
+            canSelectMany: true,
+            filters: { 'Tableau calculations': ['twbl'] },
+            openLabel: 'Add to Calc Bank'
+        });
+        if (!uris || uris.length === 0) { return; }
+        const files = this.getStoredCalcBankFiles();
+        for (const uri of uris) {
+            if (!files.includes(uri.fsPath)) { files.push(uri.fsPath); }
+        }
+        await this.context.globalState.update(CALC_BANK_FILES_KEY, files);
+        await this.postCalcBankData();
+    }
+
+    private async removeCalcBankFile(path: string): Promise<void> {
+        if (!path) { return; }
+        const files = this.getStoredCalcBankFiles().filter(file => file !== path);
+        await this.context.globalState.update(CALC_BANK_FILES_KEY, files);
+        await this.postCalcBankData();
+    }
+
+    // Read+parse one bank file; an unreadable file yields an error entry instead of throwing.
+    private async readCalcBankFile(uri: vscode.Uri): Promise<{ path: string; name: string; calcs: { title: string; formula: string }[]; error?: string }> {
+        try {
+            const bytes = await vscode.workspace.fs.readFile(uri);
+            return { path: uri.fsPath, name: basename(uri.fsPath), calcs: this.parseCalcBankText(new TextDecoder('utf-8').decode(bytes)) };
+        } catch {
+            return { path: uri.fsPath, name: basename(uri.fsPath), calcs: [], error: 'Cannot read file.' };
+        }
+    }
+
     private async postCalcBankData(): Promise<void> {
         if (!this.view) { return; }
-        const folders = vscode.workspace.workspaceFolders;
-        if (!folders || folders.length === 0) {
-            await this.view.webview.postMessage({ type: 'calcBankLoaded', calcs: [], error: 'No workspace folder open.' });
-            return;
+        const stored = this.getStoredCalcBankFiles();
+        const files: Array<{ path: string; name: string; calcs: { title: string; formula: string }[]; error?: string; legacy?: boolean }> = [];
+        if (stored.length > 0) {
+            for (const path of stored) {
+                files.push(await this.readCalcBankFile(vscode.Uri.file(path)));
+            }
+        } else {
+            // Legacy fallback: shown only when the workspace file actually exists.
+            // Marked legacy so the webview offers no remove button — it is not in
+            // the stored list, so removal would silently re-add it every reload.
+            const folders = vscode.workspace.workspaceFolders;
+            if (folders && folders.length > 0) {
+                const entry = await this.readCalcBankFile(vscode.Uri.joinPath(folders[0].uri, '_calc_bank.twbl'));
+                if (!entry.error) { files.push({ ...entry, legacy: true }); }
+            }
         }
-        const bankUri = vscode.Uri.joinPath(folders[0].uri, '_calc_bank.twbl');
-        let text: string;
-        try {
-            const bytes = await vscode.workspace.fs.readFile(bankUri);
-            text = new TextDecoder('utf-8').decode(bytes);
-        } catch {
-            await this.view.webview.postMessage({ type: 'calcBankLoaded', calcs: [], error: 'No _calc_bank.twbl found in workspace root.' });
-            return;
-        }
-        await this.view.webview.postMessage({ type: 'calcBankLoaded', calcs: this.parseCalcBankText(text) });
+        await this.view.webview.postMessage({ type: 'calcBankLoaded', files });
     }
 
     // Parse blocks separated by blank lines. Each block: first line = "// Title", rest = formula.
@@ -1068,22 +1129,21 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         return calcs;
     }
 
-    // Best-effort read of the workspace _calc_bank.twbl (empty list if absent).
-    private async readCalcBank(): Promise<{ title: string; formula: string }[]> {
-        const folders = vscode.workspace.workspaceFolders;
-        if (!folders || folders.length === 0) { return []; }
-        const bankUri = vscode.Uri.joinPath(folders[0].uri, '_calc_bank.twbl');
-        try {
-            const bytes = await vscode.workspace.fs.readFile(bankUri);
-            return this.parseCalcBankText(new TextDecoder('utf-8').decode(bytes));
-        } catch {
-            return [];
+    // Best-effort merged read of all configured bank files (empty list if none readable).
+    private async readCalcBank(): Promise<{ title: string; formula: string; source: string }[]> {
+        const calcs: { title: string; formula: string; source: string }[] = [];
+        for (const uri of this.getCalcBankUris()) {
+            const entry = await this.readCalcBankFile(uri);
+            for (const calc of entry.calcs) {
+                calcs.push({ title: calc.title, formula: calc.formula, source: entry.name });
+            }
         }
+        return calcs;
     }
 
     private async postCalcPortfolio(): Promise<void> {
         if (!this.view) { return; }
-        // The user's own _calc_bank.twbl entries are merged in as the first, expanded
+        // The user's own calc-bank entries are merged in as the first, expanded
         // group, followed by the bundled stock examples.
         const groups: Array<{ category: string; open?: boolean; calcs: Array<{ title: string; description: string; formula: string }> }> = [];
         const userCalcs = await this.readCalcBank();
@@ -1091,7 +1151,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             groups.push({
                 category: 'My Calculations',
                 open: true,
-                calcs: userCalcs.map(c => ({ title: c.title, description: 'From _calc_bank.twbl', formula: c.formula }))
+                calcs: userCalcs.map(c => ({ title: c.title, description: `From ${c.source}`, formula: c.formula }))
             });
         }
         for (const g of CALC_PORTFOLIO) {
@@ -2499,11 +2559,12 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
       <span class="cv"><svg class="ic" style="width:10px;height:10px"><use href="#i-chev-d"/></svg></span>
       Calculation Bank
       <div class="ha">
-        <button class="ib" id="calc-bank-refresh" title="Reload _calc_bank.twbl"><svg class="ic"><use href="#i-refresh"/></svg></button>
+        <button class="ib" id="calc-bank-add" title="Add .twbl bank file"><svg class="ic"><use href="#i-plus"/></svg></button>
+        <button class="ib" id="calc-bank-refresh" title="Reload bank files"><svg class="ic"><use href="#i-refresh"/></svg></button>
       </div>
     </div>
     <div class="sb" id="calc-bank-sb">
-      <div id="calc-bank-list"><div style="padding:8px;font-size:11px;color:var(--vscode-descriptionForeground)">Click ↺ to load _calc_bank.twbl from workspace root.</div></div>
+      <div id="calc-bank-list"><div style="padding:8px;font-size:11px;color:var(--vscode-descriptionForeground)">Click + to add .twbl bank files, or ↺ to reload.</div></div>
     </div>
 
     <!-- ====== CALCULATION PORTFOLIO ====== -->

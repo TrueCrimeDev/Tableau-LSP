@@ -529,7 +529,7 @@ const state = {
     colors: [],
   },
   workbookData: null,
-  calcBankCalcs: [],
+  calcBankFiles: [],
   calcPortfolioGroups: [],
   commonCalculations: [],
   savedThemes: [],
@@ -1854,30 +1854,70 @@ window.addEventListener('message', (event) => {
     if (message.type === 'calcBankLoaded') {
       const list = document.getElementById('calc-bank-list')
       if (!list) { return }
-      state.calcBankCalcs = message.calcs || []
-      if (message.error) {
+      state.calcBankFiles = message.files || []
+      if (state.calcBankFiles.length === 0) {
         list.innerHTML =
-          '<div style="padding:8px;font-size:11px;color:var(--vscode-descriptionForeground)">' +
-          escapeHtml(message.error) +
-          '</div>'
+          '<div style="padding:8px;font-size:11px;color:var(--vscode-descriptionForeground)">No bank files configured. Click + to add .twbl files.</div>'
         return
       }
-      if (state.calcBankCalcs.length === 0) {
-        list.innerHTML =
-          '<div style="padding:8px;font-size:11px;color:var(--vscode-descriptionForeground)">No calculations found in _calc_bank.twbl.</div>'
-        return
-      }
-      list.innerHTML = state.calcBankCalcs
-        .map(function (c, i) {
-          return (
-            '<div class="ri" data-action="insertCalcBank" data-index="' +
-            i +
+      list.innerHTML = state.calcBankFiles
+        .map(function (f, fi) {
+          const header =
+            '<div class="ri" title="' +
+            escapeHtml(f.path) +
             '">' +
-            '<svg class="ic" style="flex-shrink:0;margin-right:4px"><use href="#i-fx"/></svg>' +
+            '<svg class="ic" style="flex-shrink:0;margin-right:4px"><use href="#i-load"/></svg>' +
             '<span class="lb">' +
-            escapeHtml(c.title) +
+            escapeHtml(f.name) +
             '</span>' +
+            (f.legacy
+              ? ''
+              : '<div class="ra">' +
+                '<button class="ib" data-action="bank-remove-file" data-path="' +
+                escapeHtml(f.path) +
+                '" title="Remove from Calc Bank"><svg class="ic"><use href="#i-trash"/></svg></button>' +
+                '</div>') +
             '</div>'
+          if (f.error) {
+            return (
+              header +
+              '<div style="padding:2px 8px 6px;font-size:11px;color:var(--vscode-descriptionForeground)">' +
+              escapeHtml(f.error) +
+              '</div>'
+            )
+          }
+          const rows = (f.calcs || [])
+            .map(function (c, ci) {
+              return (
+                '<div class="tree-item" data-file="' +
+                fi +
+                '" data-index="' +
+                ci +
+                '">' +
+                '<span class="ti-icon"><svg class="ic"><use href="#i-fx"/></svg></span>' +
+                '<span class="ti-label">' +
+                escapeHtml(c.title) +
+                '</span>' +
+                '<div class="ti-actions">' +
+                '<button class="ib" data-action="bank-copy" data-file="' +
+                fi +
+                '" data-index="' +
+                ci +
+                '" title="Copy Formula"><svg class="ic"><use href="#i-files"/></svg></button>' +
+                '<button class="ib" data-action="bank-insert" data-file="' +
+                fi +
+                '" data-index="' +
+                ci +
+                '" title="Insert into active file"><svg class="ic"><use href="#i-arrow"/></svg></button>' +
+                '</div>' +
+                '</div>'
+              )
+            })
+            .join('')
+          return (
+            header +
+            (rows ||
+              '<div style="padding:2px 8px 6px;font-size:11px;color:var(--vscode-descriptionForeground)">No calculations found.</div>')
           )
         })
         .join('')
@@ -1954,6 +1994,7 @@ window.addEventListener('message', (event) => {
 
 vscode.postMessage({ type: 'requestContext' })
 vscode.postMessage({ type: 'parseWorkbook' })
+vscode.postMessage({ type: 'requestCalcBank' })
 vscode.postMessage({ type: 'requestCalcPortfolio' })
 vscode.postMessage({ type: 'requestCommonCalculations' })
 
@@ -1981,6 +2022,22 @@ document.addEventListener('click', function (event) {
       vscode.postMessage({ type: 'requestCalcBank' })
     })
   }
+  const addBtn = document.getElementById('calc-bank-add')
+  if (addBtn) {
+    addBtn.addEventListener('click', function () {
+      vscode.postMessage({ type: 'addCalcBankFile' })
+    })
+  }
+
+  // Resolve the calc referenced by an element's data-file/data-index attributes.
+  function bankCalcFor(el) {
+    const fi = parseInt(el.getAttribute('data-file') || '', 10)
+    const ci = parseInt(el.getAttribute('data-index') || '', 10)
+    if (isNaN(fi) || isNaN(ci)) { return null }
+    const file = state.calcBankFiles[fi]
+    if (!file || !file.calcs) { return null }
+    return file.calcs[ci] || null
+  }
 
   // Floating formula preview shown on row hover
   const tooltip = document.createElement('div')
@@ -1998,27 +2055,42 @@ document.addEventListener('click', function (event) {
   const calcBankSb = document.getElementById('calc-bank-sb')
   if (calcBankSb) {
     calcBankSb.addEventListener('click', function (event) {
-      const row = event.target.closest('[data-action="insertCalcBank"]')
-      if (!row || !(row instanceof HTMLElement)) { return }
-      const idx = parseInt(row.getAttribute('data-index') || '', 10)
-      if (isNaN(idx)) { return }
-      const calc = state.calcBankCalcs[idx]
+      const button = event.target.closest('[data-action]')
+      if (!button || !(button instanceof HTMLElement)) { return }
+      const action = button.getAttribute('data-action')
+      if (action === 'bank-remove-file') {
+        vscode.postMessage({
+          type: 'removeCalcBankFile',
+          path: button.getAttribute('data-path') || '',
+        })
+        return
+      }
+      const calc = bankCalcFor(button)
       if (!calc) { return }
-      vscode.postMessage({
-        type: 'insertFormula',
-        formula: '// ' + calc.title + '\n' + calc.formula,
-      })
+      if (action === 'bank-copy') {
+        vscode.postMessage({ type: 'copyFormula', formula: calc.formula })
+        const orig = button.title
+        button.title = 'Copied!'
+        button.style.opacity = '0.5'
+        setTimeout(function () {
+          button.title = orig
+          button.style.opacity = ''
+        }, 1200)
+      } else if (action === 'bank-insert') {
+        vscode.postMessage({
+          type: 'insertFormula',
+          formula: '// ' + calc.title + '\n' + calc.formula + '\n',
+        })
+      }
     })
 
     calcBankSb.addEventListener('mouseover', function (event) {
-      const row = event.target.closest('[data-action="insertCalcBank"]')
+      const row = event.target.closest('.tree-item[data-file]')
       if (!row || !(row instanceof HTMLElement)) {
         tooltip.style.display = 'none'
         return
       }
-      const idx = parseInt(row.getAttribute('data-index') || '', 10)
-      if (isNaN(idx)) { return }
-      const calc = state.calcBankCalcs[idx]
+      const calc = bankCalcFor(row)
       if (!calc || !calc.formula) { return }
 
       tooltip.innerHTML = highlightFormula(calc.formula)
@@ -2444,8 +2516,11 @@ function highlightFormula(formula) {
   }
   let result = escapeHtml(formula)
   const placeholders = []
+  // Per-call nonce so formula text can never contain a live placeholder token —
+  // colliding tokens would let a crafted formula amplify itself during expansion.
+  const nonce = Math.random().toString(36).slice(2)
   function stash(cls, value) {
-    const token = '@@TLSP_' + placeholders.length + '@@'
+    const token = '@@TLSP_' + nonce + '_' + placeholders.length + '@@'
     placeholders.push({ token, html: '<span class="' + cls + '">' + value + '</span>' })
     return token
   }
@@ -2467,12 +2542,11 @@ function highlightFormula(formula) {
   result = result.replace(TLSP_FUNCTIONS, '<span class="fn">$1</span>')
   result = result.replace(/(?<![\w#])\d+(?:\.\d+)?\b/g, '<span class="num">$&</span>')
 
-  // Expand placeholders; loop so comment/string spans that contain other tokens resolve.
-  let guard = 0
-  while (result.indexOf('@@TLSP_') !== -1 && guard++ < 100) {
-    placeholders.forEach(function (entry) {
-      result = result.split(entry.token).join(entry.html)
-    })
+  // Expand once, last-stashed first: a later span (e.g. a field) can wrap tokens of
+  // earlier spans (e.g. a string inside brackets), but never the other way around —
+  // an earlier stash ran before the later token existed.
+  for (let i = placeholders.length - 1; i >= 0; i--) {
+    result = result.split(placeholders[i].token).join(placeholders[i].html)
   }
   return result
 }
