@@ -23,5 +23,9 @@ export interface WorkbookFieldContextNotification {
     fields: WorkbookFieldDefinition[];
     /** Exact datasource/field pairs used for [Datasource].[Field] references. */
     datasourceFields: WorkbookFieldDefinition[];
-    definitionPath: string | null;
+    /**
+     * Every workspace `*.d.twbl` declaration file, in parse order (later files
+     * win on a name clash). Discovered from each root's `tableau/` folder.
+     */
+    definitionPaths: string[];
 }

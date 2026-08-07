@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { CatalogField, getFieldCatalog, parseFieldDefs, setFieldCatalog } from '../services/fieldCatalog.js';
 import { isCodeOffset, isDatasourceQualifier, precedingDatasource } from '../fieldReferenceContext.js';
+import { discoverWorkspaceLibrary } from '../services/tableauLibrary.js';
 
 export const SWAP_FIELD_COMMAND = 'tableau-language-support.swapFieldReference';
 
@@ -84,12 +85,13 @@ async function catalogWithFallback(): Promise<CatalogField[]> {
     if (live.length) {
         return live;
     }
-    // No workbook parsed yet this session — read generated field declarations.
+    // No workbook parsed yet this session — read the workspace declaration
+    // files. Uses the same discovery as IntelliSense so the swap hover cannot
+    // disagree with completion about which declarations exist.
     try {
-        const defs = await vscode.workspace.findFiles('**/fields.d.twbl', '**/node_modules/**', 3);
         const collected: CatalogField[] = [];
-        for (const uri of defs) {
-            const data = await vscode.workspace.fs.readFile(uri);
+        for (const path of discoverWorkspaceLibrary().definitions) {
+            const data = await vscode.workspace.fs.readFile(vscode.Uri.file(path));
             collected.push(...parseFieldDefs(Buffer.from(data).toString('utf8')));
         }
         if (collected.length) {

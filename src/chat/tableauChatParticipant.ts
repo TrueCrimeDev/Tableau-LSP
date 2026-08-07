@@ -1,7 +1,13 @@
 import * as vscode from 'vscode';
+import { InstructionSource, composeCustomInstructions } from './customInstructions.js';
+import { NO_WORKBOOK_MESSAGE, resolveWorkbookUri } from './activeWorkbook.js';
+import { TABLEAU_CALCULATION_PRIMER } from './calculationPrimer.js';
 import { TWB_AGENT_PRIMER } from './twbPrimer.js';
 import { buildWorkbookDigest, DigestFocus } from './workbookDigest.js';
+import { conversationHistory } from './chatHistory.js';
+import { loadProjectInstructions } from './projectInstructions.js';
 import { readWorkbookXml } from '../services/workbookFieldContextManager.js';
+import { tableauToolSpecs } from './tableauTools.js';
 
 export const TABLEAU_PARTICIPANT_ID = 'tableau-language-support.tableau';
 
@@ -9,9 +15,28 @@ const DEFAULT_QUESTIONS: Record<string, string> = {
     borders: 'Summarise every border and divider setting in this workbook, per worksheet, and note where defaults are inherited.',
     calcs: 'List every calculation with its formula and explain what each one does.',
     fields: 'List the datasource fields with their datatypes and roles.',
+    new: 'Create a calculated field in this workbook. Ask me what it should compute if the request is not already clear.',
 };
 
 const KNOWN_FOCUS = new Set<string>(['borders', 'calcs', 'fields']);
+
+/** Bounds the tool loop so a model that keeps calling tools cannot spin. */
+const MAX_TOOL_ROUNDS = 5;
+
+/**
+ * Recognises a request to author or change a calculated field. Such a request
+ * needs every exact field name, so the digest's field cap is lifted for it —
+ * a field the model cannot see is a field it will invent.
+ */
+const CALCULATION_INTENT =
+    /\b(add|create|make|build|writ\w*|author|insert|update|change|fix|rewrite|modify|rename)\b[^.?!]{0,48}\b(calc\w*|measure|dimension|formula|field)\b/i;
+
+export function looksLikeCalculationRequest(prompt: string, command?: string): boolean {
+    return command === 'new' || CALCULATION_INTENT.test(prompt);
+}
+
+/** Commands whose answers benefit from the calculation-authoring guide. */
+const CALCULATION_COMMANDS = new Set(['new', 'calcs']);
 
 /**
  * Pure message composition — the two user-role messages sent to the model.
@@ -22,19 +47,37 @@ export function composeTableauMessages(
     prompt: string,
     command?: string,
     workbookName: string = 'Workbook.twb',
-    sourceUri?: string
+    sourceUri?: string,
+    instructions: readonly InstructionSource[] = []
 ): { context: string; question: string } {
     const focus = command && KNOWN_FOCUS.has(command) ? (command as DigestFocus) : undefined;
+    const authoring = looksLikeCalculationRequest(prompt, command);
     // Workbook content is untrusted: neutralise anything that could forge the
     // primer's instruction-boundary tag inside the digest.
-    const digest = buildWorkbookDigest(xml, focus, workbookName, sourceUri, prompt)
-        .replace(/<(\/?)TABLEAU_AGENT_INSTRUCTION>/gi, '&lt;$1TABLEAU_AGENT_INSTRUCTION&gt;');
+    const digest = buildWorkbookDigest(
+        xml,
+        focus,
+        workbookName,
+        sourceUri,
+        prompt,
+        authoring
+    ).replace(/<(\/?)TABLEAU_AGENT_INSTRUCTION>/gi, '&lt;$1TABLEAU_AGENT_INSTRUCTION&gt;');
     const question = prompt.trim() || (command ? DEFAULT_QUESTIONS[command] : '') ||
         'Give me an overview of this workbook.';
-    return {
-        context: `${TWB_AGENT_PRIMER}\n\nThe user's active workbook digest follows.\n\n${digest}`,
-        question,
-    };
+
+    // Ordered weakest to strongest: general workbook knowledge, then how
+    // Tableau evaluates a calculation, then the project's own conventions,
+    // then the data. Later sections are the ones that should win.
+    const sections = [TWB_AGENT_PRIMER];
+    if (authoring || (command && CALCULATION_COMMANDS.has(command))) {
+        sections.push(TABLEAU_CALCULATION_PRIMER);
+    }
+    const projectInstructions = composeCustomInstructions(instructions);
+    if (projectInstructions) {
+        sections.push(projectInstructions);
+    }
+    sections.push(`The user's active workbook digest follows.\n\n${digest}`);
+    return { context: sections.join('\n\n'), question };
 }
 
 /** Maps model-request failures to a short user-facing message. Exported for tests. */
@@ -52,61 +95,103 @@ export function describeChatError(error: unknown): string {
     return `The language model request failed: ${message}`;
 }
 
-/**
- * Active editor, then the active tab of each group (active group first), then
- * any open .twb tab. VS Code exposes no true MRU order, so the handler also
- * names the workbook it picked in its reply.
- */
-async function resolveWorkbookUri(): Promise<vscode.Uri | undefined> {
-    const isWorkbook = (uri: vscode.Uri | undefined): uri is vscode.Uri => {
-        const path = uri?.path.toLowerCase() ?? '';
-        return path.endsWith('.twb') || path.endsWith('.twbx');
-    };
-    const active = vscode.window.activeTextEditor;
-    if (active && isWorkbook(active.document.uri)) {
-        return active.document.uri;
-    }
-    const twbOf = (tab: vscode.Tab | undefined): vscode.Uri | undefined => {
-        const input = tab?.input as { uri?: vscode.Uri } | null | undefined;
-        return isWorkbook(input?.uri) ? input.uri : undefined;
-    };
-    const activeTabWorkbook = twbOf(vscode.window.tabGroups.activeTabGroup.activeTab ?? undefined);
-    if (activeTabWorkbook) {
-        return activeTabWorkbook;
-    }
-
-    const candidates = new Map<string, vscode.Uri>();
-    for (const group of vscode.window.tabGroups.all) {
-        for (const tab of group.tabs) {
-            const uri = twbOf(tab);
-            if (uri) { candidates.set(uri.toString(), uri); }
+/** This extension's workbook tools plus anything the user attached with `#`. */
+function availableTools(request: vscode.ChatRequest): vscode.LanguageModelChatTool[] {
+    const tools = tableauToolSpecs();
+    const names = new Set(tools.map(tool => tool.name));
+    for (const reference of request.toolReferences) {
+        if (names.has(reference.name)) {
+            continue;
+        }
+        const tool = vscode.lm.tools.find(candidate => candidate.name === reference.name);
+        if (tool) {
+            names.add(tool.name);
+            tools.push({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema });
         }
     }
-    if (candidates.size === 1) {
-        return candidates.values().next().value;
+    return tools;
+}
+
+/**
+ * Streams the model's answer, invoking any tools it asks for and feeding the
+ * results back until it produces a tool-free reply.
+ */
+async function runToolLoop(
+    request: vscode.ChatRequest,
+    stream: vscode.ChatResponseStream,
+    token: vscode.CancellationToken,
+    messages: vscode.LanguageModelChatMessage[]
+): Promise<void> {
+    const tools = availableTools(request);
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+        const response = await request.model.sendRequest(messages, { tools }, token);
+        const parts: (vscode.LanguageModelTextPart | vscode.LanguageModelToolCallPart)[] = [];
+        const calls: vscode.LanguageModelToolCallPart[] = [];
+        for await (const part of response.stream) {
+            if (part instanceof vscode.LanguageModelToolCallPart) {
+                parts.push(part);
+                calls.push(part);
+            } else if (part instanceof vscode.LanguageModelTextPart) {
+                parts.push(part);
+                stream.markdown(part.value);
+            }
+        }
+        if (!calls.length) {
+            return;
+        }
+        if (token.isCancellationRequested) {
+            return;
+        }
+
+        messages.push(vscode.LanguageModelChatMessage.Assistant(parts));
+        const results: vscode.LanguageModelToolResultPart[] = [];
+        for (const call of calls) {
+            results.push(await invokeChatTool(request, call, token));
+        }
+        messages.push(vscode.LanguageModelChatMessage.User(results));
     }
-    if (candidates.size > 1) {
-        return undefined;
-    }
-    const workspaceWorkbooks = await vscode.workspace.findFiles(
-        '**/*.{twb,twbx}',
-        '**/{node_modules,.git,.worktrees}/**',
-        2
+    stream.markdown(
+        `\n\n_Stopped after ${String(MAX_TOOL_ROUNDS)} rounds of workbook tool calls. Ask again with a narrower request._`
     );
-    return workspaceWorkbooks.length === 1 ? workspaceWorkbooks[0] : undefined;
+}
+
+/**
+ * A tool failure — including the user cancelling the write confirmation — is
+ * reported back to the model as a result, not thrown, so it can explain what
+ * did not happen instead of the whole turn erroring out.
+ */
+async function invokeChatTool(
+    request: vscode.ChatRequest,
+    call: vscode.LanguageModelToolCallPart,
+    token: vscode.CancellationToken
+): Promise<vscode.LanguageModelToolResultPart> {
+    try {
+        const result = await vscode.lm.invokeTool(
+            call.name,
+            { input: call.input, toolInvocationToken: request.toolInvocationToken },
+            token
+        );
+        return new vscode.LanguageModelToolResultPart(call.callId, result.content);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return new vscode.LanguageModelToolResultPart(call.callId, [
+            new vscode.LanguageModelTextPart(
+                `The ${call.name} tool did not run: ${message}. The workbook was not changed. ` +
+                'Tell the user what was not done — do not retry the same call.'
+            ),
+        ]);
+    }
 }
 
 async function handleRequest(
     request: vscode.ChatRequest,
-    _context: vscode.ChatContext,
+    context: vscode.ChatContext,
     stream: vscode.ChatResponseStream,
     token: vscode.CancellationToken
 ): Promise<void> {
     const uri = await resolveWorkbookUri();
     if (!uri) {
-        stream.markdown(
-            'No unambiguous Tableau workbook is available. Open the `.twb` or `.twbx` workbook you want to discuss, then ask again.'
-        );
+        stream.markdown(NO_WORKBOOK_MESSAGE);
         return;
     }
 
@@ -121,6 +206,8 @@ async function handleRequest(
         return;
     }
 
+    const instructions = await loadProjectInstructions();
+
     let contextMessage: string;
     let question: string;
     try {
@@ -129,24 +216,32 @@ async function handleRequest(
             request.prompt,
             request.command,
             workbookName,
-            uri.path.toLowerCase().endsWith('.twb') ? uri.toString() : undefined
+            uri.path.toLowerCase().endsWith('.twb') ? uri.toString() : undefined,
+            instructions
         ));
     } catch (error: unknown) {
         stream.markdown(`Could not parse the workbook: ${error instanceof Error ? error.message : String(error)}`);
         return;
     }
     const fileName = uri.path.split('/').pop() ?? uri.path;
-    stream.markdown(`Analyzing \`${fileName}\`\n\n`);
+    const usingInstructions = instructions.length
+        ? ` · using ${instructions.map(source => `\`${source.label}\``).join(', ')}`
+        : '';
+    stream.markdown(`Analyzing \`${fileName}\`${usingInstructions}\n\n`);
+
+    // Instructions and workbook data first, then the conversation so far, then
+    // what was just asked. A follow-up like "now make it a percentage" is
+    // meaningless without the turns that came before it.
+    const messages = [vscode.LanguageModelChatMessage.User(contextMessage)];
+    for (const turn of conversationHistory(context.history)) {
+        messages.push(turn.role === 'user'
+            ? vscode.LanguageModelChatMessage.User(turn.text)
+            : vscode.LanguageModelChatMessage.Assistant(turn.text));
+    }
+    messages.push(vscode.LanguageModelChatMessage.User(question));
 
     try {
-        const messages = [
-            vscode.LanguageModelChatMessage.User(contextMessage),
-            vscode.LanguageModelChatMessage.User(question),
-        ];
-        const response = await request.model.sendRequest(messages, {}, token);
-        for await (const fragment of response.text) {
-            stream.markdown(fragment);
-        }
+        await runToolLoop(request, stream, token, messages);
     } catch (error: unknown) {
         stream.markdown(describeChatError(error));
     }
@@ -161,6 +256,7 @@ export function registerTableauChatParticipant(context: vscode.ExtensionContext)
     participant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'images', 'tableau2.svg');
     participant.followupProvider = {
         provideFollowups: () => [
+            { prompt: '', label: 'Create a calculated field', command: 'new' },
             { prompt: '', label: 'Scan borders & dividers', command: 'borders' },
             { prompt: '', label: 'Explain the calculations', command: 'calcs' },
             { prompt: '', label: 'List datasource fields', command: 'fields' },

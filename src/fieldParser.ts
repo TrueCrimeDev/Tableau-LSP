@@ -24,7 +24,7 @@ export interface DatasourceInfo {
 export class FieldParser {
     private fieldMap = new Map<string, CustomField>();
     private datasourceFieldMaps = new Map<string, { name: string; fields: Map<string, CustomField> }>();
-    private overlayPath: string | null = null;
+    private overlayPaths: string[] = [];
     private runtimeFields: CustomField[] = [];
     private runtimeDatasourceFields: CustomField[] = [];
     private runtimeContextActive = false;
@@ -34,13 +34,19 @@ export class FieldParser {
     }
 
     /**
-     * Sets a second definition file (e.g. a workspace-level fields.d.twbl)
-     * parsed after the primary one, so its definitions win on name clashes.
-     * A missing overlay file is not an error — it is simply skipped.
+     * Sets the workspace declaration files (e.g. everything under a
+     * `tableau/` folder) parsed after the primary one, so their definitions
+     * win on name clashes. Later paths win over earlier ones. Missing files
+     * are not an error — they are simply skipped.
      */
-    public setOverlayPath(overlayPath: string | null): void {
-        this.overlayPath = overlayPath;
+    public setOverlayPaths(overlayPaths: readonly string[]): void {
+        this.overlayPaths = overlayPaths.filter(Boolean);
         this.refresh();
+    }
+
+    /** Single-overlay convenience retained for callers with one file. */
+    public setOverlayPath(overlayPath: string | null): void {
+        this.setOverlayPaths(overlayPath ? [overlayPath] : []);
     }
 
     /**
@@ -113,15 +119,17 @@ export class FieldParser {
             entry.fields.set(field.name.toUpperCase(), { ...field, datasource });
         }
 
-        // A workspace declaration file is a fallback for calculation-only
-        // projects. Mixing it into a live workbook context can resurrect stale
-        // fields from another workbook and make diagnostics/completions wrong.
-        if (this.overlayPath && !this.runtimeContextActive) {
-            try {
-                const overlayContent = readFileSync(this.overlayPath, 'utf-8');
-                this.parseFields(overlayContent, this.overlayPath);
-            } catch {
-                // Overlay is optional — absent file is fine.
+        // Workspace declaration files are a fallback for calculation-only
+        // projects. Mixing them into a live workbook context can resurrect
+        // stale fields from another workbook and make diagnostics/completions
+        // wrong. Parsed in order so the last file wins on a name clash.
+        if (!this.runtimeContextActive) {
+            for (const overlayPath of this.overlayPaths) {
+                try {
+                    this.parseFields(readFileSync(overlayPath, 'utf-8'), overlayPath);
+                } catch {
+                    // Overlays are optional — an absent or unreadable file is fine.
+                }
             }
         }
     }

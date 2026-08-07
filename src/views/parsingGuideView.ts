@@ -42,6 +42,14 @@ import {
     WorksheetFieldUsage
 } from '../extract/types.js';
 import { generateFieldDefsSection, upsertDatasourceSection } from '../extract/fieldDefsGenerator.js';
+import {
+    discoverWorkspaceLibrary,
+    invalidateLibraryCache,
+    libraryFolderNames,
+    libraryWatchPatterns,
+    workspaceRootPaths,
+} from '../services/tableauLibrary.js';
+import { describeLibraryFile, preferredDefinitionTarget } from '../services/tableauWorkspaceFiles.js';
 import { getLogger } from '../logging/logger.js';
 import {
     readThemeFromXml,
@@ -71,6 +79,11 @@ import {
     removeCommonCalculation,
     upsertCommonCalculation,
 } from '../services/commonCalculations.js';
+import {
+    HealthFinding,
+    computeWorkbookHealth,
+    removeCalculationsFromXml,
+} from '../services/workbookInsights.js';
 
 const log = getLogger();
 const LOG_CAT = 'WorkbookInspector';
@@ -135,6 +148,8 @@ interface SidebarWorkbookPayload extends Omit<RichWorkbookData, 'calculations'> 
      * and suppresses it.
      */
     usageDataAvailable: boolean;
+    /** Workbook Optimizer-style findings for the Workbook Health section. */
+    health: HealthFinding[];
 }
 
 // Captions are matched loosely across extractor outputs: brackets stripped,
@@ -458,6 +473,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
     private lastWorkbookIdentity = '';
     private lastExtractedWorkbookUri: string | undefined;
     private calcBankWatchers: vscode.Disposable[] = [];
+    private libraryListenersRegistered = false;
 
     public constructor(private readonly context: vscode.ExtensionContext) {
         context.globalState.setKeysForSync([COMMON_CALCULATIONS_STATE_KEY]);
@@ -552,6 +568,9 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'addWorkbookCalculation':
                     void this.addWorkbookCalculation(payload.calculation, payload.relaunch === true);
+                    break;
+                case 'cleanupUnusedCalcs':
+                    void this.removeUnusedCalculations();
                     break;
                 case 'requestCommonCalculations':
                     void this.postCommonCalculations();
@@ -753,6 +772,30 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         void this.scanWorkbookFormatting();
 
         this.rebuildCalcBankWatchers();
+
+        // The watch patterns come from the folder list and the configured
+        // folder names, so a root added later — or an edit to the setting —
+        // has to re-point them, exactly as the field-context manager does.
+        //
+        // Registered once on the extension's lifetime, not in calcBankWatchers
+        // (which rebuildCalcBankWatchers clears) and not per resolve (the view
+        // is resolved again whenever the webview moves between containers).
+        if (!this.libraryListenersRegistered) {
+            this.libraryListenersRegistered = true;
+            const relocated = (): void => {
+                invalidateLibraryCache();
+                this.rebuildCalcBankWatchers();
+                void this.postCalcBankData();
+            };
+            this.context.subscriptions.push(
+                vscode.workspace.onDidChangeWorkspaceFolders(relocated),
+                vscode.workspace.onDidChangeConfiguration(event => {
+                    if (event.affectsConfiguration('tableau-language-support.fieldDefinitions')) {
+                        relocated();
+                    }
+                })
+            );
+        }
 
         view.onDidDispose(() => {
             // A stale view's dispose can fire after a successor view resolved
@@ -1377,6 +1420,26 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 : fileName;
             this.lastExtractedWorkbookUri = uri.toString();
 
+            // Health findings reuse the data extracted above — no extra parse.
+            const health = computeWorkbookHealth({
+                calculations: calculations.map((c, index) => ({
+                    title: c.title,
+                    datasource: c.datasource,
+                    formula: normalizeFormula(c.formula),
+                    unused: calcUsage[index].unused,
+                    uses: calcUsage[index].uses,
+                })),
+                datasourceCount: datasourcesRaw.length,
+                worksheetCount: worksheets.length,
+                filters: filtersRaw.map(f => ({ worksheet: f.worksheet })),
+                dashboards: dashboardsRaw.map(d => ({
+                    name: d.name,
+                    width: Number.isFinite(d.width) ? d.width : undefined,
+                    height: Number.isFinite(d.height) ? d.height : undefined,
+                })),
+                xml,
+            });
+
             const richData: SidebarWorkbookPayload = {
                 fileName,
                 filePath: uri.fsPath,
@@ -1462,7 +1525,8 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                     name: h.caption ?? h.name,
                     fields: h.fields
                 })),
-                usageDataAvailable: fieldUsage.length > 0
+                usageDataAvailable: fieldUsage.length > 0,
+                health
             };
 
             const posted = await this.view.webview.postMessage({
@@ -1490,16 +1554,28 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         return raw.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
     }
 
-    // Configured bank file URIs; falls back to the legacy <workspaceRoot>/_calc_bank.twbl
-    // when the user has not added any files, so existing users see no change.
+    // Bank file URIs: the files the user added by hand, plus every *.twbl
+    // auto-discovered in a workspace tableau/ library folder. Falls back to the
+    // legacy <workspaceRoot>/_calc_bank.twbl when neither turns anything up, so
+    // existing users see no change.
+    //
+    // This is also the allowlist openCalcBankEntry checks, so a discovered file
+    // has to appear here or clicking it would be refused.
     private getCalcBankUris(): vscode.Uri[] {
-        const stored = this.getStoredCalcBankFiles();
-        if (stored.length > 0) {
-            return stored.map(path => vscode.Uri.file(path));
-        }
+        const seen = new Set<string>();
+        const uris: vscode.Uri[] = [];
+        const add = (path: string): void => {
+            if (seen.has(path)) { return; }
+            seen.add(path);
+            uris.push(vscode.Uri.file(path));
+        };
+        for (const path of this.getStoredCalcBankFiles()) { add(path); }
+        for (const path of discoverWorkspaceLibrary().calculations) { add(path); }
         const folders = vscode.workspace.workspaceFolders;
-        if (!folders || folders.length === 0) { return []; }
-        return [vscode.Uri.joinPath(folders[0].uri, '_calc_bank.twbl')];
+        if (uris.length === 0 && folders && folders.length > 0) {
+            add(vscode.Uri.joinPath(folders[0].uri, '_calc_bank.twbl').fsPath);
+        }
+        return uris;
     }
 
     private async addCalcBankFile(): Promise<void> {
@@ -1533,13 +1609,29 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
     private rebuildCalcBankWatchers(): void {
         for (const watcher of this.calcBankWatchers) { watcher.dispose(); }
         this.calcBankWatchers = [];
+        // Watch the library folders themselves, not only the files found in
+        // them: a per-file watcher can never notice a file that did not exist
+        // when the watchers were built, which is exactly the drop-it-in case.
+        const patterns: vscode.RelativePattern[] = libraryWatchPatterns();
+        const covered = new Set(discoverWorkspaceLibrary().calculations);
+        // Hand-registered banks can live anywhere, so they still need their own
+        // watcher — but only the ones the folder patterns do not already cover.
         for (const uri of this.getCalcBankUris()) {
-            const watcher = vscode.workspace.createFileSystemWatcher(
-                new vscode.RelativePattern(vscode.Uri.file(dirname(uri.fsPath)), basename(uri.fsPath))
-            );
-            watcher.onDidChange(() => { void this.postCalcBankData(); });
-            watcher.onDidCreate(() => { void this.postCalcBankData(); });
-            watcher.onDidDelete(() => { void this.postCalcBankData(); });
+            if (covered.has(uri.fsPath)) { continue; }
+            patterns.push(new vscode.RelativePattern(
+                vscode.Uri.file(dirname(uri.fsPath)),
+                basename(uri.fsPath)
+            ));
+        }
+        const bankChanged = (): void => {
+            invalidateLibraryCache();
+            void this.postCalcBankData();
+        };
+        for (const pattern of patterns) {
+            const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+            watcher.onDidChange(bankChanged);
+            watcher.onDidCreate(bankChanged);
+            watcher.onDidDelete(bankChanged);
             this.calcBankWatchers.push(watcher);
         }
     }
@@ -1563,8 +1655,16 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
     // falls back to the visible legacy workspace bank before offering a save
     // dialog ("Add new bank file…" also lands there) and stores the choice.
     private async pickCalcBankTarget(): Promise<{ uri: vscode.Uri; created: boolean } | undefined> {
+        // Candidates are every bank the sidebar actually shows: files added by
+        // hand plus the ones auto-discovered in a tableau/ library. Offering
+        // only the stored ones would make "Add to Bank" ignore a bank sitting
+        // visibly in the list and push the user into a save dialog instead.
+        const roots = workspaceRootPaths();
+        const library = discoverWorkspaceLibrary();
         const stored = this.getStoredCalcBankFiles();
-        if (stored.length === 0) {
+        const candidates = [...stored, ...library.calculations.filter(path => !stored.includes(path))];
+
+        if (candidates.length === 0) {
             // The sidebar shows <workspaceRoot>/_calc_bank.twbl when nothing is
             // configured — additions must land in that visible bank, not a new
             // file that would silently replace it as the fallback.
@@ -1579,13 +1679,16 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 }
             }
         }
-        if (stored.length === 1) {
-            return { uri: vscode.Uri.file(stored[0]), created: false };
+        if (candidates.length === 1) {
+            return { uri: vscode.Uri.file(candidates[0]), created: false };
         }
-        if (stored.length > 1) {
+        if (candidates.length > 1) {
             const addNewItem = { label: 'Add new bank file…', description: '' };
             const picked = await vscode.window.showQuickPick(
-                [...stored.map(path => ({ label: basename(path), description: path })), addNewItem],
+                [
+                    ...candidates.map(path => ({ label: describeLibraryFile(path, roots), description: path })),
+                    addNewItem,
+                ],
                 { placeHolder: 'Add the calculation to which bank file?' }
             );
             if (!picked) { return undefined; }
@@ -1594,17 +1697,27 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             }
         }
         const folders = vscode.workspace.workspaceFolders;
+        // Default into the library folder when the workspace has one, so a new
+        // bank is auto-discovered from then on instead of needing to be stored.
+        const defaultUri = library.folders.length > 0
+            ? vscode.Uri.file(join(library.folders[0], 'bank.twbl'))
+            : (folders && folders.length > 0
+                ? vscode.Uri.joinPath(folders[0].uri, 'bank.twbl')
+                : undefined);
         const chosen = await vscode.window.showSaveDialog({
             filters: { 'Tableau calculations': ['twbl'] },
-            defaultUri: folders && folders.length > 0
-                ? vscode.Uri.joinPath(folders[0].uri, 'bank.twbl')
-                : undefined,
+            defaultUri,
             saveLabel: 'Add to Calc Bank'
         });
         if (!chosen) { return undefined; }
-        const files = this.getStoredCalcBankFiles();
-        if (!files.includes(chosen.fsPath)) { files.push(chosen.fsPath); }
-        await this.context.globalState.update(CALC_BANK_FILES_KEY, files);
+        invalidateLibraryCache();
+        // A bank inside the library folder is discovered automatically; storing
+        // it too would list it twice and offer a remove button that does nothing.
+        if (!discoverWorkspaceLibrary().calculations.includes(chosen.fsPath)) {
+            const files = this.getStoredCalcBankFiles();
+            if (!files.includes(chosen.fsPath)) { files.push(chosen.fsPath); }
+            await this.context.globalState.update(CALC_BANK_FILES_KEY, files);
+        }
         return { uri: chosen, created: true };
     }
 
@@ -1776,16 +1889,26 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
 
     private async postCalcBankData(): Promise<void> {
         if (!this.view) { return; }
-        const stored = this.getStoredCalcBankFiles();
+        const stored = new Set(this.getStoredCalcBankFiles());
         const files: Array<{ path: string; name: string; calcs: { title: string; formula: string }[]; error?: string; legacy?: boolean }> = [];
-        if (stored.length > 0) {
-            for (const path of stored) {
-                files.push(await this.readCalcBankFile(vscode.Uri.file(path)));
-            }
-        } else {
+        for (const path of stored) {
+            files.push(await this.readCalcBankFile(vscode.Uri.file(path)));
+        }
+
+        // Auto-discovered library calculations. Marked legacy so the webview
+        // offers no remove button: they come from the folder, not the stored
+        // list, so removing one would silently re-add it on the next reload.
+        // Named by workspace-relative path so their origin is obvious.
+        const roots = workspaceRootPaths();
+        for (const path of discoverWorkspaceLibrary().calculations) {
+            if (stored.has(path)) { continue; }
+            const entry = await this.readCalcBankFile(vscode.Uri.file(path));
+            if (entry.error) { continue; }
+            files.push({ ...entry, name: describeLibraryFile(path, roots), legacy: true });
+        }
+
+        if (files.length === 0) {
             // Legacy fallback: shown only when the workspace file actually exists.
-            // Marked legacy so the webview offers no remove button — it is not in
-            // the stored list, so removal would silently re-add it every reload.
             const folders = vscode.workspace.workspaceFolders;
             if (folders && folders.length > 0) {
                 const entry = await this.readCalcBankFile(vscode.Uri.joinPath(folders[0].uri, '_calc_bank.twbl'));
@@ -1918,7 +2041,12 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         }
 
         try {
-            const targetUri = vscode.Uri.joinPath(workspaceFolder.uri, 'fields.d.twbl');
+            // Lands in the tableau/ library folder when the workspace has one,
+            // so generated declarations sit beside the hand-written ones and
+            // are picked up by the same discovery pass.
+            const targetUri = vscode.Uri.file(
+                preferredDefinitionTarget(workspaceFolder.uri.fsPath, libraryFolderNames())
+            );
 
             let existing = '';
             try {
@@ -1931,12 +2059,16 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             const section = generateFieldDefsSection(fields, datasource, this.lastWorkbookIdentity);
             const updated = upsertDatasourceSection(existing, datasource, section);
             await vscode.workspace.fs.writeFile(targetUri, Buffer.from(updated, 'utf8'));
+            // Our own write: the watcher will invalidate too, but not before
+            // the reads immediately below and in the status line.
+            invalidateLibraryCache();
 
             const doc = await vscode.workspace.openTextDocument(targetUri);
             await vscode.window.showTextDocument(doc, { preview: false });
 
             await this.postStatus(
-                `Wrote ${fields.length} field definition(s) for "${datasource}" to fields.d.twbl.`,
+                `Wrote ${fields.length} field definition(s) for "${datasource}" to ` +
+                `${describeLibraryFile(targetUri.fsPath, workspaceRootPaths())}.`,
                 'success'
             );
         } catch (error: unknown) {
@@ -2049,6 +2181,109 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 message,
                 source
             });
+        }
+    }
+
+    // "Remove Unused Calculations" — sidebar cleanup button and command
+    // palette entry. Usage is recomputed from the current workbook bytes
+    // (never stale webview state), every unused calc is pre-selected in a
+    // multi-pick, and the write goes through the same transactional
+    // backup + verify pipeline as the palette/calc-add flows.
+    public async removeUnusedCalculations(): Promise<void> {
+        let workbookUri: vscode.Uri | undefined;
+        const activeEditor = vscode.window.activeTextEditor;
+        if (activeEditor) {
+            const p = activeEditor.document.uri.path.toLowerCase();
+            if (p.endsWith('.twb') || p.endsWith('.twbx')) {
+                workbookUri = activeEditor.document.uri;
+            }
+        }
+        if (!workbookUri && this.lastWorkbookUri) {
+            workbookUri = this.lastWorkbookUri;
+        }
+        if (!workbookUri) {
+            await this.notifyBank('No active workbook file. Open a .twb file first.', 'error');
+            return;
+        }
+        if (workbookUri.path.toLowerCase().endsWith('.twbx')) {
+            await this.notifyBank('Packaged workbooks (.twbx) are not yet supported.', 'error');
+            return;
+        }
+        try {
+            const xml = await readCurrentWorkbookXml(workbookUri);
+            const fileName = basename(workbookUri.fsPath);
+            const cleaned = cleanXmlContent(xml);
+            const resolved = resolveNames(cleaned);
+            const workbookRoot = parseWorkbookXml(resolved);
+            const calculations = extractCalcsFromXml(resolved, fileName, undefined, workbookRoot);
+            const fields = extractFieldsFromXml(cleaned, fileName);
+            const parameters = extractParametersFromXml(resolved, fileName, undefined, workbookRoot);
+            const fieldUsage = extractWorksheetFieldUsage(resolved, undefined, workbookRoot);
+            if (fieldUsage.length === 0) {
+                await this.notifyBank(
+                    'No worksheet usage data available — cannot tell which calculations are unused.',
+                    'error'
+                );
+                return;
+            }
+            const usage = computeCalculationUsage(calculations, fields, parameters, fieldUsage);
+            const unused = calculations.filter((_calc, index) => usage[index].unused);
+            if (unused.length === 0) {
+                await this.notifyBank('No unused calculations found.', 'info');
+                return;
+            }
+
+            const picked = await vscode.window.showQuickPick(
+                unused.map(calc => ({
+                    label: calc.title,
+                    description: calc.datasource,
+                    detail: normalizeFormula(calc.formula).replace(/\s+/g, ' ').slice(0, 60),
+                    picked: true,
+                    calc,
+                })),
+                {
+                    canPickMany: true,
+                    placeHolder: `Remove which of the ${unused.length} unused calculation${unused.length === 1 ? '' : 's'}?`,
+                }
+            );
+            if (!picked || picked.length === 0) {
+                await this.notifyBank('Cancelled unused-calculation cleanup.', 'info');
+                return;
+            }
+
+            const confirm = await vscode.window.showWarningMessage(
+                `Remove ${picked.length} calculation${picked.length === 1 ? '' : 's'} from ${fileName}? ` +
+                    'A timestamped backup is created first.',
+                { modal: true },
+                'Remove'
+            );
+            if (confirm !== 'Remove') {
+                await this.notifyBank('Cancelled unused-calculation cleanup.', 'info');
+                return;
+            }
+
+            const result = removeCalculationsFromXml(
+                xml,
+                picked.map(item => ({ caption: item.calc.title, datasource: item.calc.datasource }))
+            );
+            const reasons = Array.from(new Set(result.skipped.map(skip => skip.reason))).join(', ');
+            if (result.removed.length === 0) {
+                await this.notifyBank(
+                    `No calculations were removed — all ${result.skipped.length} skipped (${reasons}).`,
+                    'error'
+                );
+                return;
+            }
+            await applyWorkbookXmlMutation(workbookUri, xml, result.updatedXml);
+            await this.notifyBank(
+                `${result.removed.length} removed, ${result.skipped.length} skipped` +
+                    `${reasons ? ` (${reasons})` : ''}.`,
+                'success'
+            );
+            await this.postWorkbookData();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            await this.notifyBank(`Failed to remove calculations: ${message}`, 'error');
         }
     }
 
@@ -2334,6 +2569,9 @@ export function registerParsingGuideView(context: vscode.ExtensionContext): void
     );
     context.subscriptions.push(
         vscode.commands.registerCommand('tableau-language-support.addSelectionToCalcBank', () => provider.addSelectionToCalcBank())
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand('tableau-language-support.removeUnusedCalculations', () => provider.removeUnusedCalculations())
     );
 }
 
@@ -2664,6 +2902,19 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
           border-radius: 7px; padding: 0 5px; line-height: 14px;
           margin-left: 6px; flex-shrink: 0; white-space: nowrap;
         }
+        /* Workbook Health: severity dot + indented detail line */
+        .tree-item .health-dot {
+          width: 8px; height: 8px; border-radius: 50%;
+          flex-shrink: 0; margin-right: 6px;
+        }
+        .tree-item .health-dot.warn { background: var(--vscode-editorWarning-foreground); }
+        .tree-item .health-dot.info { background: var(--vscode-editorInfo-foreground); }
+        .health-detail {
+          padding: 2px 8px 4px 14px; font-size: 11px; line-height: 1.4;
+          color: var(--vscode-descriptionForeground);
+        }
+        /* "Clean up N unused…" action row atop Calculated Fields */
+        .wb-cleanup-row { padding: 4px 8px 6px; }
         .tree-item .ti-actions {
           display: flex; gap: 0; margin-right: 2px; opacity: 0; flex-shrink: 0;
         }
@@ -3278,6 +3529,16 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
     <div class="sb" id="calc-portfolio-sb">
       <div style="padding:6px 8px 2px;font-size:11px;color:var(--vscode-descriptionForeground)">Stock examples — click to insert at the cursor, hover to preview.</div>
       <div id="calc-portfolio-list"><div style="padding:8px;font-size:11px;color:var(--vscode-descriptionForeground)">Loading examples…</div></div>
+    </div>
+
+    <!-- ====== WORKBOOK HEALTH ====== -->
+    <div class="sh c">
+      <span class="cv"><svg class="ic" style="width:10px;height:10px"><use href="#i-chev-d"/></svg></span>
+      Workbook Health
+      <span class="bg" id="wb-health-badge">0</span>
+    </div>
+    <div class="sb c">
+      <div id="wb-health-content"><div class="sub-empty">No issues found.</div></div>
     </div>
 
     <!-- ====== PARAMETERS ====== -->

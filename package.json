@@ -48,9 +48,13 @@
         "id": "tableau-language-support.tableau",
         "name": "tableau",
         "fullName": "Tableau Workbook",
-        "description": "Ask about the data inside the active .twb workbook",
+        "description": "Ask about — or edit — the active .twb workbook",
         "isSticky": true,
         "commands": [
+          {
+            "name": "new",
+            "description": "Create a calculated field and write it into the live workbook"
+          },
           {
             "name": "borders",
             "description": "Deep-dive the workbook's border and divider formatting"
@@ -64,6 +68,104 @@
             "description": "List datasource fields and datatypes"
           }
         ]
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "tableau_listFields",
+        "displayName": "Tableau Workbook Fields",
+        "toolReferenceName": "tableauFields",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(table)",
+        "userDescription": "List every field, calculated field and parameter in the active Tableau workbook",
+        "modelDescription": "Returns the complete, uncapped inventory of the active Tableau workbook's datasource fields, calculated fields (with their formulas) and parameters, grouped by datasource, with each field's Tableau datatype and role. Call this before writing or editing any Tableau formula, and before answering any question about which fields exist — the workbook digest's field list is capped and may omit fields, while this tool omits nothing. A field absent from this output does not exist in the workbook.",
+        "tags": [
+          "tableau",
+          "workbook"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "datasource": {
+              "type": "string",
+              "description": "Restrict the inventory to one datasource, by caption or internal name. Omit for every datasource."
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "field",
+                "calculation",
+                "parameter",
+                "all"
+              ],
+              "description": "Restrict to plain datasource fields, calculated fields, or parameters. Defaults to all."
+            },
+            "nameContains": {
+              "type": "string",
+              "description": "Case-insensitive substring filter on the field name. Use it to check whether a specific field exists."
+            }
+          }
+        }
+      },
+      {
+        "name": "tableau_addCalculation",
+        "displayName": "Add Tableau Calculated Field",
+        "toolReferenceName": "tableauAddCalculation",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(add)",
+        "userDescription": "Write a calculated field into the active .twb workbook",
+        "modelDescription": "Creates or overwrites a calculated field in the user's live .twb workbook file on disk. Use this whenever the user asks to add, create, build, write, fix or change a calculation, calculated field, measure or dimension — do not print XML for the user to paste instead. The formula must be Tableau calculation syntax (for example SUM([Profit]) / SUM([Sales])), not XML, and every field it references must exist in tableau_listFields output. VS Code shows the user a confirmation prompt before the file is written, the extension takes a timestamped backup first, and the edit is rolled back automatically if the resulting workbook fails validation. Packaged .twbx workbooks cannot be written. Tableau must reopen the workbook to display the new field.",
+        "tags": [
+          "tableau",
+          "workbook",
+          "edit"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "caption": {
+              "type": "string",
+              "description": "The calculated field's name as the user will see it in Tableau, without surrounding brackets."
+            },
+            "formula": {
+              "type": "string",
+              "description": "The Tableau calculation formula, e.g. \"SUM([Profit]) / SUM([Sales])\". Reference other fields by their bracketed caption."
+            },
+            "datatype": {
+              "type": "string",
+              "enum": [
+                "string",
+                "real",
+                "integer",
+                "boolean",
+                "date",
+                "datetime"
+              ],
+              "description": "The datatype the formula returns."
+            },
+            "datasource": {
+              "type": "string",
+              "description": "Which datasource receives the field, by caption or internal name. Required when the workbook has more than one datasource."
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "dimension",
+                "measure"
+              ],
+              "description": "Optional. Defaults to measure for real/integer and dimension otherwise."
+            },
+            "replaceExisting": {
+              "type": "boolean",
+              "description": "Set true to overwrite a calculated field that already uses this name. Without it, a name collision fails instead of overwriting."
+            }
+          },
+          "required": [
+            "caption",
+            "formula",
+            "datatype"
+          ]
+        }
       }
     ],
     "configurationDefaults": {
@@ -336,6 +438,18 @@
           "description": "Optional Tableau repository paths. When empty, standard local and OneDrive Documents locations are discovered automatically.",
           "default": []
         },
+        "tableau-language-support.fieldDefinitions.folders": {
+          "scope": "window",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Folder names searched at each workspace root for the shared Tableau library. Every *.d.twbl inside becomes field declarations for IntelliSense; every other *.twbl is auto-registered in the Calc Bank. A root-level fields.d.twbl is always picked up as well.",
+          "default": [
+            "tableau",
+            ".tableau"
+          ]
+        },
         "tableau-language-support.local.executablePath": {
           "scope": "window",
           "type": "string",
@@ -509,6 +623,11 @@
         "category": "Tableau"
       },
       {
+        "command": "tableau-language-support.createAgentInstructions",
+        "title": "Create Agent Instructions for @tableau",
+        "category": "Tableau"
+      },
+      {
         "command": "tableau-language-support.status",
         "title": "Show Extension Status",
         "category": "Tableau"
@@ -556,6 +675,11 @@
       {
         "command": "tableau-language-support.addSelectionToCalcBank",
         "title": "Add Selection to Calc Bank",
+        "category": "Tableau"
+      },
+      {
+        "command": "tableau-language-support.removeUnusedCalculations",
+        "title": "Remove Unused Calculations from Workbook",
         "category": "Tableau"
       }
     ],

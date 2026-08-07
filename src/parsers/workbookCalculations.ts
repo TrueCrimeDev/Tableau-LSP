@@ -10,6 +10,8 @@ export interface WorkbookDatasourceInfo {
     caption: string;
     name: string;
     calculations: string[];
+    /** Every column label, calculated or not — the writer's collision domain. */
+    columns: string[];
 }
 
 export interface WorkbookCalculationInput {
@@ -144,15 +146,17 @@ function datasourceBlocks(xml: string): DatasourceBlock[] {
             const caption = attributeOf(child.openingTag, 'caption') ??
                 attributeOf(child.openingTag, 'name') ?? 'Unknown Datasource';
             const name = attributeOf(child.openingTag, 'name') ?? caption;
-            const calculations = children
-                .filter(item => item.name === 'column')
+            const columnChildren = children.filter(item => item.name === 'column');
+            const calculations = columnChildren
                 .filter(item => /<calculation\b/i.test(xml.slice(item.start, item.end)))
                 .map(item => attributeOf(item.openingTag, 'caption') ?? attributeOf(item.openingTag, 'name') ?? '')
                 .filter(Boolean);
+            const columns = columnChildren.map(columnLabel).filter(Boolean);
             return {
                 caption,
                 name,
                 calculations,
+                columns,
                 start: child.start,
                 openEnd: child.openEnd,
                 closeStart: datasourceCloseStart,
@@ -164,7 +168,8 @@ function datasourceBlocks(xml: string): DatasourceBlock[] {
 }
 
 export function listWorkbookDatasources(xml: string): WorkbookDatasourceInfo[] {
-    return datasourceBlocks(xml).map(({ caption, name, calculations }) => ({ caption, name, calculations }));
+    return datasourceBlocks(xml).map(({ caption, name, calculations, columns }) =>
+        ({ caption, name, calculations, columns }));
 }
 
 export function validateCalculationFormula(formula: string): string[] {

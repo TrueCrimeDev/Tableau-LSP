@@ -1,5 +1,16 @@
 import * as vscode from 'vscode';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { WorkbookFieldContextManager } from '../../services/workbookFieldContextManager.js';
+import { join } from 'path';
+import { tmpdir } from 'os';
+
+const temporaryDirectories: string[] = [];
+
+afterAll(() => {
+    for (const directory of temporaryDirectories) {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
 
 const XML_A = `<workbook><datasources><datasource caption='A'><column datatype='string' name='A Field' /></datasource></datasources></workbook>`;
 const XML_B = `<workbook><datasources><datasource caption='B'><column datatype='integer' name='B Field' /></datasource></datasources></workbook>`;
@@ -26,6 +37,7 @@ describe('WorkbookFieldContextManager lifecycle', () => {
     let workbookDeleted: (uri: vscode.Uri) => void;
     let documentChanged: (event: vscode.TextDocumentChangeEvent) => void;
     let activeEditorChanged: (editor: vscode.TextEditor | undefined) => void;
+    let workspaceFoldersChanged: () => void;
     let workspaceState: any;
     let windowState: any;
     let client: { sendNotification: jest.Mock };
@@ -40,8 +52,16 @@ describe('WorkbookFieldContextManager lifecycle', () => {
         workspaceState.findFiles = jest.fn().mockResolvedValue([]);
         workspaceState.getWorkspaceFolder = jest.fn().mockReturnValue(undefined);
         workspaceState.fs = { readFile: jest.fn().mockRejectedValue(new Error('not found')) };
-        workspaceState.createFileSystemWatcher = jest.fn((pattern: string) => {
-            const workbookWatcher = pattern.includes('{twb,twbx}');
+        workspaceState.getConfiguration = jest.fn(() => ({ get: () => undefined }));
+        workspaceState.onDidChangeWorkspaceFolders = jest.fn((callback: () => void) => {
+            workspaceFoldersChanged = callback;
+            return { dispose: jest.fn() };
+        });
+        workspaceState.onDidChangeConfiguration = jest.fn(() => ({ dispose: jest.fn() }));
+        workspaceState.createFileSystemWatcher = jest.fn((pattern: unknown) => {
+            // Library watchers pass a RelativePattern; only the workbook
+            // watcher is the plain glob whose callbacks the tests drive.
+            const workbookWatcher = typeof pattern === 'string' && pattern.includes('{twb,twbx}');
             return {
                 onDidCreate: (callback: (value: vscode.Uri) => void) => {
                     void callback;
@@ -278,34 +298,103 @@ describe('WorkbookFieldContextManager lifecycle', () => {
         manager.dispose();
     });
 
-    it('switches fallback definition files when a calculation crosses workspace roots', async () => {
-        const folderA = { uri: uri('C:/workspace/A'), name: 'A', index: 0 } as vscode.WorkspaceFolder;
-        const folderB = { uri: uri('C:/workspace/B'), name: 'B', index: 1 } as vscode.WorkspaceFolder;
-        const calculationA = document('C:/workspace/A/calc.twbl', '[A Field]');
-        const calculationB = document('C:/workspace/B/calc.twbl', '[B Field]');
+    it('switches declaration files when a calculation crosses workspace roots', async () => {
+        // Discovery reads the real filesystem, so the roots must really exist.
+        const workspace = mkdtempSync(join(tmpdir(), 'tableau-roots-'));
+        temporaryDirectories.push(workspace);
+        const rootA = join(workspace, 'A');
+        const rootB = join(workspace, 'B');
+        mkdirSync(join(rootA, 'tableau'), { recursive: true });
+        mkdirSync(rootB, { recursive: true });
+        writeFileSync(join(rootA, 'tableau', 'fields.d.twbl'), '// A\n');
+        writeFileSync(join(rootB, 'fields.d.twbl'), '// B\n');
+
+        const folderA = { uri: uri(rootA), name: 'A', index: 0 } as vscode.WorkspaceFolder;
+        const folderB = { uri: uri(rootB), name: 'B', index: 1 } as vscode.WorkspaceFolder;
+        const calculationA = document(join(rootA, 'calc.twbl'), '[A Field]');
+        const calculationB = document(join(rootB, 'calc.twbl'), '[B Field]');
         workspaceState.workspaceFolders = [folderA, folderB];
         workspaceState.textDocuments = [calculationA, calculationB];
         workspaceState.findFiles = jest.fn().mockResolvedValue([
-            uri('C:/workspace/A/A.twb'),
-            uri('C:/workspace/B/B.twb'),
+            uri(join(rootA, 'A.twb')),
+            uri(join(rootB, 'B.twb')),
         ]);
         workspaceState.getWorkspaceFolder = jest.fn((resource: vscode.Uri) =>
-            resource.fsPath.includes('/B/') ? folderB : folderA
+            resource.fsPath.startsWith(rootB) ? folderB : folderA
         );
         windowState.activeTextEditor = { document: calculationA };
         const manager = new WorkbookFieldContextManager(() => client as any);
         await manager.initialize();
 
-        expect(client.sendNotification.mock.calls.at(-1)?.[1].definitionPath)
-            .toContain('workspace/A/fields.d.twbl');
+        // Root A's declarations come from its tableau/ folder…
+        expect(client.sendNotification.mock.calls.at(-1)?.[1].definitionPaths)
+            .toEqual([join(rootA, 'tableau', 'fields.d.twbl')]);
 
         windowState.activeTextEditor = { document: calculationB };
         activeEditorChanged(windowState.activeTextEditor);
         await Promise.resolve();
         await Promise.resolve();
 
-        expect(client.sendNotification.mock.calls.at(-1)?.[1].definitionPath)
-            .toContain('workspace/B/fields.d.twbl');
+        // …and root B's from the pre-tableau/ root-level layout.
+        expect(client.sendNotification.mock.calls.at(-1)?.[1].definitionPaths)
+            .toEqual([join(rootB, 'fields.d.twbl')]);
+        manager.dispose();
+    });
+
+    it('merges every declaration file a root contributes, root file first', async () => {
+        const root = mkdtempSync(join(tmpdir(), 'tableau-merge-'));
+        temporaryDirectories.push(root);
+        mkdirSync(join(root, 'tableau'), { recursive: true });
+        writeFileSync(join(root, 'fields.d.twbl'), '// legacy\n');
+        writeFileSync(join(root, 'tableau', 'orders.d.twbl'), '// orders\n');
+        writeFileSync(join(root, 'tableau', 'superstore.d.twbl'), '// superstore\n');
+        // Not declarations — these belong to the Calc Bank, not the overlays.
+        writeFileSync(join(root, 'tableau', 'common.twbl'), '// Ratio\nSUM([A])\n');
+
+        const folder = { uri: uri(root), name: 'root', index: 0 } as vscode.WorkspaceFolder;
+        const calculation = document(join(root, 'calc.twbl'), '[A]');
+        workspaceState.workspaceFolders = [folder];
+        workspaceState.textDocuments = [calculation];
+        workspaceState.getWorkspaceFolder = jest.fn(() => folder);
+        windowState.activeTextEditor = { document: calculation };
+        const manager = new WorkbookFieldContextManager(() => client as any);
+        await manager.initialize();
+
+        expect(client.sendNotification.mock.calls.at(-1)?.[1].definitionPaths).toEqual([
+            join(root, 'fields.d.twbl'),
+            join(root, 'tableau', 'orders.d.twbl'),
+            join(root, 'tableau', 'superstore.d.twbl'),
+        ]);
+        manager.dispose();
+    });
+
+    it('watches and re-resolves a workspace folder added after startup', async () => {
+        const root = mkdtempSync(join(tmpdir(), 'tableau-added-'));
+        temporaryDirectories.push(root);
+        mkdirSync(join(root, 'tableau'), { recursive: true });
+        writeFileSync(join(root, 'tableau', 'late.d.twbl'), '// late\n');
+
+        const calculation = document(join(root, 'calc.twbl'), '[A]');
+        windowState.activeTextEditor = { document: calculation };
+        const manager = new WorkbookFieldContextManager(() => client as any);
+        await manager.initialize();
+
+        // No folders yet, so nothing is discovered and nothing is watched.
+        expect(client.sendNotification.mock.calls.at(-1)?.[1].definitionPaths).toEqual([]);
+        const watchersBefore = workspaceState.createFileSystemWatcher.mock.calls.length;
+
+        const folder = { uri: uri(root), name: 'late', index: 0 } as vscode.WorkspaceFolder;
+        workspaceState.workspaceFolders = [folder];
+        workspaceState.getWorkspaceFolder = jest.fn(() => folder);
+        workspaceFoldersChanged();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        // The new root is both resolved and watched — a watcher set built once
+        // at construction would leave later edits there invisible.
+        expect(client.sendNotification.mock.calls.at(-1)?.[1].definitionPaths)
+            .toEqual([join(root, 'tableau', 'late.d.twbl')]);
+        expect(workspaceState.createFileSystemWatcher.mock.calls.length).toBeGreaterThan(watchersBefore);
         manager.dispose();
     });
 

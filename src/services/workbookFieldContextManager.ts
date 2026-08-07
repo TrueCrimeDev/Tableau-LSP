@@ -5,6 +5,11 @@ import {
     WorkbookFieldContext,
     buildWorkbookFieldContext,
 } from './workbookFieldContext.js';
+import {
+    discoverFolderLibrary,
+    invalidateLibraryCache,
+    libraryWatchPatterns,
+} from './tableauLibrary.js';
 import JSZip from 'jszip';
 import type { LanguageClient } from 'vscode-languageclient/node';
 import { TextDecoder } from 'util';
@@ -66,6 +71,7 @@ export async function readWorkbookXml(uri: vscode.Uri): Promise<WorkbookXmlSourc
 export class WorkbookFieldContextManager implements vscode.Disposable {
     private readonly contexts = new Map<string, WorkbookFieldContext>();
     private readonly disposables: vscode.Disposable[] = [];
+    private libraryWatchers: vscode.Disposable[] = [];
     private readonly refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private readonly indexGenerations = new Map<string, number>();
     private activeWorkbookUri: string | undefined;
@@ -74,16 +80,21 @@ export class WorkbookFieldContextManager implements vscode.Disposable {
 
     public constructor(private readonly getClient: () => LanguageClient | undefined) {
         const watcher = vscode.workspace.createFileSystemWatcher('**/*.{twb,twbx}');
-        const definitionWatcher = vscode.workspace.createFileSystemWatcher('**/fields.d.twbl');
+        this.rebuildLibraryWatchers();
         this.disposables.push(
             watcher,
-            definitionWatcher,
             watcher.onDidCreate(uri => { this.scheduleIndex(uri); }),
             watcher.onDidChange(uri => { this.scheduleIndex(uri); }),
             watcher.onDidDelete(uri => { this.removeWorkbook(uri); }),
-            definitionWatcher.onDidCreate(() => { void this.publishActiveContext(); }),
-            definitionWatcher.onDidChange(() => { void this.publishActiveContext(); }),
-            definitionWatcher.onDidDelete(() => { void this.publishActiveContext(); }),
+            // The watch patterns are derived from the folder list and the
+            // configured folder names, so both have to rebuild them — a root
+            // added later would otherwise never be watched.
+            vscode.workspace.onDidChangeWorkspaceFolders(() => { this.refreshLibrary(); }),
+            vscode.workspace.onDidChangeConfiguration(event => {
+                if (event.affectsConfiguration('tableau-language-support.fieldDefinitions')) {
+                    this.refreshLibrary();
+                }
+            }),
             vscode.workspace.onDidOpenTextDocument(document => {
                 if (isWorkbookUri(document.uri)) {
                     void this.indexWorkbook(document.uri, this.shouldActivate(document.uri));
@@ -120,6 +131,48 @@ export class WorkbookFieldContextManager implements vscode.Disposable {
                 }
             })
         );
+    }
+
+    /**
+     * Watches every location discovery can reach: root-level `*.d.twbl` plus
+     * each `tableau/` library folder. A watcher pinned to one filename would
+     * leave a newly added declaration file invisible until the next reload.
+     *
+     * Held apart from `disposables` so a rebuild disposes the previous set
+     * instead of stacking a fresh watcher on every workspace-folder change.
+     */
+    private rebuildLibraryWatchers(): void {
+        for (const watcher of this.libraryWatchers) {
+            watcher.dispose();
+        }
+        this.libraryWatchers = [];
+        if (this.disposed) {
+            return;
+        }
+        const libraryChanged = (): void => {
+            invalidateLibraryCache();
+            void this.publishActiveContext();
+        };
+        for (const pattern of libraryWatchPatterns()) {
+            const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+            this.libraryWatchers.push(
+                watcher,
+                watcher.onDidCreate(libraryChanged),
+                watcher.onDidChange(libraryChanged),
+                watcher.onDidDelete(libraryChanged)
+            );
+        }
+    }
+
+    /**
+     * The watched locations changed (a workspace folder came or went, or the
+     * folder-name setting was edited): re-point the watchers and re-resolve,
+     * since the previous answer was derived from the old layout.
+     */
+    private refreshLibrary(): void {
+        this.rebuildLibraryWatchers();
+        invalidateLibraryCache();
+        void this.publishActiveContext();
     }
 
     public async initialize(): Promise<void> {
@@ -322,33 +375,54 @@ export class WorkbookFieldContextManager implements vscode.Disposable {
                 sourceUri: context?.sourceUri,
                 fields: context?.definitions ?? [],
                 datasourceFields: context?.fields ?? [],
-                definitionPath: this.activeDefinitionPath(),
+                definitionPaths: this.activeDefinitionPaths(),
             });
         } catch (error) {
             console.warn('Tableau LSP: Could not synchronize workbook fields with the language server:', error);
         }
     }
 
-    private activeDefinitionPath(): string | null {
-        let folder: vscode.WorkspaceFolder | undefined;
+    /**
+     * The workspace folder whose Tableau library applies right now. Scoped to
+     * the active resource so a multi-root workspace never feeds one project's
+     * declarations to another project's calculations.
+     */
+    private activeFolder(): vscode.WorkspaceFolder | undefined {
         if (this.activeWorkbookUri) {
-            folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.parse(this.activeWorkbookUri));
-        } else {
-            const activeResource = vscode.window.activeTextEditor?.document.uri ??
-                tabUri(vscode.window.tabGroups.activeTabGroup.activeTab ?? undefined);
-            if (activeResource) {
-                folder = vscode.workspace.getWorkspaceFolder(activeResource);
-            }
-            if (!folder && vscode.workspace.workspaceFolders?.length === 1) {
-                folder = vscode.workspace.workspaceFolders[0];
+            const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.parse(this.activeWorkbookUri));
+            if (folder) {
+                return folder;
             }
         }
-        return folder ? vscode.Uri.joinPath(folder.uri, 'fields.d.twbl').fsPath : null;
+        const activeResource = vscode.window.activeTextEditor?.document.uri ??
+            tabUri(vscode.window.tabGroups.activeTabGroup.activeTab ?? undefined);
+        if (activeResource) {
+            const folder = vscode.workspace.getWorkspaceFolder(activeResource);
+            if (folder) {
+                return folder;
+            }
+        }
+        return vscode.workspace.workspaceFolders?.length === 1
+            ? vscode.workspace.workspaceFolders[0]
+            : undefined;
+    }
+
+    /** Every `*.d.twbl` the active workspace folder contributes, in parse order. */
+    private activeDefinitionPaths(): string[] {
+        const folder = this.activeFolder();
+        if (!folder || folder.uri.scheme !== 'file') {
+            return [];
+        }
+        return discoverFolderLibrary(folder.uri.fsPath).definitions;
     }
 
     public dispose(): void {
         this.disposed = true;
         this.activationGeneration++;
+        for (const watcher of this.libraryWatchers) {
+            watcher.dispose();
+        }
+        this.libraryWatchers = [];
         for (const timer of this.refreshTimers.values()) {
             clearTimeout(timer);
         }

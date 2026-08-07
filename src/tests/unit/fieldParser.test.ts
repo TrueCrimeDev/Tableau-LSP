@@ -145,6 +145,76 @@ describe('FieldParser', () => {
         expect(parser.getField('Amount', 'North')).toBeUndefined();
     });
 
+    describe('setOverlayPaths', () => {
+        const files: Record<string, string> = {
+            '/w/base.d.twbl': '[Sales] = Number\n[Region] = String\n',
+            '/w/tableau/orders.d.twbl': '[Orders Only] = Number\n',
+            '/w/tableau/superstore.d.twbl': '[Region] = Boolean\n[Extra] = String\n',
+        };
+
+        beforeEach(() => {
+            mockFs.readFileSync.mockImplementation((candidatePath: fs.PathOrFileDescriptor) => {
+                const contents = typeof candidatePath === 'string' ? files[candidatePath] : undefined;
+                if (contents === undefined) { throw new Error('not found'); }
+                return contents;
+            });
+        });
+
+        it('merges every overlay on top of the primary definitions', () => {
+            const parser = new FieldParser('/w/base.d.twbl');
+            parser.setOverlayPaths(['/w/tableau/orders.d.twbl', '/w/tableau/superstore.d.twbl']);
+
+            expect(parser.getField('Sales')?.type).toBe('Number');
+            expect(parser.getField('Orders Only')?.type).toBe('Number');
+            expect(parser.getField('Extra')?.type).toBe('String');
+        });
+
+        it('lets a later overlay win on a name clash', () => {
+            const parser = new FieldParser('/w/base.d.twbl');
+            parser.setOverlayPaths(['/w/tableau/orders.d.twbl', '/w/tableau/superstore.d.twbl']);
+
+            expect(parser.getField('Region')?.type).toBe('Boolean');
+        });
+
+        it('skips missing overlays instead of dropping the ones that exist', () => {
+            const parser = new FieldParser('/w/base.d.twbl');
+            parser.setOverlayPaths(['/w/tableau/gone.d.twbl', '/w/tableau/orders.d.twbl']);
+
+            expect(parser.getField('Orders Only')?.type).toBe('Number');
+            expect(parser.getField('Sales')?.type).toBe('Number');
+        });
+
+        it('replaces the previous overlay set rather than accumulating', () => {
+            const parser = new FieldParser('/w/base.d.twbl');
+            parser.setOverlayPaths(['/w/tableau/orders.d.twbl']);
+            parser.setOverlayPaths(['/w/tableau/superstore.d.twbl']);
+
+            expect(parser.getField('Orders Only')).toBeUndefined();
+            expect(parser.getField('Extra')?.type).toBe('String');
+        });
+
+        it('still accepts a single overlay path', () => {
+            const parser = new FieldParser('/w/base.d.twbl');
+            parser.setOverlayPath('/w/tableau/orders.d.twbl');
+
+            expect(parser.getField('Orders Only')?.type).toBe('Number');
+            parser.setOverlayPath(null);
+            expect(parser.getField('Orders Only')).toBeUndefined();
+        });
+
+        it('drops workspace declarations once a live workbook is authoritative', () => {
+            const parser = new FieldParser('/w/base.d.twbl');
+            parser.setOverlayPaths(['/w/tableau/orders.d.twbl']);
+            parser.setRuntimeFields(
+                [{ name: 'Live Field', type: 'Number', description: '', datasource: 'DS' }],
+                true
+            );
+
+            expect(parser.getField('Live Field')?.type).toBe('Number');
+            expect(parser.getField('Orders Only')).toBeUndefined();
+        });
+    });
+
     describe('findDefinitionFile', () => {
         it('returns the first matching path that exists', () => {
             const basePath = '/workspace/out';

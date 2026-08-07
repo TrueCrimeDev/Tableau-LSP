@@ -146,12 +146,12 @@ function collectDashboardStyles(xml: string): Array<{ name: string; formats: str
     return out;
 }
 
-interface CalcInfo {
+export interface CalcInfo {
     caption: string;
     formula: string;
 }
 
-function collectCalculations(xml: string): CalcInfo[] {
+export function collectCalculations(xml: string): CalcInfo[] {
     // Only the datasources section — worksheets redeclare used columns inside
     // <datasource-dependencies>, which would double-count every calc.
     let resolved = xml;
@@ -182,14 +182,14 @@ function collectCalculations(xml: string): CalcInfo[] {
     return calcs;
 }
 
-interface ParamInfo {
+export interface ParamInfo {
     caption: string;
     datatype: string;
     domainType: string;
     value: string;
 }
 
-function collectParameters(xml: string): ParamInfo[] {
+export function collectParameters(xml: string): ParamInfo[] {
     const region = datasourcesRegion(xml);
     const params: ParamInfo[] = [];
     const seen = new Set<string>();
@@ -259,7 +259,9 @@ export function buildWorkbookDigest(
     focus?: DigestFocus,
     workbookName: string = 'Workbook.twb',
     sourceUri?: string,
-    query: string = ''
+    query: string = '',
+    /** Skip the field cap. Authoring a calculation needs every exact name. */
+    fullFields = false
 ): string {
     const parts: string[] = ['# Workbook digest'];
     const sheets = collectWorksheets(xml);
@@ -316,7 +318,7 @@ export function buildWorkbookDigest(
             ...fields.filter(field => lowerQuery && lowerQuery.includes(field.name.toLowerCase())),
             ...fields.filter(field => !lowerQuery || !lowerQuery.includes(field.name.toLowerCase())),
         ];
-        const selected = ordered.slice(0, focus === 'fields' ? ordered.length : MAX_FIELDS);
+        const selected = ordered.slice(0, focus === 'fields' || fullFields ? ordered.length : MAX_FIELDS);
         const grouped = new Map<string, WorkbookDataField[]>();
         for (const field of selected) {
             const group = grouped.get(field.datasource) ?? [];
@@ -331,7 +333,10 @@ export function buildWorkbookDigest(
             }
         }
         if (fields.length > selected.length) {
-            parts.push(`- [${fields.length - selected.length} more fields omitted — ask about one by name or use /fields]`);
+            parts.push(
+                `- [${fields.length - selected.length} more fields omitted — this list is INCOMPLETE. ` +
+                'Call the `tableau_listFields` tool for the full inventory before naming any field you cannot see here.]'
+            );
         }
 
         const params = collectParameters(xml);

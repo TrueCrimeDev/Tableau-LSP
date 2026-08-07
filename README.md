@@ -13,7 +13,22 @@ A VS Code extension that provides language server features for Tableau calculati
 - **Validation**: Validates Tableau expressions for syntax errors and provides diagnostics.
 - **Calculation Extraction**: Extract and analyze calculations, datasources, and fields from Tableau workbooks (.twb/.twbx files) with advanced processing including XML cleaning, name resolution, normalization, and deduplication.
 - **Workbook Field Context**: Opening or selecting a `.twb`/`.twbx` indexes its datasource fields into one authoritative schema shared by the extension host and language server, giving datasource-aware IntelliSense: completion, hover, diagnostics, references, field swapping, and go-to-definition understand `[Datasource].[Field]`.
-- **@tableau Chat Participant**: Ask Copilot Chat about the active workbook (`@tableau what borders are set?`) with `/borders`, `/calcs`, and `/fields` commands, grounded in a parsed workbook digest.
+- **Shared workspace library**: Put a `tableau/` folder at a workspace root and it is picked up automatically — `*.d.twbl` files become field declarations for IntelliSense (merged, so you can keep one per datasource), and every other `*.twbl` is auto-registered in the Calc Bank. Nothing to configure and no file picker; a root-level `fields.d.twbl` still works too.
+
+  ```
+  copilot/                     <- workspace root
+    tableau/
+      fields.d.twbl            field declarations
+      superstore.d.twbl        more declarations (merged; later files win)
+      common.twbl              reusable calculations -> Calc Bank
+      agent.md                 project instructions -> @tableau prompt
+  ```
+
+  `agent.md` (or `instructions.md`, or any `*.agent.md`) is sent with every `@tableau` request — your naming rules, which datasource is canonical, house style, what's always wrong in this project. It outranks the built-in guidance, but cannot override the safety rules. Run **Tableau: Create Agent Instructions for @tableau** to scaffold one.
+
+  Search folders are configurable with `tableau-language-support.fieldDefinitions.folders`. A live workbook always overrides these declarations — they are the fallback for calculation-only projects.
+- **@tableau Chat Participant**: Ask Copilot Chat about the active workbook (`@tableau what borders are set?`) with `/new`, `/borders`, `/calcs`, and `/fields` commands, grounded in a parsed workbook digest. `@tableau` can also *write* to the workbook: ask it to add or fix a calculation (`@tableau add a profit ratio calc`) and it looks up the datasource's complete field list, then writes the calculated field into the live `.twb` after showing you a confirmation card with the formula. Every write takes a timestamped backup and rolls back if the resulting workbook fails validation.
+- **Workbook tools for agent mode**: The same two capabilities are contributed as language model tools, so Copilot's agent mode can use them directly — `#tableauFields` for the full field inventory and `#tableauAddCalculation` to add a calculated field.
 
 ### Tableau Tools Sidebar
 
