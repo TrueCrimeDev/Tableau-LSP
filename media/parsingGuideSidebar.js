@@ -1259,6 +1259,11 @@ if (requiredElements.some((element) => !element)) {
         return
       }
 
+      if (action === 'cleanup-unused') {
+        vscode.postMessage({ type: 'cleanupUnusedCalcs' })
+        return
+      }
+
       const idx = Number(button.dataset.index)
       const data = state.workbookData
       if (!data) {
@@ -2666,6 +2671,7 @@ function renderWorkbookData(data) {
     updateWbBadge('wb-fields-badge', 0)
     updateWbBadge('wb-sheets-badge', 0)
     updateWbBadge('wb-palettes-badge', 0)
+    renderWorkbookHealth([])
     renderParameters([])
     renderSheetFilters([])
     renderDashboards([])
@@ -2702,6 +2708,7 @@ function renderWorkbookData(data) {
   renderFields(data.fields || [])
   renderWorksheets(data.worksheets || [])
   renderWorkbookPaletteList(data.palettes || [])
+  renderWorkbookHealth(data.health || [])
   renderParameters(data.parameters || [])
   renderSheetFilters(data.filters || [])
   renderDashboards(data.dashboards || [])
@@ -2883,7 +2890,23 @@ function renderCalcFields(calcs, usageDataAvailable) {
     el.innerHTML = '<div class="sub-empty">No calculated fields found.</div>'
     return
   }
-  el.innerHTML = joinWithShowMore(
+  // Cleanup action row: only meaningful when usage data backs the unused flags.
+  var unusedCount = 0
+  if (usageDataAvailable !== false) {
+    calcs.forEach(function (c) {
+      if (c.unused === true) {
+        unusedCount++
+      }
+    })
+  }
+  const cleanupRow =
+    unusedCount > 0
+      ? '<div class="wb-cleanup-row"><button class="bt bs bf" id="wb-cleanup-unused-btn" data-action="cleanup-unused" ' +
+        'title="Pick unused calculations to remove from the workbook">Clean up ' +
+        unusedCount +
+        ' unused…</button></div>'
+      : ''
+  el.innerHTML = cleanupRow + joinWithShowMore(
     calcs.map((calc, idx) => {
       const caption = escapeHtml(calc.caption || 'Unnamed')
       const formula = calc.formula || ''
@@ -3260,11 +3283,66 @@ function renderHierarchies(hierarchies) {
   )
 }
 
-// Click delegation for the four insight sections (Parameters, Sheet Filters,
-// Dashboards, Hierarchies): they live outside #workbook-sb, so the workbook
-// handler never sees their toggle-more rows or dashboard zone toggles.
+// Workbook Health: one row per finding (severity dot + label + item count);
+// clicking a row expands the indented detail + items list, mirroring the
+// Dashboards zones pattern. The section badge counts warn-level findings.
+function renderWorkbookHealth(findings) {
+  const el = document.getElementById('wb-health-content')
+  if (!el) {
+    return
+  }
+  const list = Array.isArray(findings) ? findings : []
+  updateWbBadge(
+    'wb-health-badge',
+    list.filter(function (f) {
+      return f && f.severity === 'warn'
+    }).length,
+  )
+  if (!list.length) {
+    el.innerHTML = '<div class="sub-empty">No issues found.</div>'
+    return
+  }
+  el.innerHTML = list
+    .map(function (f, idx) {
+      const severity = f.severity === 'warn' ? 'warn' : 'info'
+      const label = escapeHtml(f.label || f.rule || 'Finding')
+      const detail = escapeHtml(f.detail || '')
+      const items = Array.isArray(f.items) ? f.items : []
+      const itemRows = items
+        .map(function (item) {
+          const text = escapeHtml(String(item))
+          return (
+            '<div class="tree-item" title="' + text + '">' +
+            '<span class="ti-icon"><svg class="ic"><use href="#i-info"/></svg></span>' +
+            '<span class="ti-label">' + text + '</span>' +
+            '</div>'
+          )
+        })
+        .join('')
+      return (
+        '<div class="tree-item ti-ds" data-action="toggle-health-items" data-index="' +
+        idx +
+        '" title="' + detail + '">' +
+        '<span class="ds-cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>' +
+        '<span class="health-dot ' + severity + '"></span>' +
+        '<span class="ti-label">' + label + '</span>' +
+        '<span class="ti-badge">' + items.length + '</span>' +
+        '</div>' +
+        '<div class="ds-fields" id="health-items-' + idx + '" hidden>' +
+        (detail ? '<div class="health-detail">' + detail + '</div>' : '') +
+        itemRows +
+        '</div>'
+      )
+    })
+    .join('')
+}
+
+// Click delegation for the insight sections (Workbook Health, Parameters,
+// Sheet Filters, Dashboards, Hierarchies): they live outside #workbook-sb, so
+// the workbook handler never sees their toggle-more rows or expand toggles.
 ;(function setupWorkbookInsightSections() {
   ;[
+    'wb-health-content',
     'wb-params-content',
     'wb-filters-content',
     'wb-dashboards-content',
@@ -3299,6 +3377,14 @@ function renderHierarchies(hierarchies) {
       } else if (action === 'toggle-dash-zones') {
         const panel = document.getElementById(
           'dash-zones-' + button.dataset.index,
+        )
+        if (panel) {
+          panel.hidden = !panel.hidden
+          button.classList.toggle('ds-open', !panel.hidden)
+        }
+      } else if (action === 'toggle-health-items') {
+        const panel = document.getElementById(
+          'health-items-' + button.dataset.index,
         )
         if (panel) {
           panel.hidden = !panel.hidden

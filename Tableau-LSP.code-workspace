@@ -6,6 +6,11 @@
   ],
   "settings": {
     "workbench.colorCustomizations": {
+      "titleBar.activeBackground": "#2E6F40",
+      "titleBar.activeForeground": "#FFFFFF",
+      "titleBar.inactiveBackground": "#24512F",
+      "titleBar.inactiveForeground": "#C8D8CC",
+      "titleBar.border": "#3D8A52",
       "terminal.background": "#212121",
       "terminal.foreground": "#EEFFFF",
       "terminalCursor.background": "#EEFFFF",

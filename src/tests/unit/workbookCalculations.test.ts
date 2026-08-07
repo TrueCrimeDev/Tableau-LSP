@@ -30,8 +30,8 @@ const XML = [
 describe('workbook calculated-field mutation', () => {
     it('lists only top-level workbook datasources', () => {
         expect(listWorkbookDatasources(XML)).toEqual([
-            { caption: 'Orders', name: 'orders', calculations: [] },
-            { caption: 'Targets', name: 'targets', calculations: [] },
+            { caption: 'Orders', name: 'orders', calculations: [], columns: ['Sales'] },
+            { caption: 'Targets', name: 'targets', calculations: [], columns: ['Target'] },
         ]);
     });
 

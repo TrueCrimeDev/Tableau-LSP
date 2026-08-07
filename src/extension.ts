@@ -5,6 +5,11 @@ import { ActivationManager } from './activation/activationManager.js';
 import { extractCalculationsPythonCommand } from './commands/extractCalculationsPython.js';
 import { registerFormattingPanel } from './views/formattingPanel.js';
 import { registerTableauChatParticipant } from './chat/tableauChatParticipant.js';
+import { registerTableauLanguageModelTools } from './chat/tableauTools.js';
+import {
+    CREATE_AGENT_INSTRUCTIONS_COMMAND,
+    createAgentInstructionsCommand,
+} from './commands/createAgentInstructions.js';
 import { registerFieldSwapFeature } from './providers/fieldSwapHover.js';
 import { CalcCopyCodeLensProvider, COPY_CALC_BLOCK_COMMAND } from './calcCopyLens.js';
 import { registerRunTestsCommand } from './commands/runTests.js';
@@ -36,8 +41,14 @@ export async function activate(context: ExtensionContext): Promise<void> {
     registerLocalTableauCommands(context, () => workbookFieldContextManager);
 
     // Register before any awaits: chat requests must not hang behind the
-    // conflicting-extension warning or language-server startup.
+    // conflicting-extension warning or language-server startup. The workbook
+    // tools go up with them so Copilot agent mode can reach the workbook too.
     registerTableauChatParticipant(context);
+    registerTableauLanguageModelTools(context);
+    context.subscriptions.push(commands.registerCommand(
+        CREATE_AGENT_INSTRUCTIONS_COMMAND,
+        () => createAgentInstructionsCommand()
+    ));
 
     try {
         await warnIfConflictingExtensionInstalled();

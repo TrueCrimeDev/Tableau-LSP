@@ -18,6 +18,7 @@ import { provideSemanticTokens } from './semanticTokensProvider.js';
 import { documentSymbolProvider, workspaceSymbolProvider, provideCodeActions, provideDefinition, provideReferences } from './provider.js';
 import { parsedDocumentCache } from './common.js';
 import { FieldParser } from './fieldParser.js';
+import { discoverTableauLibrary } from './services/tableauWorkspaceFiles.js';
 import { IncrementalParser } from './incrementalParser.js';
 import { globalDebouncer, DebounceHelpers, RequestType } from './requestDebouncer.js';
 import { globalMemoryManager, MemoryHelpers } from './memoryManager.js';
@@ -49,6 +50,8 @@ function shouldSkipDiagnostics(uri: string): boolean {
 }
 
 let fieldParser: FieldParser | null = null;
+/** Set once the extension host publishes its own declaration-file list. */
+let hostOwnsOverlays = false;
 const fieldDefinitionPath = FieldParser.findDefinitionFile(__dirname);
 if (fieldDefinitionPath) {
     fieldParser = new FieldParser(fieldDefinitionPath);
@@ -60,7 +63,14 @@ connection.onNotification(
         if (!fieldParser) {
             fieldParser = new FieldParser(null);
         }
-        fieldParser.setOverlayPath(context?.definitionPath ?? null);
+        // From here on the extension host owns overlay resolution: only it can
+        // see the user's configured folder names and which workspace folder is
+        // active. The server's own bootstrap watcher must stop recomputing the
+        // list or it would clobber this on the next file event.
+        hostOwnsOverlays = true;
+        fieldParser.setOverlayPaths(
+            Array.isArray(context?.definitionPaths) ? context.definitionPaths : []
+        );
         fieldParser.setRuntimeFields(
             Array.isArray(context?.fields) ? context.fields : [],
             Boolean(context?.workbook),
@@ -115,50 +125,100 @@ try {
 }
 
 /**
- * Overlays a workspace-level fields.d.twbl (generated from the Tableau Tools
- * sidebar) on top of the bundled definitions, and watches the workspace root
- * so edits — or the file first appearing — are picked up without a restart.
+ * Overlays every workspace `*.d.twbl` declaration file — the `tableau/` library
+ * folder plus a root-level fields.d.twbl — on top of the bundled definitions,
+ * and watches those locations so edits, or a file first appearing, are picked
+ * up without a restart.
+ *
+ * This is the bootstrap for the window before the extension host publishes its
+ * first workbook context; that notification then becomes authoritative, since
+ * only the host can see the user's configured folder names.
  */
-function setupWorkspaceFieldDefinitions(workspaceRootPath: string): void {
+function setupWorkspaceFieldDefinitions(workspaceRootPaths: string[]): void {
     try {
         const fs = require('fs');
-        const path = require('path');
         const { CompletionPerformanceAPI } = require('./completionProvider');
         const { HoverPerformanceAPI } = require('./hoverProvider');
 
-        const overlayPath = path.join(workspaceRootPath, 'fields.d.twbl');
+        const resolveOverlays = (): string[] =>
+            discoverTableauLibrary(workspaceRootPaths).definitions;
 
-        if (fieldParser) {
-            fieldParser.setOverlayPath(overlayPath);
-        } else if (fs.existsSync(overlayPath)) {
-            // No bundled definitions found — use the workspace file directly.
-            fieldParser = new FieldParser(overlayPath);
-        }
+        const applyOverlays = (): void => {
+            const overlays = resolveOverlays();
+            if (fieldParser) {
+                fieldParser.setOverlayPaths(overlays);
+            } else if (overlays.length) {
+                // No bundled definitions found — use the workspace files directly.
+                fieldParser = new FieldParser(overlays[0]);
+                fieldParser.setOverlayPaths(overlays.slice(1));
+            }
+        };
+        applyOverlays();
 
         let reloadTimer: ReturnType<typeof setTimeout> | undefined;
-        fs.watch(workspaceRootPath, { persistent: false }, (_event: string, filename: string | null) => {
-            if (filename !== 'fields.d.twbl') {
-                return;
-            }
+        const scheduleReload = (): void => {
             // fs.watch often fires multiple events per save — coalesce them.
             if (reloadTimer) {
                 clearTimeout(reloadTimer);
             }
             reloadTimer = setTimeout(() => {
                 try {
-                    if (fieldParser) {
-                        fieldParser.refresh();
-                    } else if (fs.existsSync(overlayPath)) {
-                        fieldParser = new FieldParser(overlayPath);
+                    if (hostOwnsOverlays) {
+                        // Re-read the files the host named; do not re-resolve
+                        // which files those are. setOverlayPaths already
+                        // refreshes, so this is the only pass needed.
+                        fieldParser?.refresh();
+                    } else {
+                        applyOverlays();
                     }
                     CompletionPerformanceAPI.clearCache();
                     HoverPerformanceAPI.clearCaches();
-                    connection.console.log('[Server] Reloaded workspace fields.d.twbl and cleared caches');
+                    connection.console.log('[Server] Reloaded workspace declaration files and cleared caches');
                 } catch (e) {
-                    connection.console.error('[Server] Failed to reload workspace fields.d.twbl: ' + e);
+                    connection.console.error('[Server] Failed to reload workspace declarations: ' + e);
                 }
             }, 100);
-        });
+        };
+
+        // Watch each root (for a root-level or newly created tableau/ folder)
+        // and each library folder that already exists. `recursive` is not
+        // supported on every platform, so a failure per path is tolerated.
+        const watched = new Set<string>();
+        const onEvent = (_event: string, filename: string | null): void => {
+            if (filename && !filename.toLowerCase().endsWith('.twbl')) {
+                return;
+            }
+            scheduleReload();
+        };
+        const watch = (target: string, recursive: boolean): void => {
+            if (watched.has(target)) {
+                return;
+            }
+            watched.add(target);
+            try {
+                fs.watch(target, { persistent: false, recursive }, onEvent);
+            } catch {
+                // Recursive watching is not available on every platform (Linux
+                // only gained it in Node 20). Fall back to a flat watch so at
+                // least direct children of the library folder hot-reload; the
+                // extension host's own watcher covers the rest by re-sending
+                // definitionPaths.
+                if (!recursive) {
+                    return;
+                }
+                try {
+                    fs.watch(target, { persistent: false }, onEvent);
+                } catch {
+                    // An unwatchable path just means no hot-reload from it.
+                }
+            }
+        };
+        for (const root of workspaceRootPaths) {
+            watch(root, false);
+        }
+        for (const folder of discoverTableauLibrary(workspaceRootPaths).folders) {
+            watch(folder, true);
+        }
     } catch (e) {
         console.warn('[Server] Workspace field definitions disabled:', e);
     }
@@ -170,15 +230,20 @@ let hasWorkspaceFolderCapability = false;
 connection.onInitialize((params) => {
     const capabilities = params.capabilities;
 
-    // Wire up the workspace-level fields.d.twbl overlay (first folder wins).
+    // Wire up the workspace declaration-file overlays across every root.
     try {
-        const rootUri = params.workspaceFolders?.[0]?.uri ?? params.rootUri ?? undefined;
-        if (rootUri && rootUri.startsWith('file:')) {
-            const { fileURLToPath } = require('url');
-            setupWorkspaceFieldDefinitions(fileURLToPath(rootUri));
+        const { fileURLToPath } = require('url');
+        const rootUris = params.workspaceFolders?.length
+            ? params.workspaceFolders.map(folder => folder.uri)
+            : (params.rootUri ? [params.rootUri] : []);
+        const roots = rootUris
+            .filter((uri: string) => uri.startsWith('file:'))
+            .map((uri: string) => fileURLToPath(uri) as string);
+        if (roots.length) {
+            setupWorkspaceFieldDefinitions(roots);
         }
     } catch (e) {
-        console.warn('[Server] Could not resolve workspace root for field definitions:', e);
+        console.warn('[Server] Could not resolve workspace roots for field definitions:', e);
     }
 
     hasConfigurationCapability = !!(

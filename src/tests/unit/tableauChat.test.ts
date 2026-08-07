@@ -1,6 +1,10 @@
 import { buildWorkbookDigest } from '../../chat/workbookDigest.js';
 import { TWB_AGENT_PRIMER } from '../../chat/twbPrimer.js';
-import { composeTableauMessages, describeChatError } from '../../chat/tableauChatParticipant.js';
+import {
+    composeTableauMessages,
+    describeChatError,
+    looksLikeCalculationRequest,
+} from '../../chat/tableauChatParticipant.js';
 
 const FIXTURE = `<?xml version='1.0' encoding='utf-8' ?>
 <workbook version='18.1'>
@@ -236,7 +240,7 @@ describe('buildWorkbookDigest — caps', () => {
 
 describe('TWB_AGENT_PRIMER', () => {
     it('contains every required instruction section', () => {
-        for (const tag of ['<role>', '<twb_anatomy>', '<border_model>', '<calculations>', '<thumbnails>', '<edit_guidance>', '<answer_rules>']) {
+        for (const tag of ['<role>', '<tools>', '<twb_anatomy>', '<border_model>', '<calculations>', '<thumbnails>', '<edit_guidance>', '<answer_rules>']) {
             expect(TWB_AGENT_PRIMER).toContain(tag);
         }
     });
@@ -244,6 +248,86 @@ describe('TWB_AGENT_PRIMER', () => {
     it('states the inheritance rule and neutralise-not-delete guidance', () => {
         expect(TWB_AGENT_PRIMER).toContain('Absence of a node never means "no border"');
         expect(TWB_AGENT_PRIMER).toMatch(/NEUTRALISE borders/);
+    });
+
+    it('tells the model to write calculations with the tool, not to print XML', () => {
+        expect(TWB_AGENT_PRIMER).toContain('tableau_addCalculation');
+        expect(TWB_AGENT_PRIMER).toContain('a tool call, not a code block');
+        expect(TWB_AGENT_PRIMER).toContain('not ask them to paste XML');
+    });
+
+    it('tells the model the digest field list is capped and the tool is not', () => {
+        expect(TWB_AGENT_PRIMER).toContain('tableau_listFields');
+        expect(TWB_AGENT_PRIMER).toContain('CALL IT BEFORE writing any formula');
+        expect(TWB_AGENT_PRIMER).toMatch(/never invent, guess/);
+    });
+
+    it('forbids reporting an edit that failed', () => {
+        expect(TWB_AGENT_PRIMER).toContain('TOOL ERROR');
+        expect(TWB_AGENT_PRIMER).toContain('Never report an edit you did not make.');
+    });
+});
+
+describe('looksLikeCalculationRequest', () => {
+    it('matches authoring requests in the user\'s own words', () => {
+        for (const prompt of [
+            'add a profit ratio calculation',
+            'Create a new calculated field for YoY growth',
+            'can you make a measure that sums sales',
+            'build me a formula for margin',
+            'write a calc that flags returns',
+            'fix the Profit Ratio calculation',
+            'update the discount field to use ZN',
+        ]) {
+            expect(looksLikeCalculationRequest(prompt)).toBe(true);
+        }
+    });
+
+    it('matches the /new command with no prompt', () => {
+        expect(looksLikeCalculationRequest('', 'new')).toBe(true);
+    });
+
+    it('does not match read-only questions', () => {
+        for (const prompt of [
+            'what borders does the Border sheet use?',
+            'explain the Profit Ratio calculation',
+            'list the datasource fields',
+            'why is this sheet showing row dividers?',
+        ]) {
+            expect(looksLikeCalculationRequest(prompt)).toBe(false);
+        }
+    });
+});
+
+describe('composeTableauMessages — calculation authoring', () => {
+    const columns = Array.from({ length: 90 }, (_, index) =>
+        `<column caption='Field ${String(index)}' datatype='string' name='[Field ${String(index)}]' role='dimension' />`
+    ).join('');
+    const wideXml = `<workbook><datasources><datasource caption='Wide' name='wide'>${columns}</datasource></datasources></workbook>`;
+
+    it('lifts the field cap so the model sees every name it could reference', () => {
+        const { context } = composeTableauMessages(wideXml, 'add a calculation that counts Field 89', undefined, 'Wide.twb');
+
+        expect(context).toContain('- Field 89 (string, dimension)');
+        expect(context).not.toContain('more fields omitted');
+    });
+
+    it('still caps the field list for a read-only question', () => {
+        const { context } = composeTableauMessages(wideXml, 'what does this workbook contain?', undefined, 'Wide.twb');
+
+        expect(context).toContain('more fields omitted');
+    });
+
+    it('points a capped digest at the full-inventory tool', () => {
+        const { context } = composeTableauMessages(wideXml, 'what does this workbook contain?', undefined, 'Wide.twb');
+
+        expect(context).toContain('this list is INCOMPLETE');
+        expect(context).toContain('`tableau_listFields`');
+    });
+
+    it('gives /new a default question that asks for the missing detail', () => {
+        const { question } = composeTableauMessages(FIXTURE, '', 'new');
+        expect(question).toContain('Create a calculated field');
     });
 });
 
