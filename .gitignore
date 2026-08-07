@@ -132,3 +132,6 @@ images/* - Copy.png
 
 # Release archive copies of the vsix
 /tableau-language-support-*.zip
+
+# VS Code downloaded by @vscode/test-electron for extension-host runs (~320 MB)
+/.vscode-test/
