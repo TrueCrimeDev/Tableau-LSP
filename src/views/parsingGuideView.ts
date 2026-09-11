@@ -3166,10 +3166,10 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
     <div class="sb" id="workbook-sb">
       <div id="workbook-file-card" class="wb-file" style="display:none"></div>
       <div style="display:flex;gap:4px;flex-wrap:wrap;padding:4px 8px">
-        <button class="ib" id="edit-workbook-xml-btn" title="Edit the workbook XML; Save writes back into its package">Edit XML</button>
-        <button class="ib" id="save-workbook-copy-btn" title="Save a workbook copy and open it in Tableau">Save Copy &amp; Open</button>
-        <button class="ib" id="preview-workbook-changes-btn" title="Compare current XML with a backup">Compare Backup</button>
-        <button class="ib" id="restore-workbook-backup-btn" title="Preview and restore a workbook backup">Restore</button>
+        <button class="bt bs" id="edit-workbook-xml-btn" title="Edit the workbook XML; Save writes back into its package">Edit XML</button>
+        <button class="bt bs" id="save-workbook-copy-btn" title="Save a workbook copy and open it in Tableau">Save Copy &amp; Open</button>
+        <button class="bt bs" id="preview-workbook-changes-btn" title="Compare current XML with a backup">Compare Backup</button>
+        <button class="bt bs" id="restore-workbook-backup-btn" title="Preview and restore a workbook backup">Restore</button>
       </div>
       <div id="workbook-empty-state" class="em">Open a <strong>.twb</strong> or <strong>.twbx</strong> file to inspect its contents.</div>
       <div id="extract-calcs-wrap" style="display:none;padding:4px 8px">
