@@ -48,7 +48,7 @@
         "id": "tableau-language-support.tableau",
         "name": "tableau",
         "fullName": "Tableau Workbook",
-        "description": "Ask about \u2014 or edit \u2014 the active .twb workbook",
+        "description": "Ask about — or edit — the active .twb workbook",
         "isSticky": true,
         "commands": [
           {
@@ -78,7 +78,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(table)",
         "userDescription": "List every field, calculated field and parameter in the active Tableau workbook",
-        "modelDescription": "Returns the complete, uncapped inventory of the active Tableau workbook's datasource fields, calculated fields (with their formulas) and parameters, grouped by datasource, with each field's Tableau datatype and role. Call this before writing or editing any Tableau formula, and before answering any question about which fields exist \u2014 the workbook digest's field list is capped and may omit fields, while this tool omits nothing. A field absent from this output does not exist in the workbook.",
+        "modelDescription": "Returns the complete, uncapped inventory of the active Tableau workbook's datasource fields, calculated fields (with their formulas) and parameters, grouped by datasource, with each field's Tableau datatype and role. Call this before writing or editing any Tableau formula, and before answering any question about which fields exist — the workbook digest's field list is capped and may omit fields, while this tool omits nothing. A field absent from this output does not exist in the workbook.",
         "tags": [
           "tableau",
           "workbook"
@@ -114,7 +114,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(add)",
         "userDescription": "Write a calculated field into the active .twb workbook",
-        "modelDescription": "Creates or overwrites a calculated field in the user's live .twb or .twbx workbook file on disk. Use this whenever the user asks to add, create, build, write, fix or change a calculation, calculated field, measure or dimension \u2014 do not print XML for the user to paste instead. The formula must be Tableau calculation syntax (for example SUM([Profit]) / SUM([Sales])), not XML, and every field it references must exist in tableau_listFields output. VS Code shows the user a confirmation prompt before the file is written, the extension takes a timestamped backup first, and the edit is rolled back automatically if the resulting workbook fails validation. Packaged .twbx edits preserve embedded data and assets. Packages containing multiple .twb files are rejected as ambiguous. Tableau must reopen the workbook to display the new field.",
+        "modelDescription": "Creates or overwrites a calculated field in the user's live .twb or .twbx workbook file on disk. Use this whenever the user asks to add, create, build, write, fix or change a calculation, calculated field, measure or dimension — do not print XML for the user to paste instead. The formula must be Tableau calculation syntax (for example SUM([Profit]) / SUM([Sales])), not XML, and every field it references must exist in tableau_listFields output. VS Code shows the user a confirmation prompt before the file is written, the extension takes a timestamped backup first, and the edit is rolled back automatically if the resulting workbook fails validation. Packaged .twbx edits preserve embedded data and assets. Packages containing multiple .twb files are rejected as ambiguous. Tableau must reopen the workbook to display the new field.",
         "tags": [
           "tableau",
           "workbook",
@@ -840,7 +840,8 @@
     "rimraf": "^6.0.1",
     "ts-jest": "^29.1.2",
     "typescript": "^5.4.3",
-    "typescript-eslint": "^8.0.0"
+    "typescript-eslint": "^8.0.0",
+    "vscode-uri": "^3.2.0"
   },
   "dependencies": {
     "camelcase": "^7.0.1",
