@@ -5,6 +5,8 @@ import { ConditionalExpressionValidator } from './conditionalExpressionValidator
 import { AdvancedErrorRecovery } from './errorRecovery.js';
 import { FieldParser } from './fieldParser.js';
 import { isDatasourceQualifier, precedingDatasource } from './fieldReferenceContext.js';
+import { validateCalculationSemantics } from './calculationSemantics.js';
+import { rankNameSuggestions } from './quickFixSuggestions.js';
 
 /**
  * R2.1: Main diagnostic provider implementing comprehensive Tableau validation
@@ -28,6 +30,19 @@ export function getDiagnostics(
 
         // R2.4: Enhanced function signature validation with operator recognition
         diagnostics.push(...validateFunctionSignatures(parsedDocument));
+        if (!/\.d\.twbl$/i.test(document.uri)) {
+            diagnostics.push(...validateCalculationSemantics(document.getText(), {
+                resolveField: fieldParser?.hasRuntimeFieldContext()
+                    ? (name, datasource) => fieldParser.getField(name, datasource)
+                    : undefined,
+            }).map(issue => ({
+                code: issue.code,
+                message: issue.message,
+                severity: DiagnosticSeverity.Error,
+                source: 'tableau-lsp',
+                range: { start: document.positionAt(issue.start), end: document.positionAt(issue.end) },
+            })));
+        }
 
         // Workbook datasource metadata is authoritative when available. Do not
         // validate against the bundled sample definitions, which would create
@@ -98,6 +113,13 @@ function validateKnownFieldReferences(
                             : `Unknown field [${name}] in the active workbook datasource context.`,
                         code: 'UNKNOWN_FIELD',
                         source: 'tableau-lsp',
+                        data: {
+                            fieldName: name,
+                            datasource,
+                            suggestions: rankNameSuggestions(name.replace(/^#/, ''),
+                                [...(datasource ? fieldParser.getFieldsForDatasource(datasource) : fieldParser.getAllFields()).values()]
+                                    .map(field => field.name)),
+                        },
                     });
                 }
             }
@@ -144,10 +166,14 @@ function validateFunctionSignatures(parsedDocument: ParsedDocument): Diagnostic[
                 if (isLikelyFunction(symbol)) {
                     diagnostics.push({
                         severity: DiagnosticSeverity.Information, // Reduced from Warning
-                        range: symbol.range,
+                        range: {
+                            start: symbol.range.start,
+                            end: { line: symbol.range.start.line, character: symbol.range.start.character + symbol.name.length },
+                        },
                         message: `Unknown function: ${symbol.name}. Verify function name or check if this should be a field reference.`,
                         source: 'Tableau LSP',
-                        code: 'UNKNOWN_FUNCTION'
+                        code: 'UNKNOWN_FUNCTION',
+                        data: { functionName: symbol.name },
                     });
                 }
             } else {
@@ -689,8 +715,21 @@ function dedupeDiagnostics(diagnostics: Diagnostic[]): Diagnostic[] {
         const phrase = norm(d.message).split(':')[0];
         const key = `${d.range.start.line}:${d.range.start.character}:${phrase}`;
         const existing = best.get(key);
-        if (!existing || severityRank(d.severity) < severityRank(existing.severity)) {
+        if (!existing) {
             best.set(key, d);
+        } else {
+            const preferred = severityRank(d.severity) < severityRank(existing.severity) ? d : existing;
+            // Error recovery uses a human-readable category for the same issue.
+            // Keep the signature validator's stable code and precise fix range
+            // even when recovery contributes a higher-severity warning.
+            const functionDiagnostic = existing.code === 'UNKNOWN_FUNCTION' ? existing :
+                d.code === 'UNKNOWN_FUNCTION' ? d : undefined;
+            best.set(key, functionDiagnostic ? {
+                ...preferred,
+                code: functionDiagnostic.code,
+                data: functionDiagnostic.data,
+                range: functionDiagnostic.range,
+            } : preferred);
         }
     }
     return [...best.values()];

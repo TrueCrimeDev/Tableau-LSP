@@ -11,18 +11,16 @@ import {
     WorkbookUpdateResult
 } from '../types/workbook.js';
 
-const textDecoder = new TextDecoder('utf-8');
-const textEncoder = new TextEncoder();
+import { readCurrentWorkbookXml, applyWorkbookXmlMutation } from '../services/workbookMutationService.js';
 
 export class TWBParser {
     public async parseWorkbook(uri: vscode.Uri): Promise<WorkbookDocument> {
         try {
-            const fileData = await vscode.workspace.fs.readFile(uri);
-            const xml = textDecoder.decode(fileData);
+            const xml = await readCurrentWorkbookXml(uri);
             const extension = uri.path.toLowerCase();
 
-            if (!extension.endsWith('.twb')) {
-                throw new WorkbookError('Only .twb files are supported by this parser.', 'UNSUPPORTED_EXTENSION');
+            if (!/\.twbx?$/i.test(extension)) {
+                throw new WorkbookError('Only .twb and .twbx workbooks are supported.', 'UNSUPPORTED_EXTENSION');
             }
 
             if (!xml.trim()) {
@@ -78,7 +76,8 @@ export class TWBParser {
 
     public async writeWorkbook(uri: vscode.Uri, xml: string): Promise<void> {
         try {
-            await vscode.workspace.fs.writeFile(uri, textEncoder.encode(xml));
+            const original = await readCurrentWorkbookXml(uri);
+            await applyWorkbookXmlMutation(uri, original, xml);
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : String(error);
             throw new WorkbookError(`Unable to write workbook: ${message}`, 'WRITE_FAILED');

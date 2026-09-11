@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { basename } from 'path';
 import { TWBParser } from '../parsers/twbParser.js';
+import { resolveWorkbookSourceUri } from '../services/workbookUri.js';
 import {
     readThemeFromXml,
     applyThemeEditsToXml,
@@ -16,6 +17,7 @@ import {
 } from '../services/workbookMutationService.js';
 
 let panel: vscode.WebviewPanel | undefined;
+let panelWorkbook: vscode.Uri | undefined;
 
 export function registerFormattingPanel(context: vscode.ExtensionContext): void {
     const cmd = vscode.commands.registerCommand(
@@ -28,13 +30,14 @@ export function registerFormattingPanel(context: vscode.ExtensionContext): void 
         vscode.window.onDidChangeActiveTextEditor(editor => {
             if (!panel || !editor) { return; }
             const p = editor.document.uri.path.toLowerCase();
-            if (p.endsWith('.twb')) { void refreshPanel(editor.document.uri); }
+            if (/\.twbx?$/i.test(p)) { void refreshPanel(editor.document.uri); }
         })
     );
 }
 
 function openOrReveal(context: vscode.ExtensionContext): void {
     if (panel) { panel.reveal(); return; }
+    const initialWorkbook = getWorkbookUri();
 
     panel = vscode.window.createWebviewPanel(
         'tableauFormattingPanel',
@@ -72,26 +75,26 @@ function openOrReveal(context: vscode.ExtensionContext): void {
         }
     });
 
-    panel.onDidDispose(() => { panel = undefined; });
+    panel.onDidDispose(() => { panel = undefined; panelWorkbook = undefined; });
 
-    const active = vscode.window.activeTextEditor;
-    if (active) {
-        const p = active.document.uri.path.toLowerCase();
-        if (p.endsWith('.twb')) { void refreshPanel(active.document.uri); }
-    }
+    if (initialWorkbook) { void refreshPanel(initialWorkbook); }
 }
 
 function getWorkbookUri(): vscode.Uri | undefined {
     const editor = vscode.window.activeTextEditor;
     if (editor) {
         const p = editor.document.uri.path.toLowerCase();
-        if (p.endsWith('.twb')) { return editor.document.uri; }
+        if (/\.twbx?$/i.test(p)) { return resolveWorkbookSourceUri(editor.document.uri); }
     }
-    return undefined;
+    const tab = vscode.window.tabGroups.activeTabGroup.activeTab?.input as { uri?: vscode.Uri } | undefined;
+    if (tab?.uri && /\.twbx?$/i.test(tab.uri.path)) { return resolveWorkbookSourceUri(tab.uri); }
+    return panelWorkbook;
 }
 
 async function refreshPanel(uri: vscode.Uri): Promise<void> {
     if (!panel) { return; }
+    uri = resolveWorkbookSourceUri(uri);
+    panelWorkbook = uri;
     try {
         const parser = new TWBParser();
         const doc = await parser.parseWorkbook(uri);
@@ -103,7 +106,7 @@ async function refreshPanel(uri: vscode.Uri): Promise<void> {
 
 async function handleApplyEdits(edits: WorkbookTheme, relaunch = false): Promise<void> {
     const uri = getWorkbookUri();
-    if (!uri) { await postError('inspect', 'No active .twb file.'); return; }
+    if (!uri) { await postError('inspect', 'No active workbook.'); return; }
     try {
         const original = await readCurrentWorkbookXml(uri);
         const updated = applyThemeEditsToXml(original, edits);
@@ -119,14 +122,14 @@ async function handleApplyEdits(edits: WorkbookTheme, relaunch = false): Promise
         const receipt = await applyWorkbookXmlMutation(uri, original, updated, { relaunch });
         const elements = readThemeFromXml(updated);
         const launchMessage = receipt.launchedWith
-            ? ' Opened in Tableau.'
+            ? ' Sent to Tableau; check the workbook there.'
             : receipt.launchError
                 ? ` Saved, but Tableau did not open: ${receipt.launchError}.`
                 : '';
         await panel?.webview.postMessage({
             type: 'formattingSuccess',
             tab: 'inspect',
-            message: `Changes applied and verified.${launchMessage} Backup: ${receipt.backup.fsPath}`,
+            message: `Changes applied and checked the saved file.${launchMessage} Backup: ${receipt.backup.fsPath}`,
             elements
         });
     } catch (e) {
@@ -147,7 +150,7 @@ async function handleImportTheme(
     relaunch = false
 ): Promise<void> {
     const uri = getWorkbookUri();
-    if (!uri) { await postError('apply', 'No active .twb file.'); return; }
+    if (!uri) { await postError('apply', 'No active workbook.'); return; }
     try {
         const raw = Buffer.from(await vscode.workspace.fs.readFile(vscode.Uri.file(filePath))).toString('utf8');
         const theme = JSON.parse(raw) as object;
@@ -165,14 +168,14 @@ async function handleImportTheme(
         }
         const receipt = await applyWorkbookXmlMutation(uri, original, updated, { relaunch });
         const launchMessage = receipt.launchedWith
-            ? ' Opened in Tableau.'
+            ? ' Sent to Tableau; check the workbook there.'
             : receipt.launchError
                 ? ` Saved, but Tableau did not open: ${receipt.launchError}.`
                 : '';
         await panel?.webview.postMessage({
             type: 'formattingSuccess',
             tab: 'apply',
-            message: `Theme applied and verified.${launchMessage} Backup: ${receipt.backup.fsPath}`
+            message: `Theme applied and checked the saved file.${launchMessage} Backup: ${receipt.backup.fsPath}`
         });
     } catch (e) {
         await postError('apply', `Failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -211,6 +214,11 @@ async function handleLocateElement(panelElement: string): Promise<void> {
 }
 
 export async function locateXmlElement(uri: vscode.Uri, panelElement: string): Promise<void> {
+    if (uri.path.toLowerCase().endsWith('.twbx')) {
+        const editorUri = await vscode.commands.executeCommand<vscode.Uri>('tableau-language-support.workbook.editXml', uri);
+        if (!editorUri) { return; }
+        uri = editorUri;
+    }
     const xmlElement = getXmlElementName(panelElement);
     const uriStr = uri.toString();
     const existing = vscode.window.visibleTextEditors.find(e => e.document.uri.toString() === uriStr);

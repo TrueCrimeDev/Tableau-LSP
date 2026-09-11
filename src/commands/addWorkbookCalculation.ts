@@ -8,35 +8,20 @@ import {
     readCurrentWorkbookXml,
 } from '../services/workbookMutationService.js';
 import { basename } from 'path';
+import { resolveWorkbookUri } from '../chat/activeWorkbook.js';
 
 interface DatatypePick extends vscode.QuickPickItem {
     datatype: TableauCalculationDatatype;
 }
 
-function activeWorkbookUri(): vscode.Uri | undefined {
-    const editorUri = vscode.window.activeTextEditor?.document.uri;
-    if (editorUri?.path.toLowerCase().endsWith('.twb')) {
-        return editorUri;
-    }
-    for (const group of vscode.window.tabGroups.all) {
-        for (const tab of group.tabs) {
-            const input = tab.input as { uri?: vscode.Uri } | undefined;
-            if (input?.uri?.path.toLowerCase().endsWith('.twb')) {
-                return input.uri;
-            }
-        }
-    }
-    return undefined;
-}
-
 async function pickWorkbook(): Promise<vscode.Uri | undefined> {
-    const active = activeWorkbookUri();
+    const active = await resolveWorkbookUri();
     if (active) {
         return active;
     }
-    const workbooks = await vscode.workspace.findFiles('**/*.twb', '**/{node_modules,.git,.worktrees}/**', 100);
+    const workbooks = await vscode.workspace.findFiles('**/*.{twb,twbx}', '**/{node_modules,.git,.worktrees,.tableau-lsp-backups}/**', 100);
     if (!workbooks.length) {
-        void vscode.window.showErrorMessage('No .twb workbook was found. Open or add one to the workspace first.');
+        void vscode.window.showErrorMessage('No .twb or .twbx workbook was found. Open or add one to the workspace first.');
         return undefined;
     }
     if (workbooks.length === 1) {
@@ -156,7 +141,7 @@ export async function addWorkbookCalculationCommand(): Promise<void> {
             replaceExisting,
         }, { relaunch: launch.relaunch });
         const launchMessage = receipt.launchedWith
-            ? ' Opened in Tableau.'
+            ? ' Sent to Tableau; check its data and sheets there.'
             : receipt.launchError
                 ? ` Saved, but Tableau did not open: ${receipt.launchError}.`
                 : '';

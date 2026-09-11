@@ -10,10 +10,10 @@ import {
     invalidateLibraryCache,
     libraryWatchPatterns,
 } from './tableauLibrary.js';
-import JSZip from 'jszip';
 import type { LanguageClient } from 'vscode-languageclient/node';
-import { TextDecoder } from 'util';
 import { setFieldCatalog } from './fieldCatalog.js';
+import { readWorkbookPackage } from './workbookPackage.js';
+import { resolveWorkbookSourceUri } from './workbookUri.js';
 
 function isWorkbookUri(uri: vscode.Uri | undefined): uri is vscode.Uri {
     if (!uri) {
@@ -31,37 +31,26 @@ function tabUri(tab: vscode.Tab | undefined): vscode.Uri | undefined {
 export interface WorkbookXmlSource {
     xml: string;
     workbookName: string;
+    entryPath?: string;
 }
 
-/** Read either a plain workbook or the first workbook inside a packaged TWBX. */
+/** Read either a plain workbook or the single workbook inside a packaged TWBX. */
 export async function readWorkbookXml(uri: vscode.Uri): Promise<WorkbookXmlSource> {
+    uri = resolveWorkbookSourceUri(uri);
     const lower = uri.path.toLowerCase();
     if (lower.endsWith('.twbx')) {
         const data = await vscode.workspace.fs.readFile(uri);
-        const zip = await JSZip.loadAsync(Buffer.from(data));
-        const entries = Object.entries(zip.files)
-            .filter(([entryPath, entry]) => !entry.dir && entryPath.toLowerCase().endsWith('.twb'))
-            .sort(([left], [right]) => left.localeCompare(right));
-        if (entries.length === 0) {
-            throw new Error('No .twb workbook was found inside the .twbx package.');
-        }
-        return {
-            xml: await entries[0][1].async('string'),
-            workbookName: path.basename(entries[0][0]),
-        };
+        return readWorkbookPackage(data, uri.fsPath);
     }
 
-    const openDocument = vscode.workspace.textDocuments.find(
+    const openDocument = (vscode.workspace.textDocuments ?? []).find(
         document => document.uri.toString() === uri.toString()
     );
     if (openDocument) {
         return { xml: openDocument.getText(), workbookName: path.basename(uri.fsPath) };
     }
     const data = await vscode.workspace.fs.readFile(uri);
-    return {
-        xml: new TextDecoder('utf-8').decode(data),
-        workbookName: path.basename(uri.fsPath),
-    };
+    return readWorkbookPackage(data, uri.fsPath);
 }
 
 /**

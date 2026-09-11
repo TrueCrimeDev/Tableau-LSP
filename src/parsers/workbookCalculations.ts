@@ -1,6 +1,7 @@
 import { TokenType, tokenize } from '../lexer.js';
-import { XMLValidator } from 'fast-xml-parser';
+import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { createHash } from 'crypto';
+import { CalculationSemanticContext, SemanticField, validateCalculationSemantics } from '../calculationSemantics.js';
 
 export type TableauCalculationDatatype = 'string' | 'real' | 'integer' | 'boolean' | 'date' | 'datetime';
 export type TableauCalculationRole = 'dimension' | 'measure';
@@ -64,7 +65,19 @@ function validateXml(xml: string): void {
             : 'Unknown XML validation error';
         throw new WorkbookCalculationError(`Workbook XML is not well formed: ${detail}`, 'INVALID_WORKBOOK_XML');
     }
-    if (!/<workbook\b/i.test(xml) || !/<datasources\b/i.test(xml)) {
+    // Well-formedness alone accepts multiple roots, while text searches can
+    // mistake comments or nested foreign documents for a Tableau workbook.
+    const parsed: unknown = new XMLParser({
+        preserveOrder: true,
+        ignoreAttributes: true,
+        ignoreDeclaration: true,
+        ignorePiTags: true,
+        processEntities: false,
+    }).parse(xml);
+    const root: unknown = Array.isArray(parsed) && parsed.length === 1 ? parsed[0] : undefined;
+    const children = typeof root === 'object' && root !== null && 'workbook' in root ? root.workbook : undefined;
+    if (!Array.isArray(children) || children.filter(child =>
+        typeof child === 'object' && child !== null && Object.prototype.hasOwnProperty.call(child, 'datasources')).length !== 1) {
         throw new WorkbookCalculationError('The document is not a Tableau workbook with datasources.', 'INVALID_WORKBOOK');
     }
 }
@@ -172,7 +185,7 @@ export function listWorkbookDatasources(xml: string): WorkbookDatasourceInfo[] {
         ({ caption, name, calculations, columns }));
 }
 
-export function validateCalculationFormula(formula: string): string[] {
+export function validateCalculationFormula(formula: string, context: CalculationSemanticContext = {}): string[] {
     const value = formula.trim();
     if (!value) {
         return ['Formula is required.'];
@@ -180,9 +193,14 @@ export function validateCalculationFormula(formula: string): string[] {
     const errors: string[] = [];
     const delimiters: TokenType[] = [];
     let blockDepth = 0;
-    for (const token of tokenize(value)) {
+    const tokens = tokenize(value).filter(token => token.type !== TokenType.Comment);
+    for (const [index, token] of tokens.entries()) {
         if (token.type === TokenType.Unexpected) {
-            errors.push(`Unexpected or unterminated token near "${token.value.slice(0, 24)}".`);
+            const qualifiedFieldSeparator = token.value === '.' &&
+                tokens[index - 1]?.type === TokenType.FieldReference && tokens[index + 1]?.type === TokenType.FieldReference;
+            if (!qualifiedFieldSeparator) {
+                errors.push(`Unexpected or unterminated token near "${token.value.slice(0, 24)}".`);
+            }
         } else if (token.type === TokenType.LParen || token.type === TokenType.LBrace) {
             delimiters.push(token.type);
         } else if (token.type === TokenType.RParen) {
@@ -212,7 +230,36 @@ export function validateCalculationFormula(formula: string): string[] {
     if (blockDepth > 0) {
         errors.push('IF or CASE is missing END.');
     }
+    if (!errors.length) {
+        errors.push(...validateCalculationSemantics(value, context).map(issue => issue.message));
+    }
     return [...new Set(errors)];
+}
+
+/** Preserve datasource and parameter scope when validating a pending write. */
+export function workbookCalculationSemanticContext(xml: string, selectedDatasource: string): CalculationSemanticContext {
+    const sources = datasourceBlocks(xml).map(source => {
+        const fields = new Map<string, SemanticField>();
+        for (const column of source.children.filter(child => child.name === 'column')) {
+            const parameter = source.name.toLowerCase() === 'parameters' || attributeOf(column.openingTag, 'param-domain-type') !== undefined;
+            const field: SemanticField = {
+                datatype: attributeOf(column.openingTag, 'datatype'),
+                kind: parameter ? 'parameter' : /<calculation\b/i.test(xml.slice(column.start, column.end)) ? 'calculation' : 'field',
+            };
+            const names = [columnLabel(column), attributeOf(column.openingTag, 'name')?.replace(/^\[|\]$/g, '')];
+            for (const name of names) { if (name) { fields.set(name.toLowerCase(), field); } }
+        }
+        return { ...source, fields };
+    });
+    return {
+        resolveField: (name, qualifier) => {
+            const wanted = (qualifier ?? selectedDatasource).toLowerCase();
+            const source = sources.find(item => item.name.toLowerCase() === wanted || item.caption.toLowerCase() === wanted);
+            const direct = source?.fields.get(name.toLowerCase());
+            if (direct || qualifier) { return direct; }
+            return sources.find(item => item.name.toLowerCase() === 'parameters')?.fields.get(name.toLowerCase());
+        },
+    };
 }
 
 function escapeXmlAttribute(value: string): string {
@@ -375,6 +422,10 @@ export function addOrUpdateWorkbookCalculation(
             `Datasource "${input.datasource}" was not found in this workbook.`,
             'DATASOURCE_NOT_FOUND'
         );
+    }
+    const semanticErrors = validateCalculationSemantics(input.formula, workbookCalculationSemanticContext(xml, datasource.name));
+    if (semanticErrors.length) {
+        throw new WorkbookCalculationError(semanticErrors.map(issue => issue.message).join(' '), 'INVALID_FORMULA');
     }
     const existing = datasource.children.find(child =>
         child.name === 'column' && columnLabel(child).toLowerCase() === input.caption.toLowerCase()

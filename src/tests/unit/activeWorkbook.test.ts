@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { resolveWorkbookUri, resolveWritableWorkbookUri } from '../../chat/activeWorkbook.js';
+import { bindWorkbookSource, unbindWorkbookSource } from '../../services/workbookUri.js';
 
 /**
  * Which staged query the resolver issued. The directory stage is scoped to a
@@ -227,10 +228,23 @@ describe('resolveWritableWorkbookUri', () => {
         (vscode.workspace as any).getWorkspaceFolder = jest.fn().mockReturnValue(undefined);
     });
 
-    it('refuses a packaged workbook, naming the file', async () => {
+    it('resolves a local packaged workbook for the transactional writer', async () => {
         windowState.activeTextEditor = { document: { uri: uri(`${ROOT_A}/Packaged.twbx`) } };
 
-        await expect(resolveWritableWorkbookUri()).rejects.toThrow('Packaged.twbx');
+        await expect(resolveWritableWorkbookUri()).resolves.toMatchObject({ fsPath: `${ROOT_A}/Packaged.twbx` });
+    });
+
+    it('counts an XML editor and its package tab as the same workbook', async () => {
+        const source = uri(`${ROOT_A}/Packaged.twbx`);
+        const virtual = { ...uri(`${ROOT_A}/Packaged.twbx/Book.twb`), scheme: 'tableau-workbook', toString: () => 'tableau-workbook:/Packaged.twbx/Book.twb' } as vscode.Uri;
+        bindWorkbookSource(virtual, source);
+        windowState.activeTextEditor = { document: { uri: uri(CALC_A) } };
+        windowState.tabGroups.all = [{ tabs: [tab(source), tab(virtual)] }];
+        try {
+            await expect(resolveWritableWorkbookUri()).resolves.toMatchObject({ fsPath: source.fsPath });
+        } finally {
+            unbindWorkbookSource(virtual);
+        }
     });
 
     it('refuses a workbook that is not on the local filesystem', async () => {

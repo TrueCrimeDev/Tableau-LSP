@@ -4,6 +4,7 @@ import {
     WorkbookDatasourceInfo,
     listWorkbookDatasources,
     validateCalculationFormula,
+    workbookCalculationSemanticContext,
 } from '../parsers/workbookCalculations.js';
 import {
     describeUnknownReferences,
@@ -126,6 +127,10 @@ export function normalizeCalculationInput(raw: unknown, xml: string): Calculatio
     }
 
     const datasource = resolveDatasource(xml, text(input.datasource));
+    const semanticErrors = validateCalculationFormula(formula, workbookCalculationSemanticContext(xml, datasource.name));
+    if (semanticErrors.length) {
+        throw new CalculationPlanError(`The formula is not valid Tableau: ${semanticErrors.join(' ')}`);
+    }
 
     // Syntax validation says nothing about whether the fields exist, so a
     // single transposed letter would otherwise reach the workbook and show up
