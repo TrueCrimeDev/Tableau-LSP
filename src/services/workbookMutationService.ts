@@ -6,8 +6,8 @@ import {
 } from '../parsers/workbookCalculations.js';
 import { WorkbookEditReceipt, WorkbookEditService } from './workbookEditService.js';
 import { LocalTableauConnectorHub } from './localTableauConnectors.js';
-
-const decoder = new TextDecoder('utf-8');
+import { readWorkbookXml } from './workbookFieldContextManager.js';
+import { resolveWorkbookSourceUri } from './workbookUri.js';
 
 export interface WorkbookMutationOptions {
     relaunch?: boolean;
@@ -23,16 +23,11 @@ export interface CalculationMutationReceipt extends WorkbookMutationReceipt {
 }
 
 export async function readCurrentWorkbookXml(uri: vscode.Uri): Promise<string> {
-    const openDocument = vscode.workspace.textDocuments.find(
-        document => document.uri.toString() === uri.toString()
-    );
-    if (openDocument) {
-        return openDocument.getText();
-    }
-    return decoder.decode(await vscode.workspace.fs.readFile(uri));
+    return (await readWorkbookXml(uri)).xml;
 }
 
 async function launchEditedWorkbook(uri: vscode.Uri): Promise<string> {
+    uri = resolveWorkbookSourceUri(uri);
     const config = vscode.workspace.getConfiguration('tableau-language-support');
     const configuredExecutable = config.get<string>('local.executablePath', '').trim();
     return new LocalTableauConnectorHub({

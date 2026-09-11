@@ -129,9 +129,17 @@ The connector uses Tableau's documented local file surfaces (`.twb`, `.twbx`, `.
 
 ### Adding calculations to a workbook
 
-Use **Tableau: Add Calculation to Workbook** or the Calculated Fields form in the sidebar to write a calculation into a datasource in a plain `.twb` workbook. A `.twbl` editor selection can supply the formula to the command, but `.twbl` remains the calculation-authoring/definitions format; Tableau Desktop reads the generated native `<column><calculation ... /></column>` entry from the `.twb` XML.
+Use **Tableau: Add Calculation to Workbook**, the Calculated Fields form, or `@tableau` to write a calculation into a datasource in a `.twb` or `.twbx` workbook. A `.twbl` editor selection can supply the formula; Tableau reads the resulting native `<column><calculation ... /></column>` entry from the workbook XML.
 
-Every workbook mutation is transactional: the extension validates the source XML, creates a timestamped copy in `.tableau-lsp-backups`, writes through an open editor when needed, rereads and validates the exact persisted result, and restores the original if writing or verification fails. Duplicate calculated-field names require explicit replacement, while collisions with physical fields are rejected. Packaged `.twbx` mutation is intentionally not supported yet.
+Every workbook mutation validates the XML, creates a complete timestamped backup in `.tableau-lsp-backups`, and checks the persisted result. Failed writes recover from the backup when safe; a newer external edit is preserved and reported. Packaged edits replace only the embedded `.twb`, preserving the other archive entries and their bytes. Packages must contain exactly one workbook. Duplicate calculated-field names require explicit replacement; collisions with physical fields are rejected.
+
+To edit the embedded XML directly, right-click a `.twbx` and choose **Tableau: Edit Workbook XML**, or click **Edit XML** in the sidebar. Normal Save writes back into the package. Save or revert a dirty XML editor before applying sidebar or chat edits to that package.
+
+**Save a Workbook Copy** includes unsaved editor changes and leaves the original untouched. **Save a Workbook Copy and Open in Tableau** also launches the copy in the configured local Tableau installation. Keep a plain `.twb` copy beside its original when its data connections use relative paths. A `.twbx` copy retains its packaged data and images; external server connections still require access.
+
+Use **Compare Workbook with Backup** to inspect the XML differences and **Restore Workbook Backup** to recover a previous version. Restoring first backs up the current file, including when that file is damaged.
+
+File verification checks XML, archive integrity and persisted contents. It does not prove that Tableau can resolve every connection or render every sheet. Open the result in your target Tableau version and check its data and views; the extension preserves workbook version metadata and does not downgrade workbooks. Calculation diagnostics detect supported, confirmed errors conservatively and do not replace Tableau's calculation engine.
 
 The collapsed **Add Calculated Field** section contains a nested **Common Calculations** library. It starts with a Profit Ratio example and can store up to ten reusable field-name, formula, and datatype combinations. **Use Saved** fills the workbook insertion form; **Save Current** adds or updates the template. The library is synchronized through VS Code Settings Sync when available.
 

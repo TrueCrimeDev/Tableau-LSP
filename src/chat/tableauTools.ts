@@ -60,7 +60,7 @@ class ListFieldsTool implements vscode.LanguageModelTool<ListFieldsInput> {
         }
         try {
             const source = await readWorkbookXml(uri);
-            const inventory = buildFieldInventory(source.xml, source.workbookName, {
+            const inventory = buildFieldInventory(source.xml, basename(uri.fsPath), {
                 datasource: options.input.datasource,
                 kind: options.input.kind,
                 nameContains: options.input.nameContains,

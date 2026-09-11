@@ -233,13 +233,20 @@ describe('WorkbookFieldContextManager lifecycle', () => {
         workspaceState.fs.readFile = jest.fn(() => new Promise<Uint8Array>(resolve => {
             resolveB = resolve;
         }));
+        const workbookBPublished = new Promise<void>(resolve => {
+            client.sendNotification.mockImplementation((_method: string, context: { workbook: string }) => {
+                if (context.workbook === 'B.twb') {
+                    resolve();
+                }
+                return Promise.resolve();
+            });
+        });
         windowState.activeTextEditor = { document: workbookB };
         activeEditorChanged(windowState.activeTextEditor);
 
         await jest.runOnlyPendingTimersAsync();
         resolveB(Buffer.from(XML_B));
-        await Promise.resolve();
-        await Promise.resolve();
+        await workbookBPublished;
 
         expect(client.sendNotification).toHaveBeenLastCalledWith(
             'tableau/workbookFieldContext',

@@ -8,7 +8,9 @@ import {
     WorkspaceSymbolParams,
     Diagnostic,
     DiagnosticSeverity,
-    SymbolKind
+    SymbolKind,
+    CodeAction,
+    CodeActionParams
 } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { pathToFileURL } from 'url';
@@ -22,6 +24,9 @@ import {
 } from './common.js';
 import { FieldParser } from './fieldParser.js';
 import { isCodeOffset, isDatasourceQualifier, precedingDatasource } from './fieldReferenceContext.js';
+import { JSDocParser } from './jsdocParser.js';
+import { tokenize, TokenType } from './lexer.js';
+import { nameEditDistance, rankNameSuggestions } from './quickFixSuggestions.js';
 
 // REGEX CONSTANTS - inspired by your tmLanguage file
 // We use the 'g' flag to find all occurrences.
@@ -267,35 +272,14 @@ function parseTwblDefinitions(twblContent: string): Map<string, { line: number, 
 /**
  * Provide code actions (quick fixes) for diagnostics.
  */
-export function provideCodeActions(params: any, document: TextDocument): any[] {
-    // Only handle "Unknown function" diagnostics for now
+export function provideCodeActions(params: CodeActionParams, document: TextDocument): CodeAction[] {
     if (!params.context || !params.context.diagnostics) return [];
     const diagnostics = params.context.diagnostics;
-    const fs = require('fs');
-    const path = require('path');
-    const twblPath = path.resolve(__dirname, '../syntaxes/twbl.d.twbl');
-    let builtins: string[] = [];
-    if (fs.existsSync(twblPath)) {
-        const content = fs.readFileSync(twblPath, 'utf8');
-        builtins = Array.from(parseTwblDefinitions(content).keys());
-    }
+    const text = document.getText();
+    const tokens = tokenize(text);
+    const tokensByStart = new Map(tokens.map(token => [token.start, token]));
 
-    // Helper: find similar built-in function (prefix match, fallback to Levenshtein)
-    function findSimilar(name: string): string | null {
-        const upper = name.toUpperCase();
-        const prefix = builtins.find(fn => fn.startsWith(upper));
-        if (prefix) return prefix;
-        // fallback: closest by length diff
-        let minDist = 2, best = null;
-        for (const fn of builtins) {
-            if (Math.abs(fn.length - upper.length) <= minDist) {
-                best = fn;
-            }
-        }
-        return best;
-    }
-
-    const actions = [];
+    const actions: CodeAction[] = [];
     for (const diag of diagnostics) {
         // Quick fix: insert a suggested header comment above an undocumented calc.
         if (diag.code === 'MISSING_HEADER_COMMENT' && diag.data && typeof diag.data.insertLine === 'number') {
@@ -323,30 +307,65 @@ export function provideCodeActions(params: any, document: TextDocument): any[] {
             continue;
         }
 
-        const m = diag.message.match(/^Unknown function: ([A-Z_][A-Z0-9_]*)$/i);
-        if (m) {
-            const unknown = m[1];
-            const similar = findSimilar(unknown);
-            if (similar) {
-                actions.push({
-                    title: `Replace with "${similar}"`,
-                    kind: "quickfix",
-                    diagnostics: [diag],
-                    edit: {
-                        changes: {
-                            [document.uri]: [
-                                {
-                                    range: diag.range,
-                                    newText: similar
-                                }
-                            ]
-                        }
-                    }
-                });
-            }
+        const start = document.offsetAt(diag.range.start);
+        const token = tokensByStart.get(start);
+        if (!token || document.positionAt(start).line !== diag.range.start.line ||
+            document.positionAt(start).character !== diag.range.start.character) continue;
+
+        let unknown: string | undefined;
+        let suggestions: string[] = [];
+        let fieldPrefix = '';
+        const functionMatch = /^Unknown function:\s*([A-Z_][A-Z0-9_]*)(?=\s|[.:]|$)/i.exec(diag.message);
+        const isFunction = diag.code === 'UNKNOWN_FUNCTION' || diag.code === 'Invalid Function' ||
+            (!diag.code && functionMatch !== null);
+        if (isFunction && token.type === TokenType.Identifier) {
+            unknown = typeof diag.data?.functionName === 'string' ? diag.data.functionName : functionMatch?.[1];
+            if (!unknown || token.value.toUpperCase() !== unknown.toUpperCase() ||
+                !/^\s*\(/.test(text.slice(token.end))) continue;
+            suggestions = rankNameSuggestions(unknown, getQuickFixFunctionNames());
+        } else if (diag.code === 'UNKNOWN_FIELD' && token.type === TokenType.FieldReference) {
+            unknown = typeof diag.data?.fieldName === 'string' ? diag.data.fieldName : undefined;
+            if (!unknown || token.value.slice(1, -1).trim().toUpperCase() !== unknown.trim().toUpperCase() ||
+                !token.value.endsWith(']') || isDatasourceQualifier(text, token.end)) continue;
+            fieldPrefix = unknown.startsWith('#') ? '#' : '';
+            unknown = unknown.slice(fieldPrefix.length);
+            const candidates: unknown = diag.data?.suggestions;
+            if (!Array.isArray(candidates)) continue;
+            suggestions = rankNameSuggestions(unknown, candidates.filter((candidate): candidate is string =>
+                typeof candidate === 'string' && !/[\[\]\r\n]/.test(candidate)));
+        }
+        if (!unknown || suggestions.length === 0) continue;
+
+        const uniqueBest = suggestions.length === 1 ||
+            nameEditDistance(unknown, suggestions[0]) < nameEditDistance(unknown, suggestions[1]);
+        const range = Range.create(document.positionAt(token.start), document.positionAt(token.end));
+        for (const [index, suggestion] of suggestions.entries()) {
+            const replacement = isFunction ? suggestion : `[${fieldPrefix}${suggestion}]`;
+            actions.push({
+                title: `Replace with "${replacement}"`,
+                kind: 'quickfix',
+                diagnostics: [diag],
+                isPreferred: index === 0 && uniqueBest,
+                edit: { changes: { [document.uri]: [{ range, newText: replacement }] } },
+            });
         }
     }
     return actions;
+}
+
+let quickFixFunctionNames: string[] | undefined;
+function getQuickFixFunctionNames(): string[] {
+    if (!quickFixFunctionNames) {
+        const names = new Set(Object.keys(FUNCTION_SIGNATURES));
+        const definitions = JSDocParser.findDefinitionFile(__dirname);
+        if (definitions) {
+            for (const [name, symbol] of new JSDocParser(definitions).getAllSymbols()) {
+                if (symbol.type === 'function') names.add(name);
+            }
+        }
+        quickFixFunctionNames = [...names].filter(name => tokenize(name)[0]?.type === TokenType.Identifier);
+    }
+    return quickFixFunctionNames;
 }
 
 /**

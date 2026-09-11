@@ -872,6 +872,15 @@ if (requiredElements.some((element) => !element)) {
     })
   }
 
+  ;[
+    ['edit-workbook-xml-btn', 'editWorkbookXml'],
+    ['save-workbook-copy-btn', 'saveWorkbookCopy'],
+    ['preview-workbook-changes-btn', 'previewWorkbookChanges'],
+    ['restore-workbook-backup-btn', 'restoreWorkbookBackup'],
+  ].forEach(function (entry) {
+    const button = document.getElementById(entry[0])
+    if (button) { button.addEventListener('click', () => vscode.postMessage({ type: entry[1] })) }
+  })
   const openInTableauBtn = document.getElementById('open-in-tableau-btn')
   if (openInTableauBtn) {
     openInTableauBtn.addEventListener('click', () => {
@@ -2972,8 +2981,8 @@ function renderCalculationEditor(data) {
   if (!(select instanceof HTMLSelectElement) || !(button instanceof HTMLButtonElement)) {
     return
   }
-  const isPlainWorkbook = Boolean(data && typeof data.filePath === 'string' && data.filePath.toLowerCase().endsWith('.twb'))
-  const datasources = isPlainWorkbook && Array.isArray(data.datasources)
+  const isWritableWorkbook = Boolean(data && typeof data.filePath === 'string' && /\.twbx?$/i.test(data.filePath))
+  const datasources = isWritableWorkbook && Array.isArray(data.datasources)
     ? data.datasources.filter(function (item) {
         const caption = item && typeof item.caption === 'string' ? item.caption : ''
         return caption && caption.toLowerCase() !== 'parameters'
@@ -2985,8 +2994,8 @@ function renderCalculationEditor(data) {
   }).join('')
   select.disabled = datasources.length === 0
   button.disabled = datasources.length === 0
-  if (!isPlainWorkbook && data) {
-    setCalculationMutationStatus('Calculation writes currently require an unpackaged .twb file.', 'info')
+  if (!isWritableWorkbook && data) {
+    setCalculationMutationStatus('Open a .twb or .twbx workbook to edit calculations.', 'info')
   } else if (!data) {
     setCalculationMutationStatus('', 'info')
   }

@@ -1,9 +1,7 @@
 import * as vscode from 'vscode';
-import { TextDecoder, promisify } from 'util';
-import { exec } from 'child_process';
-const execAsync = promisify(exec);
+import { TextDecoder } from 'util';
+import { resolveWorkbookSourceUri } from '../services/workbookUri.js';
 import { basename, dirname, join } from 'path';
-import JSZip from 'jszip';
 
 import {
     PaletteDefinition,
@@ -665,6 +663,18 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                     log.info(LOG_CAT, `[webview-diag] ${diagMsg}`);
                     break;
                 }
+                case 'editWorkbookXml':
+                    void vscode.commands.executeCommand('tableau-language-support.workbook.editXml', this.lastWorkbookUri);
+                    break;
+                case 'saveWorkbookCopy':
+                    void vscode.commands.executeCommand('tableau-language-support.workbook.saveCopyAndOpen', this.lastWorkbookUri);
+                    break;
+                case 'previewWorkbookChanges':
+                    void vscode.commands.executeCommand('tableau-language-support.workbook.previewChanges', this.lastWorkbookUri);
+                    break;
+                case 'restoreWorkbookBackup':
+                    void vscode.commands.executeCommand('tableau-language-support.workbook.restoreBackup', this.lastWorkbookUri);
+                    break;
                 case 'openInTableau':
                     void this.openInTableau();
                     break;
@@ -1079,12 +1089,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             workbookUri = this.lastWorkbookUri;
         }
         if (!workbookUri) {
-            await this.postStatus('No active workbook file. Open a .twb file first.', 'error');
-            return 'error';
-        }
-        const path = workbookUri.path.toLowerCase();
-        if (path.endsWith('.twbx')) {
-            await this.postStatus('Packaged workbooks (.twbx) are not yet supported.', 'error');
+            await this.postStatus('No active workbook file. Open a .twb or .twbx file first.', 'error');
             return 'error';
         }
 
@@ -1141,7 +1146,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 return 'applied';
             }
 
-            await parser.writeWorkbook(workbookUri, updateResult.updatedXml);
+            await applyWorkbookXmlMutation(workbookUri, workbookDoc.xml, updateResult.updatedXml);
             const action = existingPalette ? 'updated' : 'added';
             await this.postStatus(`Successfully ${action} palette "${palette.name}".`, 'success');
             return 'applied';
@@ -1208,22 +1213,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             return;
         }
 
-        const isWsl = !!(process.env['WSL_DISTRO_NAME'] || process.env['WSL_INTEROP']);
-        if (isWsl) {
-            // WSL: vscode.env.openExternal can't reach Windows apps via /mnt/c/... paths.
-            // Convert to a Windows path and invoke via cmd.exe.
-            try {
-                const linuxPath = workbookUri.fsPath;
-                const { stdout } = await execAsync(`wslpath -w "${linuxPath.replace(/"/g, '\\"')}"`);
-                const winPath = stdout.trim();
-                await execAsync(`cmd.exe /c start "" "${winPath.replace(/"/g, '\\"')}"`);
-            } catch (err: unknown) {
-                const msg = err instanceof Error ? err.message : String(err);
-                void vscode.window.showErrorMessage(`Failed to open in Tableau: ${msg}`);
-            }
-        } else {
-            await vscode.env.openExternal(workbookUri);
-        }
+        await vscode.commands.executeCommand('tableau-language-support.local.openInDesktop', resolveWorkbookSourceUri(workbookUri));
     }
 
     private async postContextData(): Promise<void> {
@@ -1335,38 +1325,13 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
 
         log.info(LOG_CAT, `postWorkbookData [${BUILD_STAMP}]: resolved from ${source} -> ${uri.fsPath}`);
 
+        uri = resolveWorkbookSourceUri(uri);
+        this.lastWorkbookUri = uri;
         const lowerPath = uri.path.toLowerCase();
 
         try {
             const fileName = basename(uri.fsPath);
-            let xml: string;
-
-            if (lowerPath.endsWith('.twbx')) {
-                log.info(LOG_CAT, 'postWorkbookData: reading .twbx archive');
-                const data = await vscode.workspace.fs.readFile(uri);
-                const zip = await JSZip.loadAsync(Buffer.from(data));
-                const twbEntries = Object.entries(zip.files).filter(
-                    ([entryPath, entry]) => !entry.dir && entryPath.toLowerCase().endsWith('.twb')
-                );
-                if (twbEntries.length === 0) {
-                    throw new Error('No .twb file found in the .twbx archive');
-                }
-                xml = await twbEntries[0][1].async('string');
-            } else {
-                // Prefer getting text from an already-open VS Code document
-                // (faster and avoids any workspace.fs.readFile edge cases).
-                const openDoc = vscode.workspace.textDocuments.find(
-                    d => d.uri.toString() === uri.toString()
-                );
-                if (openDoc) {
-                    log.info(LOG_CAT, 'postWorkbookData: reading from open document');
-                    xml = openDoc.getText();
-                } else {
-                    log.info(LOG_CAT, 'postWorkbookData: reading via workspace.fs.readFile');
-                    const data = await vscode.workspace.fs.readFile(uri);
-                    xml = new TextDecoder('utf-8').decode(data);
-                }
-            }
+            const xml = await readCurrentWorkbookXml(uri);
             log.info(LOG_CAT, `postWorkbookData: read XML, length=${xml.length}`);
             if (parseGeneration !== this.workbookParseGeneration) {
                 return;
@@ -1402,7 +1367,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             // Parse custom palettes directly from the XML we already have
             // (avoids a second file read via TWBParser).
             let palettes: PaletteDefinition[] = [];
-            if (lowerPath.endsWith('.twb')) {
+            if (/\.twbx?$/i.test(lowerPath)) {
                 try {
                     palettes = parsePalettes(xml);
                 } catch {
@@ -1869,7 +1834,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             await this.view.webview.postMessage({
                 type: 'calculationMutationResult',
                 success: false,
-                message: 'No datasource found. Open a plain .twb workbook first.',
+                message: 'No datasource found. Open a .twb or .twbx workbook first.',
                 source: 'bank'
             });
             return;
@@ -2138,11 +2103,11 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
     private async addWorkbookCalculation(rawCalculation: unknown, relaunch = false, source: 'form' | 'bank' = 'form'): Promise<void> {
         if (!this.view) { return; }
         const uri = this.lastWorkbookUri;
-        if (!uri || !uri.path.toLowerCase().endsWith('.twb')) {
+        if (!uri || !/\.twbx?$/i.test(uri.path)) {
             await this.view.webview.postMessage({
                 type: 'calculationMutationResult',
                 success: false,
-                message: 'Open a plain .twb workbook before adding a calculation.',
+                message: 'Open a .twb or .twbx workbook before adding a calculation.',
                 source
             });
             return;
@@ -2160,7 +2125,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         try {
             const receipt = await addCalculationToWorkbook(uri, calculation, { relaunch });
             const launchMessage = receipt.launchedWith
-                ? ' Opened in Tableau.'
+                ? ' Sent to Tableau; check the workbook there.'
                 : receipt.launchError
                     ? ` Workbook saved, but Tableau did not open: ${receipt.launchError}.`
                     : '';
@@ -2168,7 +2133,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 type: 'calculationMutationResult',
                 success: true,
                 message: `${receipt.calculation.action === 'added' ? 'Added' : 'Updated'} ` +
-                    `“${receipt.calculation.caption}” and verified the workbook.` +
+                    `“${receipt.calculation.caption}” and verified the saved file.` +
                     `${launchMessage} Backup: ${receipt.backup.fsPath}`,
                 source
             });
@@ -2202,11 +2167,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             workbookUri = this.lastWorkbookUri;
         }
         if (!workbookUri) {
-            await this.notifyBank('No active workbook file. Open a .twb file first.', 'error');
-            return;
-        }
-        if (workbookUri.path.toLowerCase().endsWith('.twbx')) {
-            await this.notifyBank('Packaged workbooks (.twbx) are not yet supported.', 'error');
+            await this.notifyBank('No active workbook file. Open a .twb or .twbx file first.', 'error');
             return;
         }
         try {
@@ -2337,16 +2298,14 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
     private getActiveWorkbookXml(): Promise<string | null> {
         const uri = this.lastWorkbookUri;
         if (!uri) { return Promise.resolve(null); }
-        const openDoc = vscode.workspace.textDocuments.find(d => d.uri.toString() === uri.toString());
-        if (openDoc) { return Promise.resolve(openDoc.getText()); }
-        return Promise.resolve(vscode.workspace.fs.readFile(uri).then(data => new TextDecoder('utf-8').decode(data)));
+        return readCurrentWorkbookXml(uri);
     }
 
     private async handleFormattingApplyEdits(edits: WorkbookTheme, relaunch = false): Promise<void> {
         if (!this.view) { return; }
         const uri = this.lastWorkbookUri;
         if (!uri) {
-            await this.view.webview.postMessage({ type: 'formattingError', tab: 'inspect', message: 'No active .twb file.' });
+            await this.view.webview.postMessage({ type: 'formattingError', tab: 'inspect', message: 'No active workbook.' });
             return;
         }
         try {
@@ -2364,14 +2323,14 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             const receipt = await applyWorkbookXmlMutation(uri, original, updated, { relaunch });
             const elements = readThemeFromXml(updated);
             const launchMessage = receipt.launchedWith
-                ? ' Opened in Tableau.'
+                ? ' Sent to Tableau; check the workbook there.'
                 : receipt.launchError
                     ? ` Saved, but Tableau did not open: ${receipt.launchError}.`
                     : '';
             await this.view.webview.postMessage({
                 type: 'formattingSuccess',
                 tab: 'inspect',
-                message: `Changes applied and verified.${launchMessage} Backup: ${receipt.backup.fsPath}`,
+                message: `Changes applied and checked the saved file.${launchMessage} Backup: ${receipt.backup.fsPath}`,
                 elements
             });
         } catch (e) {
@@ -2395,7 +2354,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         if (!this.view) { return; }
         const uri = this.lastWorkbookUri;
         if (!uri) {
-            await this.view.webview.postMessage({ type: 'formattingError', tab: 'apply', message: 'No active .twb file.' });
+            await this.view.webview.postMessage({ type: 'formattingError', tab: 'apply', message: 'No active workbook.' });
             return;
         }
         try {
@@ -2415,14 +2374,14 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             }
             const receipt = await applyWorkbookXmlMutation(uri, original, updated, { relaunch });
             const launchMessage = receipt.launchedWith
-                ? ' Opened in Tableau.'
+                ? ' Sent to Tableau; check the workbook there.'
                 : receipt.launchError
                     ? ` Saved, but Tableau did not open: ${receipt.launchError}.`
                     : '';
             await this.view.webview.postMessage({
                 type: 'formattingSuccess',
                 tab: 'apply',
-                message: `Theme applied and verified.${launchMessage} Backup: ${receipt.backup.fsPath}`
+                message: `Theme applied and checked the saved file.${launchMessage} Backup: ${receipt.backup.fsPath}`
             });
         } catch (e) {
             await this.view.webview.postMessage({ type: 'formattingError', tab: 'apply', message: `Failed: ${e instanceof Error ? e.message : String(e)}` });
@@ -2485,12 +2444,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
 
     /** Prefers the open editor buffer over disk so dirty edits are respected. */
     private async readWorkbookXml(uri: vscode.Uri): Promise<string> {
-        const openDoc = vscode.workspace.textDocuments.find(d => d.uri.toString() === uri.toString());
-        if (openDoc) {
-            return openDoc.getText();
-        }
-        const parser = new TWBParser();
-        return (await parser.parseWorkbook(uri)).xml;
+        return readCurrentWorkbookXml(uri);
     }
 
     private async stripWorkbookFormatting(rawOptions: unknown, relaunch = false): Promise<void> {
@@ -2498,11 +2452,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
 
         const workbookUri = this.resolveStripTarget();
         if (!workbookUri) {
-            await this.postFormatStripStatus('No active workbook file. Open a .twb file first.', 'error');
-            return;
-        }
-        if (workbookUri.path.toLowerCase().endsWith('.twbx')) {
-            await this.postFormatStripStatus('Packaged workbooks (.twbx) are not yet supported.', 'error');
+            await this.postFormatStripStatus('No active workbook file. Open a .twb or .twbx file first.', 'error');
             return;
         }
 
@@ -2522,12 +2472,12 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 { relaunch }
             );
             const launchMessage = receipt.launchedWith
-                ? ' Opened in Tableau.'
+                ? ' Sent to Tableau; check the workbook there.'
                 : receipt.launchError
                     ? ` Saved, but Tableau did not open: ${receipt.launchError}.`
                     : '';
             await this.postFormatStripStatus(
-                `Formatting stripped and verified.${launchMessage} Backup: ${receipt.backup.fsPath}`,
+                `Formatting stripped and checked the saved file.${launchMessage} Backup: ${receipt.backup.fsPath}`,
                 'success'
             );
             void this.scanWorkbookFormatting();
@@ -2547,7 +2497,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             return;
         }
         const workbookUri = this.resolveStripTarget();
-        if (!workbookUri || workbookUri.path.toLowerCase().endsWith('.twbx')) {
+        if (!workbookUri) {
             // Clear the labels so counts from a previous workbook don't linger.
             await this.view.webview.postMessage({ type: 'formatStripScan', result: null });
             return;
@@ -3215,6 +3165,12 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
     </div>
     <div class="sb" id="workbook-sb">
       <div id="workbook-file-card" class="wb-file" style="display:none"></div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;padding:4px 8px">
+        <button class="ib" id="edit-workbook-xml-btn" title="Edit the workbook XML; Save writes back into its package">Edit XML</button>
+        <button class="ib" id="save-workbook-copy-btn" title="Save a workbook copy and open it in Tableau">Save Copy &amp; Open</button>
+        <button class="ib" id="preview-workbook-changes-btn" title="Compare current XML with a backup">Compare Backup</button>
+        <button class="ib" id="restore-workbook-backup-btn" title="Preview and restore a workbook backup">Restore</button>
+      </div>
       <div id="workbook-empty-state" class="em">Open a <strong>.twb</strong> or <strong>.twbx</strong> file to inspect its contents.</div>
       <div id="extract-calcs-wrap" style="display:none;padding:4px 8px">
         <button id="extract-calcs-btn" class="bt bp bf"><svg class="ic"><use href="#i-export"/></svg> Extract Calculations</button>
@@ -3326,7 +3282,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
       </div>
       <div class="ssb" style="display:none">
         <div class="fs">
-          <div id="fmt-export-placeholder" class="fmt-placeholder">No active .twb file.</div>
+          <div id="fmt-export-placeholder" class="fmt-placeholder">No active workbook.</div>
           <pre id="fmt-json-preview" class="fmt-json-pre" style="display:none"></pre>
           <div id="fmt-export-actions" style="display:none;flex-direction:column;gap:4px">
             <button class="bt bp bf" id="fmt-save-json-btn">Save to File\u2026</button>

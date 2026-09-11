@@ -15,6 +15,7 @@ import { CalcCopyCodeLensProvider, COPY_CALC_BLOCK_COMMAND } from './calcCopyLen
 import { registerRunTestsCommand } from './commands/runTests.js';
 import { WorkbookFieldContextManager } from './services/workbookFieldContextManager.js';
 import { registerLocalTableauCommands } from './commands/localTableauCommands.js';
+import { registerWorkbookCommands } from './commands/workbookCommands.js';
 
 let client: LanguageClient | undefined;
 let activationManager: ActivationManager;
@@ -39,6 +40,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
     // Local connectors are command-driven, so registration is safe before the
     // asynchronous language client and workbook context manager finish starting.
     registerLocalTableauCommands(context, () => workbookFieldContextManager);
+    registerWorkbookCommands(context);
 
     // Register before any awaits: chat requests must not hang behind the
     // conflicting-extension warning or language-server startup. The workbook

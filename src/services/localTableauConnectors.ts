@@ -358,12 +358,18 @@ export class LocalTableauConnectorHub {
         if (!selectedExecutable || !await exists(selectedExecutable)) {
             throw new Error('No Tableau Desktop executable was found. Configure tableau-language-support.local.executablePath.');
         }
-        const child = spawn(selectedExecutable, [workbookPath], {
-            detached: true,
-            stdio: 'ignore',
-            windowsHide: true,
+        await new Promise<void>((resolve, reject) => {
+            const child = spawn(selectedExecutable, [workbookPath], {
+                detached: true,
+                stdio: 'ignore',
+                windowsHide: true,
+            });
+            child.once('error', reject);
+            child.once('spawn', () => {
+                child.unref();
+                resolve();
+            });
         });
-        child.unref();
         return selectedExecutable;
     }
 }

@@ -6,6 +6,7 @@ import {
     TableauLocalArtifact,
 } from '../services/localTableauConnectors.js';
 import type { WorkbookFieldContextManager } from '../services/workbookFieldContextManager.js';
+import { resolveWorkbookSourceUri } from '../services/workbookUri.js';
 
 interface WorkbookPick extends vscode.QuickPickItem {
     filePath: string;
@@ -27,12 +28,14 @@ function isWorkbookPath(filePath: string | undefined): filePath is string {
 }
 
 function activeWorkbookPath(): string | undefined {
-    const editorPath = vscode.window.activeTextEditor?.document.uri.fsPath;
+    const activeUri = vscode.window.activeTextEditor?.document.uri;
+    const editorPath = activeUri ? resolveWorkbookSourceUri(activeUri).fsPath : undefined;
     if (isWorkbookPath(editorPath)) {
         return editorPath;
     }
     const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input as { uri?: vscode.Uri } | undefined;
-    return isWorkbookPath(input?.uri?.fsPath) ? input.uri.fsPath : undefined;
+    const tabUri = input?.uri ? resolveWorkbookSourceUri(input.uri) : undefined;
+    return isWorkbookPath(tabUri?.fsPath) ? tabUri.fsPath : undefined;
 }
 
 function workbookArtifacts(snapshot: LocalTableauSnapshot): TableauLocalArtifact[] {
@@ -44,7 +47,7 @@ function workbookArtifacts(snapshot: LocalTableauSnapshot): TableauLocalArtifact
 async function workspaceWorkbookPaths(): Promise<string[]> {
     const uris = await vscode.workspace.findFiles(
         '**/*.{twb,twbx}',
-        '**/{node_modules,.git,.worktrees}/**',
+        '**/{node_modules,.git,.worktrees,.tableau-lsp-backups}/**',
         100
     );
     return uris.map(uri => uri.fsPath);
@@ -132,10 +135,11 @@ export function registerLocalTableauCommands(
 
     const openInDesktop = vscode.commands.registerCommand(
         'tableau-language-support.local.openInDesktop',
-        async () => {
+        async (candidate?: vscode.Uri) => {
+            candidate = candidate ? resolveWorkbookSourceUri(candidate) : undefined;
             const hub = createConnectorHub();
             const snapshot = await hub.discover();
-            const workbookPath = activeWorkbookPath() ??
+            const workbookPath = candidate?.fsPath ?? activeWorkbookPath() ??
                 await pickWorkbook(snapshot, 'Open a local workbook in Tableau Desktop');
             if (!workbookPath) {
                 return;
@@ -143,7 +147,7 @@ export function registerLocalTableauCommands(
             try {
                 const executable = await hub.launchWorkbook(workbookPath);
                 void vscode.window.showInformationMessage(
-                    `Opened ${path.basename(workbookPath)} with ${path.basename(path.dirname(path.dirname(executable)))}`
+                    `Sent ${path.basename(workbookPath)} to ${path.basename(path.dirname(path.dirname(executable)))}. Check that its data and sheets load in Tableau.`
                 );
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);

@@ -27,7 +27,7 @@ Two tools operate on the user's live workbook. Prefer them over the digest.
    user names a field you cannot find, say so and offer the closest matches.
 
 2. tableau_addCalculation — creates or overwrites a calculated field in the
-   live .twb. Inputs: caption (the field name, no brackets), formula (Tableau
+   live .twb or .twbx. Inputs: caption (the field name, no brackets), formula (Tableau
    calculation syntax, NOT XML), datatype (string|real|integer|boolean|date|
    datetime), datasource (required when the workbook has more than one), and
    replaceExisting: true to overwrite a field that already exists.
@@ -45,7 +45,8 @@ a tool call, not a code block. Sequence:
   c. Report what was written and the backup path, and note that Tableau must
      reopen the workbook to show the new field.
 Only describe a formula without writing it if the user explicitly asks you not
-to change the file, or if the workbook is a .twbx (the tool will say so).
+to change the file. Packaged .twbx edits preserve the bundled data and assets;
+archives containing multiple .twb files are rejected as ambiguous.
 If a tool result starts with "TOOL ERROR", the workbook was NOT changed: fix
 the input it complains about and call the tool again, or tell the user plainly
 that the edit did not happen. Never report an edit you did not make.

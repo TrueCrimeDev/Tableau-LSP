@@ -2,6 +2,22 @@
 
 All notable changes to the "tableau-language-support" extension will be documented in this file.
 
+## [1.13.0] - 2026-09-11
+
+### Added
+
+- **Edit packaged workbooks:** calculation tools, palettes, themes, formatting and unused-calculation cleanup now support `.twbx`. The package writer replaces the embedded workbook while preserving every other entry's path and uncompressed bytes, including extracts and images. Ambiguous packages with multiple workbooks and unsafe or inconsistent archives are rejected.
+- **Edit Workbook XML:** opens the embedded `.twb` in a native VS Code editor. Save writes back into the package with a complete backup and integrity checks. Unsaved XML drafts are protected from competing sidebar edits.
+- **Save a Workbook Copy**, **Save a Workbook Copy and Open in Tableau**, **Compare Workbook with Backup**, and **Restore Workbook Backup** commands, available in the workbook sidebar and Explorer context menu. Copy includes unsaved editor changes without changing the original.
+- Shared calculation checks detect confirmed aggregate/row-level mixing, incompatible operand types, nonboolean conditions and inconsistent IF/CASE/IIF results. Unknown metadata and unsupported inference remain conservative.
+
+### Fixed
+
+- Quick Fixes rank spelling similarity and replace only the function or field token. They preserve arguments, brackets and datasource qualifiers and do not edit stale ranges, strings or comments.
+- Palette writes now use the common backup, verification and recovery service. Full package backups, stale-write checks and serialized edits protect workbook contents.
+- Qualified parameter references such as `[Parameters].[Rate]` are accepted by workbook calculation validation.
+- Tableau launch failures are handled asynchronously. Messages distinguish a successful launch request from Tableau successfully loading and rendering the workbook.
+
 ## [1.12.0] - 2026-09-11
 
 ### Added
