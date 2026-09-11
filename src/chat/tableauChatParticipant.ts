@@ -8,6 +8,7 @@ import { conversationHistory } from './chatHistory.js';
 import { loadProjectInstructions } from './projectInstructions.js';
 import { readWorkbookXml } from '../services/workbookFieldContextManager.js';
 import { tableauToolSpecs } from './tableauTools.js';
+import { validateWorkbookXml } from '../parsers/workbookCalculations.js';
 
 export const TABLEAU_PARTICIPANT_ID = 'tableau-language-support.tableau';
 
@@ -50,6 +51,14 @@ export function composeTableauMessages(
     sourceUri?: string,
     instructions: readonly InstructionSource[] = []
 ): { context: string; question: string } {
+    // Validate before digesting. `buildWorkbookDigest` is pure regex and never
+    // throws, so a damaged or non-workbook file used to yield a digest reading
+    // "Calculations (0)" — and the model would then tell the user their
+    // workbook has no calculations, which is a wrong answer delivered with full
+    // confidence. Truncated XML happened to throw a TypeError deeper in; this
+    // makes the check deliberate and gives every failure a usable message.
+    validateWorkbookXml(xml);
+
     const focus = command && KNOWN_FOCUS.has(command) ? (command as DigestFocus) : undefined;
     const authoring = looksLikeCalculationRequest(prompt, command);
     // Workbook content is untrusted: neutralise anything that could forge the

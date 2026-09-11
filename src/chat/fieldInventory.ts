@@ -2,7 +2,7 @@ import { ParamInfo, collectParameters } from './workbookDigest.js';
 import { WorkbookDataField, buildWorkbookFieldContext } from '../services/workbookFieldContext.js';
 import { listWorkbookDatasources } from '../parsers/workbookCalculations.js';
 import { resolveNames } from '../extract/nameResolver.js';
-import { sanitizeWorkbookText } from './untrustedText.js';
+import { sanitizeWorkbookText, sanitizeWorkbookFormula } from './untrustedText.js';
 
 /**
  * The complete, uncapped field inventory for a workbook.
@@ -161,7 +161,7 @@ function describeCalculation(field: WorkbookDataField, formulas: Map<string, str
     const formula = formulas.get(`${datasource}::${field.name.toLowerCase()}`) ??
         formulas.get(`${datasource}::${stripBrackets(field.internalName).toLowerCase()}`);
     if (formula) {
-        lines.push(`  ${sanitize(formula, 600)}`);
+        lines.push(`  ${sanitizeWorkbookFormula(formula, 600)}`);
     }
     return lines;
 }

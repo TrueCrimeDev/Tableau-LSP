@@ -111,8 +111,13 @@ client/*.js
 recovery_exports/
 test-results/
 
-# Manual-test sandbox and scratch workbooks at repo root
-Tableau/
+# Private Tableau library + manual-test sandbox at repo root.
+# Anchored and case-explicit: a bare `Tableau/` only matched lowercase
+# `tableau/` because core.ignorecase=true on NTFS, so a case-sensitive
+# clone (Linux, macOS, CI) would have exposed the whole folder.
+/tableau/
+/Tableau/
+/.tableau/
 /BorderTest*.twb
 /Test.twb
 /Test.twbx

@@ -184,6 +184,15 @@ function findAllColumns(node: any): any[] {
  * @param mappings - The name mappings to apply
  * @returns XML string with names resolved
  */
+/**
+ * Applies resolved names to the workbook XML.
+ *
+ * Every replacement is passed as a callback, never as a string. Replacement
+ * strings give `$&`, `$\`` and `$'` substitution meaning, and `newName` comes
+ * from a workbook caption — attacker-controlled when the user opens someone
+ * else's .twb. A caption of `$\`` expanded the document on each mapping and
+ * took the extension host to hundreds of MB before throwing.
+ */
 export function applyNameResolution(xmlString: string, mappings: NameMappings): string {
     let resolved = xmlString;
 
@@ -192,17 +201,17 @@ export function applyNameResolution(xmlString: string, mappings: NameMappings): 
         // Replace in datasource attributes
         resolved = resolved.replace(
             new RegExp(`datasource='${escapeRegex(oldName)}'`, 'g'),
-            `datasource='${newName}'`
+            () => `datasource='${newName}'`
         );
         // Replace in field references like [datasource].field
         resolved = resolved.replace(
             new RegExp(`\\[${escapeRegex(oldName)}\\]\\.`, 'g'),
-            `[${newName}].`
+            () => `[${newName}].`
         );
         // Replace in quoted references
         resolved = resolved.replace(
             new RegExp(`'${escapeRegex(oldName)}'`, 'g'),
-            `'${newName}'`
+            () => `'${newName}'`
         );
     }
 
@@ -210,7 +219,7 @@ export function applyNameResolution(xmlString: string, mappings: NameMappings): 
     for (const [oldName, newName] of mappings.calculations.entries()) {
         resolved = resolved.replace(
             new RegExp(escapeRegex(oldName), 'g'),
-            newName
+            () => newName
         );
     }
 
@@ -229,7 +238,7 @@ export function applyNameResolution(xmlString: string, mappings: NameMappings): 
         const needsBoundary = /\w$/.test(oldName);
         resolved = resolved.replace(
             new RegExp(escapeRegex(oldName) + (needsBoundary ? '\\b' : ''), 'g'),
-            newName
+            () => newName
         );
     }
 
