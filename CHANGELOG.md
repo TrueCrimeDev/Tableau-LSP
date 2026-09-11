@@ -2,6 +2,12 @@
 
 All notable changes to the "tableau-language-support" extension will be documented in this file.
 
+## [1.13.1] - 2026-09-11
+
+### Fixed
+
+- Workbook action buttons now fit their labels and wrap in narrow sidebars.
+
 ## [1.13.0] - 2026-09-11
 
 ### Added
