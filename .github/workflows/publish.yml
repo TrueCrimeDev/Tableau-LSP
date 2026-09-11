@@ -1,43 +1,62 @@
-name: Publish VS Code Extension
+name: Marketplace connection diagnostics
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - 'v*'
 
 permissions:
   contents: read
 
 jobs:
-  publish:
+  diagnose:
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Use Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: '20'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Package
-        run: npx vsce package --out tableau-language-support.vsix
-
-      - name: Upload VSIX artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: vsix
-          path: tableau-language-support.vsix
-          if-no-files-found: error
-
-      - name: Publish
+      - name: Check authenticated Marketplace responses
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: npx vsce publish --packagePath tableau-language-support.vsix --skip-duplicate
+        shell: bash
+        run: |
+          node <<'NODE'
+          (async () => {
+          const token = process.env.VSCE_PAT || '';
+          if (!token) {
+            console.error('Publishing credential is missing.');
+            process.exit(1);
+          }
+          console.log(JSON.stringify({credentialPresent: true, credentialHasSurroundingWhitespace: token !== token.trim()}));
+          const origin = 'https://marketplace.visualstudio.com';
+          const probes = [
+            {name: 'anonymous-discovery', method: 'OPTIONS', path: '/_apis/gallery'},
+            {name: 'pat-discovery-vsce', method: 'OPTIONS', path: '/_apis/gallery', username: 'OAuth'},
+            {name: 'pat-direct-extension', method: 'GET', path: '/_apis/gallery/publishers/TrueCrimeAudit/extensions/tableau-language-support?api-version=7.2-preview.1', username: 'OAuth'},
+            {name: 'pat-discovery-empty-username', method: 'OPTIONS', path: '/_apis/gallery', username: ''}
+          ];
+          for (const probe of probes) {
+            const started = Date.now();
+            const authenticated = probe.username !== undefined;
+            const headers = {Accept: 'application/json'};
+            if (authenticated) headers.Authorization = 'Basic ' + Buffer.from(probe.username + ':' + token).toString('base64');
+            try {
+              const response = await fetch(origin + probe.path, {
+                method: probe.method,
+                headers,
+                redirect: 'manual',
+                signal: AbortSignal.timeout(20000)
+              });
+              const body = await response.text();
+              const classification = /Concurrency[\s\S]{0,100}VSID/i.test(body) ? 'VSID concurrency throttle'
+                : /rate threshold|too many requests/i.test(body) ? 'rate limited'
+                : response.status === 401 ? 'unauthorized'
+                : response.status === 403 ? 'forbidden'
+                : response.ok ? 'success' : 'other HTTP response';
+              const output = {name: probe.name, authenticated, status: response.status, elapsedMs: Date.now() - started, classification};
+              for (const header of ['retry-after', 'x-ratelimit-delay', 'x-ratelimit-remaining', 'x-ratelimit-limit', 'x-tfs-session', 'x-vss-e2eid']) {
+                if (response.headers.has(header)) output[header] = response.headers.get(header);
+              }
+              console.log(JSON.stringify(output));
+            } catch (error) {
+              console.log(JSON.stringify({name: probe.name, authenticated, elapsedMs: Date.now() - started, classification: error.name === 'TimeoutError' ? 'request timed out' : 'network request failed'}));
+            }
+          }
+          })().catch(() => { console.error('Diagnostic failed.'); process.exitCode = 1; });
+          NODE
