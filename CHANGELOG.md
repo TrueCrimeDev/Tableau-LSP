@@ -2,7 +2,7 @@
 
 All notable changes to the "tableau-language-support" extension will be documented in this file.
 
-## [Unreleased]
+## [1.12.0] - 2026-09-11
 
 ### Added
 
@@ -22,6 +22,13 @@ All notable changes to the "tableau-language-support" extension will be document
 - Generated field declarations are written into the workspace `tableau/` folder when one exists, so they land beside the hand-written ones instead of at the workspace root. Workspaces without that folder are unaffected.
 - The language server merges every workspace declaration file rather than a single root-level `fields.d.twbl`, and watches each `tableau/` folder so a file added or edited there is picked up without a reload. Declaration files are still ignored entirely while a live workbook is the authoritative schema.
 - The `@tableau` agent prompt now instructs the model to call the workbook tools instead of printing XML for the user to paste, and to confirm exact field names before writing a formula. Asking `@tableau` to add, create, build, fix or change a calculation lifts the digest's 60-field cap so the model sees every name it could reference; a capped field list now says so and names the tool that returns the rest.
+
+### Fixed
+
+- Workbook captions, field inventories, and calculation formulas no longer introduce instruction-boundary tags into chat context. Formula comparison operators remain readable, and parameter names retain their original values for filtering.
+- Invalid or damaged workbook XML is rejected before chat builds a digest, avoiding misleading empty-workbook answers.
+- Name resolution treats replacement metacharacters in workbook captions literally, preventing unintended document expansion.
+- Private workspace Tableau library folders are excluded from Git on both case-sensitive and case-insensitive filesystems.
 
 ## [1.11.0] - 2026-07-14
 

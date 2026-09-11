@@ -1,6 +1,7 @@
 import { resolveNames } from '../extract/nameResolver.js';
 import { scanFormattingXml } from '../parsers/formatStripper.js';
 import { buildWorkbookFieldContext, WorkbookDataField } from '../services/workbookFieldContext.js';
+import { sanitizeWorkbookFormula, sanitizeWorkbookText } from './untrustedText.js';
 
 export type DigestFocus = 'borders' | 'calcs' | 'fields';
 
@@ -18,6 +19,23 @@ function decodeEntities(text: string): string {
         .replace(/&gt;/g, '>')
         .replace(/&lt;/g, '<')
         .replace(/&amp;/g, '&');
+}
+/**
+ * Decodes a caption, name or parameter value for display in the digest.
+ *
+ * Unlike `decodeEntities`, this never yields a real newline or a real angle
+ * bracket. Both are prompt structure: `&#10;` let a caption forge its own
+ * markdown section, and `&lt;` let it open a <PROJECT_INSTRUCTIONS> block and
+ * inherit the authority the prompt grants that block. Formulas still use the
+ * full decode, because `<` is a comparison operator there.
+ */
+function decodeLabel(text: string): string {
+    return promptLabel(decodeEntities(text));
+}
+
+/** Escape only when rendering; parsed names must stay exact for lookups. */
+function promptLabel(text: string): string {
+    return sanitizeWorkbookText(text, Number.POSITIVE_INFINITY);
 }
 
 function attrOf(tag: string, name: string): string | undefined {
@@ -59,11 +77,11 @@ function summariseStyleBody(styleBody: string): StyleRuleSummary[] {
             const scope = attrOf(attrs, 'scope');
             const field = attrOf(attrs, 'field');
             if (attr) {
-                const fieldTail = field ? ` [${decodeEntities(field.split('].[').pop() ?? field).replace(/^\[|\]$/g, '')}]` : '';
-                formats.push(`${attr}${scope ? ` (${scope})` : ''}${fieldTail}=${value !== undefined ? decodeEntities(value) : '?'}`);
+                const fieldTail = field ? ` [${decodeLabel(field.split('].[').pop() ?? field).replace(/^\[|\]$/g, '')}]` : '';
+                formats.push(`${decodeLabel(attr)}${scope ? ` (${decodeLabel(scope)})` : ''}${fieldTail}=${value !== undefined ? decodeLabel(value) : '?'}`);
             }
         }
-        rules.push({ element: m[2], formats });
+        rules.push({ element: decodeLabel(m[2]), formats });
     }
     return rules;
 }
@@ -104,7 +122,7 @@ function collectWorksheets(xml: string): WorksheetInfo[] {
         const name = attrOf(openTag, 'name') ?? '(unnamed)';
         const table = m[0].match(/<table\b[^>]*>[\s\S]*?<\/table>/)?.[0] ?? '';
         sheets.push({
-            name: decodeEntities(name),
+            name: decodeLabel(name),
             styleRules: worksheetTableStyle(table),
             paneRules: worksheetPaneStyles(table),
         });
@@ -136,11 +154,11 @@ function collectDashboardStyles(xml: string): Array<{ name: string; formats: str
             while ((f = fmtRe.exec(z[1])) !== null) {
                 const attr = attrOf(f[1], 'attr');
                 const value = attrOf(f[1], 'value');
-                if (attr) { formats.push(`${attr}=${value !== undefined ? decodeEntities(value) : '?'}`); }
+                if (attr) { formats.push(`${decodeLabel(attr)}=${value !== undefined ? decodeLabel(value) : '?'}`); }
             }
         }
         if (formats.length) {
-            out.push({ name: decodeEntities(attrOf(m[1], 'name') ?? '(unnamed)'), formats });
+            out.push({ name: decodeLabel(attrOf(m[1], 'name') ?? '(unnamed)'), formats });
         }
     }
     return out;
@@ -225,9 +243,9 @@ function collectThumbnails(xml: string): ThumbnailInfo[] {
     while ((m = re.exec(xml)) !== null) {
         const base64Len = m[2].replace(/\s/g, '').length;
         thumbs.push({
-            name: decodeEntities(attrOf(m[1], 'name') ?? '(unnamed)'),
-            width: attrOf(m[1], 'width') ?? '?',
-            height: attrOf(m[1], 'height') ?? '?',
+            name: decodeLabel(attrOf(m[1], 'name') ?? '(unnamed)'),
+            width: decodeLabel(attrOf(m[1], 'width') ?? '?'),
+            height: decodeLabel(attrOf(m[1], 'height') ?? '?'),
             approxKb: Math.round((base64Len * 3) / 4 / 1024),
         });
     }
@@ -297,10 +315,10 @@ export function buildWorkbookDigest(
 
         const scan = scanFormattingXml(xml);
         parts.push('\n## Formatting scan (strippable overrides)');
-        parts.push(`- borders: ${scan.borders.count}${scan.borders.values.length ? ` — ${scan.borders.values.join(', ')}` : ''}`);
-        parts.push(`- bold: ${scan.bold.count}${scan.bold.values.length ? ` — ${scan.bold.values.join(', ')}` : ''}`);
-        parts.push(`- font-size: ${scan.fontSize.count}${scan.fontSize.values.length ? ` — ${scan.fontSize.values.join(', ')}` : ''}`);
-        parts.push(`- font-color: ${scan.fontColor.count}${scan.fontColor.values.length ? ` — ${scan.fontColor.values.join(', ')}` : ''}`);
+        parts.push(`- borders: ${scan.borders.count}${scan.borders.values.length ? ` — ${scan.borders.values.map(decodeLabel).join(', ')}` : ''}`);
+        parts.push(`- bold: ${scan.bold.count}${scan.bold.values.length ? ` — ${scan.bold.values.map(decodeLabel).join(', ')}` : ''}`);
+        parts.push(`- font-size: ${scan.fontSize.count}${scan.fontSize.values.length ? ` — ${scan.fontSize.values.map(decodeLabel).join(', ')}` : ''}`);
+        parts.push(`- font-color: ${scan.fontColor.count}${scan.fontColor.values.length ? ` — ${scan.fontColor.values.map(decodeLabel).join(', ')}` : ''}`);
     }
 
     // Fields/parameters come before calculations: on large workbooks the calc
@@ -327,9 +345,9 @@ export function buildWorkbookDigest(
         }
         for (const [datasource, datasourceFields] of grouped) {
             const totalForDatasource = fields.filter(field => field.datasource === datasource).length;
-            parts.push(`### ${datasource} (${totalForDatasource})`);
+            parts.push(`### ${promptLabel(datasource)} (${totalForDatasource})`);
             for (const field of datasourceFields) {
-                parts.push(`- ${field.name} (${field.datatype || 'unknown'}${field.role ? `, ${field.role}` : ''})`);
+                parts.push(`- ${promptLabel(field.name)} (${promptLabel(field.datatype) || 'unknown'}${field.role ? `, ${promptLabel(field.role)}` : ''})`);
             }
         }
         if (fields.length > selected.length) {
@@ -342,7 +360,7 @@ export function buildWorkbookDigest(
         const params = collectParameters(xml);
         if (params.length) {
             parts.push(`\n## Parameters (${params.length})`);
-            parts.push(...params.map(p => `- ${p.caption} (${p.datatype}, ${p.domainType})${p.value ? ` = ${p.value}` : ''}`));
+            parts.push(...params.map(p => `- ${promptLabel(p.caption)} (${decodeLabel(p.datatype)}, ${decodeLabel(p.domainType)})${p.value ? ` = ${promptLabel(p.value)}` : ''}`));
         }
     }
 
@@ -353,10 +371,8 @@ export function buildWorkbookDigest(
         parts.push(`\n## Calculations (${calcs.length})`);
         const calcLines: string[] = [];
         for (const c of calcs.slice(0, cap)) {
-            const formula = c.formula.length > maxFormula
-                ? c.formula.slice(0, MAX_FORMULA_CHARS_DEFAULT) + '…'
-                : c.formula;
-            calcLines.push(`- **${c.caption}**: \`${formula.replace(/\n/g, ' ')}\``);
+            const formula = sanitizeWorkbookFormula(c.formula, maxFormula);
+            calcLines.push(`- **${promptLabel(c.caption)}**: \`${formula}\``);
         }
         if (calcs.length > cap) {
             calcLines.push(`- [${calcs.length - cap} more calculations omitted — /calcs shows more, or ask about one by name]`);

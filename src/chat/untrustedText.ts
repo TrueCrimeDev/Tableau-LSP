@@ -14,7 +14,34 @@ const MAX_UNTRUSTED_CHARS = 400;
 export function sanitizeWorkbookText(value: string, maxChars: number = MAX_UNTRUSTED_CHARS): string {
     const flattened = value
         .replace(/\s+/g, ' ')
-        .replace(/<(\/?)TABLEAU_AGENT_INSTRUCTION>/gi, '&lt;$1TABLEAU_AGENT_INSTRUCTION&gt;')
+        // Escape angle brackets outright rather than blacklisting tag names. A
+        // list has to be kept in sync with every boundary tag the prompt uses,
+        // and the one that drifted out of sync was the whole vulnerability:
+        // workbook text could open a <PROJECT_INSTRUCTIONS> block and inherit
+        // the authority that block is explicitly granted.
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/TOOL ERROR/gi, 'TOOL_ERROR')
+        .trim();
+    return flattened.length > maxChars ? `${flattened.slice(0, maxChars)}…` : flattened;
+}
+
+/**
+ * Sanitises a calculation formula for the prompt.
+ *
+ * A formula cannot use the blanket angle-bracket escaping that captions get:
+ * `<` and `>` are Tableau's comparison operators, and rendering them as
+ * entities makes the formula wrong to read and wrong to copy. What a formula
+ * never legitimately contains is a *tag-shaped* sequence — `<WORD>` or
+ * `</WORD>` — so only that shape is neutralised. A comparison is always
+ * followed by an operand, never by a bare word and a closing bracket, so this
+ * leaves real formulas untouched while closing the string-literal vector
+ * (`IIF([x], "</PROJECT_INSTRUCTIONS>", "")`).
+ */
+export function sanitizeWorkbookFormula(value: string, maxChars: number = MAX_UNTRUSTED_CHARS): string {
+    const flattened = value
+        .replace(/\s+/g, ' ')
+        .replace(/<(\/?)([A-Za-z_][\w-]*)>/g, '&lt;$1$2&gt;')
         .replace(/TOOL ERROR/gi, 'TOOL_ERROR')
         .trim();
     return flattened.length > maxChars ? `${flattened.slice(0, maxChars)}…` : flattened;
