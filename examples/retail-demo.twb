@@ -1,0 +1,66 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Synthetic fixture for Tableau Language Support examples. No external connections. -->
+<workbook version='18.1' source-platform='win'>
+  <datasources>
+    <datasource caption='Retail Demo' name='Retail Demo' inline='true' version='18.1'>
+      <column name='[Order Date]' datatype='date' role='dimension' type='ordinal' />
+      <column name='[Region]' datatype='string' role='dimension' type='nominal' />
+      <column name='[Category]' datatype='string' role='dimension' type='nominal' />
+      <column name='[Sales]' datatype='real' role='measure' type='quantitative' />
+      <column name='[Profit]' datatype='real' role='measure' type='quantitative' />
+      <column name='[Quantity]' datatype='integer' role='measure' type='quantitative' />
+      <column caption='Profit Ratio' name='[Calculation_ProfitRatio]' datatype='real' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='IF SUM([Sales]) != 0 THEN SUM([Profit]) / SUM([Sales]) END' />
+      </column>
+      <column caption='Sales Tier' name='[Calculation_SalesTier]' datatype='string' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='IF [Sales] &gt;= 1000 THEN &quot;High&quot; ELSEIF [Sales] &gt;= 500 THEN &quot;Medium&quot; ELSE &quot;Low&quot; END' />
+      </column>
+      <column caption='Regional Sales' name='[Calculation_RegionalSales]' datatype='real' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='{ FIXED [Region] : SUM([Sales]) }' />
+      </column>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Sales Overview'>
+      <table>
+        <view>
+          <datasources><datasource caption='Retail Demo' name='Retail Demo' /></datasources>
+          <datasource-dependencies datasource='Retail Demo'>
+            <column name='[Region]' datatype='string' role='dimension' type='nominal' />
+            <column name='[Sales]' datatype='real' role='measure' type='quantitative' />
+            <column caption='Profit Ratio' name='[Calculation_ProfitRatio]' datatype='real' role='measure' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <style>
+          <style-rule element='worksheet'>
+            <format attr='font-family' value='Tableau Book' />
+            <format attr='font-size' value='12' />
+            <format attr='font-color' value='#334155' />
+          </style-rule>
+          <style-rule element='header'>
+            <format attr='font-weight' value='bold' />
+            <format attr='font-color' value='#0f766e' />
+          </style-rule>
+          <style-rule element='pane'>
+            <format attr='border-style' value='solid' />
+            <format attr='border-width' value='1' />
+            <format attr='border-color' value='#cbd5e1' />
+            <format attr='band-color' value='#f1f5f9' />
+          </style-rule>
+          <style-rule element='gridline'>
+            <format attr='line-visibility' value='on' />
+            <format attr='line-color' value='#e2e8f0' />
+          </style-rule>
+        </style>
+        <panes><pane><mark class='Bar' /></pane></panes>
+        <rows>[Retail Demo].[Region]</rows>
+        <cols>SUM([Retail Demo].[Sales])</cols>
+      </table>
+    </worksheet>
+  </worksheets>
+  <preferences>
+    <color-palette name='Retail Teal' type='ordered-sequential'>
+      <color>#f0fdfa</color><color>#99f6e4</color><color>#2dd4bf</color><color>#0d9488</color><color>#115e59</color>
+    </color-palette>
+  </preferences>
+</workbook>

@@ -1,219 +1,62 @@
-# Tableau Language Server Protocol (LSP) for VS Code
+# Tableau Language Support
 
-A VS Code extension that provides language server features for Tableau calculation expressions.
+Write Tableau calculations and inspect, edit, and format workbooks in VS Code.
 
-## Features
+[Install from Marketplace](https://marketplace.visualstudio.com/items?itemName=TrueCrimeAudit.tableau-language-support) · [Download a VSIX](https://github.com/TrueCrimeDev/Tableau-LSP/releases) · [User guide](docs/user-guide.md) · [Changelog](CHANGELOG.md)
 
-- **Syntax Highlighting**: Highlights Tableau calculation syntax including functions, keywords, operators, and field references.
-- **Hover Information**: Shows detailed, context-aware information when hovering over Tableau functions, fields, and keywords.
-  - Includes calculation header context (auto-detected from `// NAME – description` lines) and unified undefined-field messages.
-- **Code Completion**: Suggests functions, fields, and keywords as you type.
-- **Signature Help**: Displays function signatures and parameter information when typing function calls.
-- **Document Symbols**: Lists all functions and expressions in the current document.
-- **Validation**: Validates Tableau expressions for syntax errors and provides diagnostics.
-- **Calculation Extraction**: Extract and analyze calculations, datasources, and fields from Tableau workbooks (.twb/.twbx files) with advanced processing including XML cleaning, name resolution, normalization, and deduplication.
-- **Workbook Field Context**: Opening or selecting a `.twb`/`.twbx` indexes its datasource fields into one authoritative schema shared by the extension host and language server, giving datasource-aware IntelliSense: completion, hover, diagnostics, references, field swapping, and go-to-definition understand `[Datasource].[Field]`.
-- **Shared workspace library**: Put a `tableau/` folder at a workspace root and it is picked up automatically — `*.d.twbl` files become field declarations for IntelliSense (merged, so you can keep one per datasource), and every other `*.twbl` is auto-registered in the Calc Bank. Nothing to configure and no file picker; a root-level `fields.d.twbl` still works too.
+## Get started
 
-  ```
-  copilot/                     <- workspace root
-    tableau/
-      fields.d.twbl            field declarations
-      superstore.d.twbl        more declarations (merged; later files win)
-      common.twbl              reusable calculations -> Calc Bank
-      agent.md                 project instructions -> @tableau prompt
-  ```
+Requires **VS Code 1.95 or newer**.
 
-  `agent.md` (or `instructions.md`, or any `*.agent.md`) is sent with every `@tableau` request — your naming rules, which datasource is canonical, house style, what's always wrong in this project. It outranks the built-in guidance, but cannot override the safety rules. Run **Tableau: Create Agent Instructions for @tableau** to scaffold one.
+1. Install **Tableau Language Support** by **TrueCrimeAudit**. For a GitHub build, download the `.vsix` from Releases and run **Extensions: Install from VSIX…**.
+2. Open a folder containing a `.twb` or `.twbx` workbook, then open **Tableau Tools** in the activity bar.
+3. Open or create a `.twbl` file to write calculations with workbook-aware field completion, hover help, diagnostics, and formatting.
 
-  Search folders are configurable with `tableau-language-support.fieldDefinitions.folders`. A live workbook always overrides these declarations — they are the fallback for calculation-only projects.
-- **@tableau Chat Participant**: Ask Copilot Chat about the active workbook (`@tableau what borders are set?`) with `/new`, `/borders`, `/calcs`, and `/fields` commands, grounded in a parsed workbook digest. `@tableau` can also *write* to the workbook: ask it to add or fix a calculation (`@tableau add a profit ratio calc`) and it looks up the datasource's complete field list, then writes the calculated field into the live `.twb` after showing you a confirmation card with the formula. Every write takes a timestamped backup and rolls back if the resulting workbook fails validation.
-- **Workbook tools for agent mode**: The same two capabilities are contributed as language model tools, so Copilot's agent mode can use them directly — `#tableauFields` for the full field inventory and `#tableauAddCalculation` to add a calculated field.
+Try the [included demo](examples/README.md) to explore the features with synthetic data.
 
-### Tableau Tools Sidebar
+## What it does
 
-The Tableau Tools activity-bar view bundles workbook inspection and formatting tooling:
+| Workflow | Features |
+| --- | --- |
+| **Write calculations** | Syntax highlighting, function and field completion, signatures, hover help, diagnostics, snippets, and formatting profiles. |
+| **Inspect workbooks** | Browse datasources, fields, calculations, and worksheets; extract calculations to a `.twbl` file. |
+| **Edit workbooks** | Add calculated fields, edit packaged workbook XML, save copies, compare backups, and restore earlier versions. |
+| **Style workbooks** | Edit fonts, borders, and colors; strip formatting; create palettes and gradients; import and export themes. |
+| **Reuse project context** | Share field declarations and calculations through a workspace `tableau/` folder and the Calc Bank. |
+| **Use Copilot** | Ask `@tableau` about a workbook or use `#tableauFields` and `#tableauAddCalculation` in agent mode. Requires Copilot Chat and model access. |
 
-- **Workbook inspector**: Browse the active workbook's datasources, calculated fields, fields, worksheets, and custom palettes, and extract calculations with one click.
-- **Add Calculated Field**: Insert a calculated field into a `.twb` datasource with transactional backups, persisted-XML verification, and rollback, plus a nested Common Calculations library of reusable templates.
-- **Palette Library**: Read and edit color palettes in Tableau's `Preferences.tps` — create, import, archive, and delete palettes (categorical, sequential, diverging) and apply one to the active workbook.
-- **Advanced Gradient Generator**: Build a sequential ramp from a base color with a configurable step count and easing curve.
-- **Multi-Stop Gradient**: Blend between start and end colors in LAB, RGB, or HSL with easing, then apply the result to the palette editor.
-- **Theme Vault**: Save, load, and delete named multi-palette themes.
-- **Workbook Formatting**: Inspect and edit worksheet formatting, apply an imported theme (override or preserve existing), and export the workbook's current theme as JSON.
-- **Format Stripper**: Strip borders, bold, font sizes, and font colors from the active workbook, with live scan counts per option.
-- **Calculation Bank & Portfolio**: Load reusable calculations from `_calc_bank.twbl` and insert stock calculation examples at the cursor.
+## See it working
 
-## Enhanced Features
+Actual VS Code captures of version **1.13.1**, using the synthetic demo. `demo` appears in the demo window title.
 
-### Enhanced Document Model
+**Calculation help and workbook context**
 
-The document model has been significantly improved to:
+![Tableau calculation hover help beside the workbook inspector, with demo in the window title](images/examples/calculation-help.png)
 
-- **Parse Multi-line Expressions**: Properly handles complex expressions that span multiple lines.
-- **Support Different Expression Types**: Recognizes and processes IF, CASE, LOD, function calls, and field references.
-- **Extract Symbol Context**: Understands the context in which symbols are used for better hover information and validation.
-- **Manage Document Lifecycle**: Efficiently caches and updates document models as needed.
+**Extract calculations from a workbook**
 
-### Context-Aware Hover Information
+![Extracted Tableau calculations and datasource fields in VS Code](images/examples/workbook-extraction.png)
 
-The hover provider now offers rich, context-aware information:
+**Inspect workbook formatting**
 
-- **Function Hover**: Shows function signature, parameter details, return type, description, and examples.
-- **Field Hover**: Shows field type and description.
-- **Keyword Hover**: Shows usage context and description based on the expression type (IF, CASE, LOD).
-- **Operator Hover**: Shows operator type and description.
-- **Performance Optimized**: Implements caching for faster hover responses.
+![Workbook Formatting panel showing fonts, gridlines, borders, and colors](images/examples/workbook-formatting.png)
 
-### Improved Validation
+More screenshots and steps: [palettes, calculated fields, and the demo walkthrough](examples/README.md).
 
-The validation system has been enhanced to:
+## Workbook editing
 
-- **Validate Multi-line Expressions**: Checks syntax across complex multi-line expressions.
-- **Apply Expression-Specific Rules**: Uses different validation rules based on expression type.
-- **Check Parameter Counts**: Validates function calls with the correct number of parameters.
-- **Provide Detailed Diagnostics**: Gives specific error messages for different types of issues.
+Extension-managed workbook edits create timestamped backups in `.tableau-lsp-backups` and verify the saved XML. Packaged `.twbx` edits preserve the other archive entries. Use **Save a Workbook Copy** to work on a separate file.
 
-### Testing Framework
+Calculation diagnostics and file verification do not replace Tableau's calculation engine or prove that every connection and worksheet will render. Check the result in your target Tableau Desktop version. [Editing and recovery details →](docs/user-guide.md#edit-and-recover-workbooks)
 
-A comprehensive testing framework has been added:
+## Development
 
-- **Hover Testing**: Tests hover functionality for different symbol types.
-- **Document Model Testing**: Tests parsing and symbol extraction.
-- **Validation Testing**: Tests validation rules for different expression types.
-- **Performance Testing**: Measures and compares performance metrics.
-
-## Usage
-
-### Working with Calculations
-
-1. Open a `.twbl` file in VS Code.
-2. Write Tableau calculation expressions.
-3. Hover over functions, fields, or keywords to see detailed information.
-4. Use code completion to get suggestions as you type.
-5. View validation errors and warnings in the Problems panel.
-
-### Extracting Calculations from Workbooks
-
-1. Open a `.twb` or `.twbx` file in VS Code.
-2. Open the Command Palette (`Cmd+Shift+P` on Mac, `Ctrl+Shift+P` on Windows/Linux).
-3. Type "Extract Calculations" and select "Tableau: Extract Calculations".
-4. The extracted data (datasources, fields, and calculations) will be saved to `Extracted_Calculations.twbl` in your workspace root and opened automatically.
-
-The output file includes three sections:
-- **Datasources**: Lists all datasources in the workbook
-- **Fields**: Lists all fields with their datatype and role
-- **Calculations**: Shows normalized calculation formulas with uppercased keywords
-
-For detailed information about the extraction feature, see the [Extraction Guide](./docs/extraction-guide.md).
-
-### Markdown fences with Tableau highlighting
-
-Use a tableau code block to get syntax highlighting in Markdown:
-
-```tableau
-// !My Calc – Description
-IF [Sales] > 1000 THEN "High" ELSE "Low" END
+```sh
+npm ci
+npm run typecheck
+npm run test:unit
+npm run test:deterministic
+npm run build
 ```
 
-### Connecting to local Tableau Desktop
-
-The extension discovers installed Tableau Desktop versions, standard local or OneDrive-backed `My Tableau Repository` folders, and recent Tableau artifacts. Use the Command Palette for:
-
-- **Tableau: Connect Local Workbook to LSP and Chat** — attaches a `.twb` or `.twbx` outside the current workspace to the same datasource/field model used by IntelliSense, diagnostics, navigation, and `@tableau` chat.
-- **Tableau: Open Workbook in Local Tableau Desktop** — launches the active or selected workbook with the newest discovered Desktop installation.
-- **Tableau: Show Local Connector Status** — reports installed versions, running state, repositories, workbooks, datasources, `.taco` connector packages, Hyper extracts, and logs.
-- **Tableau: Open Local Tableau Repository** — reveals the detected repository in the operating system.
-
-The connector uses Tableau's documented local file surfaces (`.twb`, `.twbx`, `.tds`, `.tdsx`, `.hyper`, and the repository layout). It does not depend on an unsupported private automation socket in Tableau Desktop. Repository and executable paths can be overridden in settings.
-
-### Adding calculations to a workbook
-
-Use **Tableau: Add Calculation to Workbook**, the Calculated Fields form, or `@tableau` to write a calculation into a datasource in a `.twb` or `.twbx` workbook. A `.twbl` editor selection can supply the formula; Tableau reads the resulting native `<column><calculation ... /></column>` entry from the workbook XML.
-
-Every workbook mutation validates the XML, creates a complete timestamped backup in `.tableau-lsp-backups`, and checks the persisted result. Failed writes recover from the backup when safe; a newer external edit is preserved and reported. Packaged edits replace only the embedded `.twb`, preserving the other archive entries and their bytes. Packages must contain exactly one workbook. Duplicate calculated-field names require explicit replacement; collisions with physical fields are rejected.
-
-To edit the embedded XML directly, right-click a `.twbx` and choose **Tableau: Edit Workbook XML**, or click **Edit XML** in the sidebar. Normal Save writes back into the package. Save or revert a dirty XML editor before applying sidebar or chat edits to that package.
-
-**Save a Workbook Copy** includes unsaved editor changes and leaves the original untouched. **Save a Workbook Copy and Open in Tableau** also launches the copy in the configured local Tableau installation. Keep a plain `.twb` copy beside its original when its data connections use relative paths. A `.twbx` copy retains its packaged data and images; external server connections still require access.
-
-Use **Compare Workbook with Backup** to inspect the XML differences and **Restore Workbook Backup** to recover a previous version. Restoring first backs up the current file, including when that file is damaged.
-
-File verification checks XML, archive integrity and persisted contents. It does not prove that Tableau can resolve every connection or render every sheet. Open the result in your target Tableau version and check its data and views; the extension preserves workbook version metadata and does not downgrade workbooks. Calculation diagnostics detect supported, confirmed errors conservatively and do not replace Tableau's calculation engine.
-
-The collapsed **Add Calculated Field** section contains a nested **Common Calculations** library. It starts with a Profit Ratio example and can store up to ten reusable field-name, formula, and datatype combinations. **Use Saved** fills the workbook insertion form; **Save Current** adds or updates the template. The library is synchronized through VS Code Settings Sync when available.
-
-The formatting sidebar and standalone formatting panel use the same transaction layer for border edits, bulk changes, theme imports, and formatting removal. Enable **Open in Tableau after a verified write** to launch the saved workbook after verification. This opens the edited file with the configured or newest discovered Tableau Desktop installation; it does not terminate an already-running Tableau process.
-
-### Formatting calculations
-
-**Tableau: Format Tableau Expression** now formats the current selection when one exists, otherwise the complete `.twbl` document. **Tableau: Select Calculation Formatting Profile** provides three styles:
-
-- `readable` — conventional IF/CASE blocks and balanced wrapping.
-- `compact` — fewer line breaks for short calculations.
-- `expanded` — one function argument per line and earlier condition wrapping.
-
-Keyword case, maximum line length, logical operator position, function argument wrapping, indentation, and final-newline behavior can be configured independently.
-
-## Requirements
-
-- Visual Studio Code 1.95.0 or higher (required by the Chat/Language Model APIs)
-
-## Extension Settings
-
-This extension contributes the following settings:
-
-- `tableau-language-support.enableFormatting`: Enable/disable formatting for Tableau expressions.
-- `tableau-language-support.enableSignatureHelp`: Enable/disable signature help for Tableau functions.
-- `tableau-language-support.formatting.*`: Select a profile and customize wrapping, casing, and line layout.
-- `tableau-language-support.local.*`: Override local repository discovery, Tableau Desktop executable selection, and artifact limits.
-
-## Known Issues
-
-- Complex nested expressions may not be fully validated.
-- Some advanced Tableau features may not be fully supported.
-
-## Release Notes
-
-See [CHANGELOG.md](./CHANGELOG.md) for the full version history, or the [GitHub releases page](https://github.com/TrueCrimeDev/Tableau-LSP/releases) for packaged builds.
-
-## Debug & Reload Workflow
-
-The extension ships with a Toolbox-style compile/reload loop. See `docs/AUTO_RELOAD_DEBUGGER.md` for the full breakdown, but the highlights are:
-
-- Use the `Tableau LSP: Compile and Reload` command to run the `npm: compile` task and restart/launch the `Run Extension (VS Code)` debugger (which opens the `Tableau-LSP.code-workspace` in the Extension Host window).
-- `Tasks: Run Task` exposes both `npm: compile` and a `Compile and Reload Debugger` helper, if you prefer sticking with VS Code tasks.
-- `npm run watch` keeps builds flowing automatically; pair it with `Ctrl+Shift+F5` or the command above for ultra-fast iteration.
-- CLI helpers `auto-reload.sh` and `auto-reload.cmd` give you a terminal-friendly entry point that mirrors the VS Code task.
-
-## Install from a GitHub Release
-
-Grab the latest `.vsix` from [Releases](https://github.com/TrueCrimeDev/Tableau-LSP/releases), save it to your Downloads folder, then install it from the command line.
-
-**CMD:**
-
-```batch
-code --install-extension "%USERPROFILE%\Downloads\tableau-language-support-1.7.3.vsix" --force
-```
-
-**PowerShell:**
-
-```powershell
-code --install-extension "$env:USERPROFILE\Downloads\tableau-language-support-1.7.3.vsix" --force
-```
-
-Then reload VS Code. If an older version is already installed, add `--force`.
-
-### Updating the source checkout
-
-From the repository root, run:
-
-```powershell
-.\Update-FromGitHub.ps1
-```
-
-This fetches `origin`, switches to `main`, and performs a fast-forward-only pull. It refuses to continue when tracked files have local changes and leaves untracked workbook fixtures untouched. Another branch or remote can be selected explicitly:
-
-```powershell
-.\Update-FromGitHub.ps1 -Remote origin -Branch main
-```
+[Debug and reload](docs/AUTO_RELOAD_DEBUGGER.md) · [Workbook host checks](docs/workbook-roundtrip-check.md) · [Extraction guide](docs/extraction-guide.md) · [Report an issue](https://github.com/TrueCrimeDev/Tableau-LSP/issues)

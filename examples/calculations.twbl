@@ -1,0 +1,21 @@
+// !Profit Ratio - Profit as a share of total sales
+IF SUM([Sales]) != 0 THEN
+    SUM([Profit]) / SUM([Sales])
+END
+
+// !Sales Tier - Group orders by sales value
+IF [Sales] >= 1000 THEN
+    "High"
+ELSEIF [Sales] >= 500 THEN
+    "Medium"
+ELSE
+    "Low"
+END
+
+// !Regional Sales - Fixed level of detail by region
+{ FIXED [Region] : SUM([Sales]) }
+
+// !Average Selling Price - Revenue per unit sold
+IF SUM([Quantity]) != 0 THEN
+    SUM([Sales]) / SUM([Quantity])
+END

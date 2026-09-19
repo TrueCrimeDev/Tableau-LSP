@@ -1,258 +1,123 @@
-# Tableau LSP User Guide
+# User guide
 
-This guide explains how to use the enhanced features of the Tableau Language Server Protocol (LSP) extension for VS Code.
+[Installation and overview](../README.md) · [Screenshot walkthrough](../examples/README.md)
 
-## Getting Started
+## Write calculations
 
-### Installation
+Open a `.twbl` file. Completion suggests functions, keywords, and known fields; hover shows function signatures and field details. Use the Problems panel for supported syntax and semantic diagnostics.
 
-1. Install the Tableau LSP extension from the VS Code marketplace
-2. Open a `.twbl` file in VS Code
-3. The extension will automatically activate
+Open a `.twb` or `.twbx` to supply its datasource fields to IntelliSense, hover, diagnostics, navigation, and field swapping. Qualified references such as `[Datasource].[Field]` help distinguish fields from different datasources.
 
-### Basic Usage
+![Live function hover and workbook context](../images/examples/calculation-help.png)
 
-The Tableau LSP provides several features to help you write and understand Tableau expressions:
+Use **Tableau: Format Tableau Expression** to format the selection or the whole document. **Tableau: Select Calculation Formatting Profile** offers `readable`, `compact`, and `expanded` styles. Keyword case, line length, argument wrapping, operator position, and indentation are configurable.
 
-- **Syntax Highlighting**: Highlights functions, keywords, operators, and field references
-- **Hover Information**: Shows details when hovering over symbols
-- **Code Completion**: Suggests functions, fields, and keywords as you type
-- **Validation**: Checks expressions for errors and shows diagnostics
-
-## Enhanced Features
-
-### Context-Aware Hover Information
-
-The hover feature now provides rich, context-aware information for different types of symbols.
-
-#### Function Hover
-
-When you hover over a function name, you'll see:
-
-- Function signature with parameter types
-- Return type
-- Description of what the function does
-- Parameter details
-- Examples of usage
-
-![Function Hover Example](images/function-hover.png)
-
-For example, hovering over `SUM` will show:
-
-```
-SUM: function
-
-Category: Aggregation
-
-Usage: SUM(expression) => number
-
-Returns: The sum of all values in the expression
-
-Parameters:
-- expression: number — The expression to sum
-
-Example:
-SUM([Sales])
-```
-
-#### Field Hover
-
-When you hover over a field reference (enclosed in square brackets), you'll see:
-
-- Field name and type
-- Description of the field
-- Usage examples
-
-![Field Hover Example](images/field-hover.png)
-
-#### Keyword Hover
-
-When you hover over a keyword (like IF, THEN, CASE), you'll see:
-
-- Keyword description
-- Context information (what type of expression it's used in)
-- Usage examples
-
-![Keyword Hover Example](images/keyword-hover.png)
-
-### Multi-line Expression Support
-
-The extension now properly handles expressions that span multiple lines, such as:
-
-#### IF Statements
-
-```
-IF [Sales] > 1000 THEN
-    "High"
-ELSEIF [Sales] > 500 THEN
-    "Medium"
-ELSE
-    "Low"
+```tableau
+// !Profit Ratio - Profit as a share of total sales
+IF SUM([Sales]) != 0 THEN
+    SUM([Profit]) / SUM([Sales])
 END
 ```
 
-#### CASE Statements
+Markdown fences labeled `tableau` also receive syntax highlighting.
 
-```
-CASE [Region]
-    WHEN "East" THEN "Eastern Region"
-    WHEN "West" THEN "Western Region"
-    ELSE "Other Region"
-END
-```
+## Inspect and extract
 
-#### Level of Detail (LOD) Expressions
+Open **Tableau Tools** from the activity bar to browse the active workbook's datasources, calculated fields, fields, worksheets, and custom palettes.
 
-```
-{
-    FIXED [Category]:
-    SUM([Sales])
-}
-```
+Click **Extract Calculations**, or run **Tableau: Extract Calculations** with the workbook active. The command writes `Extracted_Calculations.twbl` in the workspace root and opens it. Extraction resolves internal field names to captions, normalizes formulas, and filters duplicate or trivial calculations. See the [Extraction Guide](extraction-guide.md).
 
-### Enhanced Validation
+## Edit and recover workbooks
 
-The extension provides improved validation for Tableau expressions:
+Use **Tableau: Add Calculation to Workbook**, the sidebar's **Add Calculated Field** form, or `@tableau` to add a field to a `.twb` or `.twbx` datasource. A selection in a `.twbl` editor can supply the formula. Duplicate calculation names require explicit replacement; physical-field name collisions are rejected.
 
-#### Structure Validation
+The form's **Common Calculations** library starts with a Profit Ratio example and stores up to ten reusable name, formula, and datatype templates. **Use Saved** fills the form; **Save Current** adds or updates a template. Templates participate in VS Code Settings Sync when available.
 
-- Checks for proper IF/THEN/END structure
-- Validates CASE/WHEN/END structure
-- Ensures LOD expressions have the correct format
+Extension-managed mutations validate XML, create a complete timestamped backup in `.tableau-lsp-backups`, and check the persisted result. Failed writes recover from the backup when safe; newer external edits are preserved and reported. Packaged edits replace only the embedded workbook and preserve the other archive entries. A package must contain exactly one workbook.
 
-#### Bracket Matching
+| Command | Behavior |
+| --- | --- |
+| **Edit Workbook XML** | Opens the embedded XML of a `.twbx` in a native editor; normal Save writes it back to the package. |
+| **Save a Workbook Copy** | Includes unsaved editor changes and leaves the source unchanged. |
+| **Save a Workbook Copy and Open in Tableau** | Saves a copy and launches it in the configured local Tableau installation. |
+| **Compare Workbook with Backup** | Opens an XML diff against a saved backup. |
+| **Restore Workbook Backup** | Restores an earlier version after backing up the current file, including a damaged file. |
 
-- Validates matching parentheses, brackets, and braces
-- Highlights mismatched brackets
+Save or revert a dirty packaged XML editor before applying sidebar or chat edits. Keep a plain `.twb` copy beside its original when connections use relative paths. A `.twbx` copy retains packaged data and images; external connections still require access.
 
-#### Function Parameter Validation
+Verification checks XML, archive integrity, and saved contents. It does not prove that Tableau can resolve connections, evaluate every calculation, or render every sheet. Open the result in the intended Tableau Desktop version. Workbook version metadata is preserved; the extension does not downgrade workbooks.
 
-- Checks that functions are called with the correct number of parameters
-- Validates required vs. optional parameters
+## Format workbooks and create palettes
 
-![Validation Example](images/validation.png)
+The sidebar and **Tableau: Open Formatting Panel** inspect and edit worksheet fonts, colors, borders, and line styles. They use the same backup and verification layer as other workbook edits.
 
-## Tips and Tricks
+![Workbook Formatting panel](../images/examples/workbook-formatting.png)
 
-### Working with Multi-line Expressions
+- **Format Stripper** removes selected borders, bold, font sizes, and font colors, with scan counts before applying changes.
+- **Palette Library** creates, edits, imports, archives, and applies categorical, sequential, and diverging palettes.
+- **Gradient generators** support a base-color ramp or multiple color stops, configurable easing, and LAB, RGB, or HSL interpolation.
+- **Theme Vault** stores named collections of palettes. Workbook formatting themes can also be imported and exported as JSON, with override or preserve-existing modes.
 
-- Use proper indentation for better readability
-- Each clause (THEN, ELSEIF, ELSE) should be on a new line
-- END should be aligned with the starting keyword (IF or CASE)
+Workspace palettes live in `config/Preferences.tps`. **Copy Preferences.tps to My Tableau Repository** makes them available to the local Tableau repository.
 
-### Using Hover Effectively
+The palette editor's **Save** updates its sidebar list. Use **File Actions → Save** to persist that list to `config/Preferences.tps`.
 
-- Hover over function names to see parameter information
-- Hover over parameters inside function calls to see parameter types
-- Use hover on keywords to understand their context
+**Open in Tableau after a verified formatting write** launches the saved workbook in the configured or newest discovered Tableau Desktop installation. It does not close an already-running Tableau process.
 
-### Improving Performance
+## Reuse fields and calculations
 
-- The extension caches hover information for better performance
-- For large files, consider breaking expressions into smaller, reusable calculations
+Place shared files in a `tableau/` folder at a workspace root:
 
-## Common Issues and Solutions
-
-### Hover Not Working
-
-If hover information isn't showing:
-
-1. Check that the file has the `.twbl` extension
-2. Ensure the extension is properly activated
-3. Try reloading VS Code
-
-### Validation Errors
-
-If you're seeing unexpected validation errors:
-
-1. Check for mismatched brackets or parentheses
-2. Ensure IF statements have matching THEN and END
-3. Verify that functions have the correct number of parameters
-
-### Performance Issues
-
-If the extension is slow:
-
-1. Break large expressions into smaller ones
-2. Close unused files
-3. Restart VS Code to clear caches
-
-## Expression Examples
-
-### IF Statement Example
-
-```
-IF [Sales] > 1000 AND [Profit] > 500 THEN
-    "High Value"
-ELSEIF [Sales] > 1000 OR [Profit] > 500 THEN
-    "Medium Value"
-ELSE
-    "Low Value"
-END
+```text
+tableau/
+  fields.d.twbl       # Field declarations for IntelliSense
+  retail.d.twbl       # Additional declarations, merged
+  common.twbl         # Reusable calculations for the Calc Bank
+  agent.md            # Project instructions for @tableau
 ```
 
-### CASE Statement Example
+A root-level `fields.d.twbl` also works. Configure additional folders through `tableau-language-support.fieldDefinitions.folders`. Live workbook fields take precedence over these fallback declarations.
 
-```
-CASE [Region]
-    WHEN "North" THEN "Northern Territory"
-    WHEN "South" THEN "Southern Territory"
-    WHEN "East" THEN "Eastern Territory"
-    WHEN "West" THEN "Western Territory"
-    ELSE "Unknown Territory"
-END
-```
+The Calc Bank also accepts selections through **Tableau: Add Selection to Calc Bank**. The Calculation Portfolio supplies stock examples for insertion at the cursor.
 
-### LOD Expression Example
+## Use Copilot with a workbook
 
-```
-{
-    FIXED [Category], [Region]:
-    SUM([Sales]) / SUM([Quantity])
-}
+With Copilot Chat and an available model, ask `@tableau` about the active workbook. Commands include `/new`, `/borders`, `/calcs`, and `/fields`.
+
+```text
+@tableau /fields
+@tableau what borders are set?
+@tableau add a profit ratio calculation
 ```
 
-### Complex Function Example
+Workbook context comes from a parsed digest. Calculation writes show a confirmation card with the proposed formula and use the backup and verification workflow. Agent mode can access the complete field inventory through `#tableauFields` and propose a calculation through `#tableauAddCalculation`.
 
-```
-DATEADD(
-    'month',
-    DATEDIFF(
-        'month',
-        DATETRUNC('month', [Order Date]),
-        DATETRUNC('month', TODAY())
-    ),
-    DATETRUNC('month', [Order Date])
-)
-```
+Project `agent.md`, `instructions.md`, and `*.agent.md` files in the configured library folders accompany `@tableau` requests. Use **Tableau: Create Agent Instructions for @tableau** to scaffold naming and datasource conventions. Project guidance cannot override the built-in safety rules.
 
-## Keyboard Shortcuts
+## Connect local Tableau Desktop
 
-| Action | Shortcut |
-|--------|----------|
-| Show hover information | Hover mouse over symbol |
-| Trigger code completion | Ctrl+Space |
-| Format document | Shift+Alt+F |
-| Go to definition | F12 |
-| Show problems panel | Ctrl+Shift+M |
+| Command | Purpose |
+| --- | --- |
+| **Connect Local Workbook to LSP and Chat** | Attaches a `.twb` or `.twbx` outside the workspace to the shared field model. |
+| **Open Workbook in Local Tableau Desktop** | Launches the active or selected workbook. |
+| **Show Local Connector Status** | Reports discovered Desktop versions, repositories, workbooks, datasources, connectors, extracts, and logs. |
+| **Open Local Tableau Repository** | Opens the detected repository in the operating system. |
 
-## Settings
+The connector discovers standard and OneDrive-backed repository folders and uses local Tableau files. Override repository and executable paths with `tableau-language-support.local.*` settings.
 
-The extension provides several settings to customize its behavior:
+## Settings and troubleshooting
 
-- `tableau.enableFormatting`: Enable/disable formatting for Tableau expressions
-- `tableau.enableSignatureHelp`: Enable/disable signature help for Tableau functions
+Search VS Code Settings for `tableau-language-support`:
 
-To access these settings:
+- `enableFormatting` and `enableSignatureHelp` toggle their providers.
+- `formatting.*` controls calculation layout and casing.
+- `fieldDefinitions.folders` selects shared library folders.
+- `local.*` controls local discovery and launch paths.
 
-1. Open VS Code settings (File > Preferences > Settings)
-2. Search for "tableau"
-3. Adjust the settings as needed
+If language features stop responding, check that the editor language is **Tableau**, then run **Tableau: Restart Language Server**. **Tableau: Show Extension Status** and **Tableau: Show Logs** provide diagnostics. Disable any duplicate Tableau language extension if VS Code reports a conflict.
 
-## Getting Help
+## Develop from source
 
-If you encounter issues or have questions:
+Use the checks in the [README](../README.md#development), then follow the [debug and reload workflow](AUTO_RELOAD_DEBUGGER.md). Development commands such as **Compile and Reload Tableau Debugger** require a source checkout and an Extension Development Host.
 
-- Check the [README](../README.md) for known issues
-- Submit issues on the GitHub repository
-- Contact the extension author
+To update a clean checkout from GitHub on Windows, run `./Update-FromGitHub.ps1`. It fetches `origin`, switches to `main`, and performs a fast-forward-only pull. It refuses tracked local changes and leaves untracked workbook fixtures in place. Use `-Remote` and `-Branch` to select another source.
