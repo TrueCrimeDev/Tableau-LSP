@@ -6,11 +6,34 @@ The included files contain synthetic fields, calculations, formatting, and palet
 
 ## Open the demo
 
-1. Install the [1.13.1 VSIX](https://github.com/TrueCrimeDev/Tableau-LSP/releases/tag/v1.13.1) or build the extension from source.
+1. Install the [latest GitHub VSIX](https://github.com/TrueCrimeDev/Tableau-LSP/releases/latest) or build the extension from source. The agent XML tools require version 1.14.0 or newer.
 2. Copy this folder to a scratch location and open [Tableau Demo.code-workspace](Tableau%20Demo.code-workspace) in VS Code.
 3. Open [retail-demo.twb](retail-demo.twb), then select **Tableau LSP** in the activity bar to show **Tableau Tools**.
 
 The starting workbook has one datasource, nine fields including three calculated fields, one worksheet, and a custom palette. The screenshots show successive steps using a working copy; the files here provide the starting state.
+
+## Test without Tableau
+
+No Tableau installation or account is needed for these checks. Use your normal VS Code profile for live AI tests so your configured Chat model is available.
+
+1. Open `retail-demo.twb` and confirm the sidebar lists **Retail Demo**, **Sales Overview**, and the three calculated fields. Open `calculations.twbl` to try field completion and function hover help.
+2. Follow **Add a calculated field** below, then use **Compare Backup**. Confirm the new calculation appears in the saved XML and the diff, with a backup in `.tableau-lsp-backups`.
+3. For the AI/XML workflow, select `retail-demo.twb` and send this in Chat:
+
+   ```text
+   @tableau Change the worksheet font size in Sales Overview from 12 to 14.
+   Show the XML change before applying it, then save a copy named retail-demo-test.twb.
+   Do not open Tableau.
+   ```
+
+4. Review the confirmation, then check that the worksheet's `font-size` value is `14` in both the edited source and exported copy. Use **Compare Backup** to see the change from `12`. If you are testing without Chat, make the formatting change in **Tableau: Open Formatting Panel**, then use **Save a Workbook Copy**.
+5. Restore the earlier backup and confirm the original value returns. Choose a new export filename when repeating the test; existing copies are not overwritten.
+
+Use a fresh scratch copy for another run. Avoid the bare `@tableau /export` shortcut for this test because it also requests opening Tableau. Live AI tests need an accessible Chat model; the manual checks do not.
+
+For automated verification, run `npm test` from the repository root after `npm ci`. It runs TypeScript, unit, deterministic workbook, and real VS Code extension-host checks without launching Tableau. For source debugging, F5 with **Run Extension (synthetic demo)** builds and opens an isolated demo profile.
+
+These checks establish the extension's behavior and saved file contents. Actual Tableau chart rendering, data connections, and calculation evaluation must be checked on your Tableau work computer.
 
 ## Calculation help
 
