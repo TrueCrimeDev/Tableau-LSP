@@ -1,6 +1,6 @@
 # Screenshot walkthrough
 
-These are actual captures of **Tableau Language Support 1.13.1** running in a **VS Code 1.138.0 Extension Development Host on Windows**, taken on September 19, 2026. The window title identifies the demo as **demo**.
+The five demo captures below show the released **Tableau Language Support 1.14.0** VSIX installed in **VS Code 1.138.0 on Windows**, taken on September 20, 2026. The title shows **1.14.0 / demo**. The separate agent-tool example also shows 1.14.0 and is described below.
 
 The included files contain synthetic fields, calculations, formatting, and palettes. The workbook is an extension demonstration fixture without a live data connection; Tableau Desktop rendering was not verified.
 
@@ -35,34 +35,42 @@ For automated verification, run `npm test` from the repository root after `npm c
 
 These checks establish the extension's behavior and saved file contents. Actual Tableau chart rendering, data connections, and calculation evaluation must be checked on your Tableau work computer.
 
-## Calculation help
+## Calculation completion
 
-Open [calculations.twbl](calculations.twbl), place the cursor inside `SUM`, and hover or run **Show Hover**. The inspector retains the workbook's field context while you edit calculations.
+Open [calculations.twbl](calculations.twbl), place the cursor inside `SUM`, and run **Trigger Suggest** to see matching functions. The inspector retains the workbook's field context while you edit calculations. **Show Hover** displays function documentation.
 
-![Function hover beside the workbook inspector, with demo in the title](../images/examples/calculation-help.png)
+![Function completion beside the workbook inspector, with 1.14.0 and demo in the title](../images/examples/calculation-completion-1.14.jpg)
 
 ## Extract calculations
 
-Activate `retail-demo.twb` and click **Extract Calculations**. The generated `Extracted_Calculations.twbl` contains the datasource inventory, field types, and normalized formulas. This capture shows the generated fields and calculations.
+Activate `retail-demo.twb` and run **Tableau: Extract Calculations** from the Command Palette. The generated `Extracted_Calculations.twbl` contains one datasource, nine fields, three calculations, and one worksheet. The capture shows its fields and normalized formulas.
 
-![Generated field inventory and three extracted calculations](../images/examples/workbook-extraction.png)
+The sidebar's **Extract Calculations** button instead writes the smaller `_Calculations.notes` file beside the workbook; it does not automatically open that file.
+
+![Generated field inventory and three extracted calculations in 1.14.0](../images/examples/workbook-extraction-1.14.jpg)
 
 ## Inspect formatting
 
-With the workbook active, run **Tableau: Open Formatting Panel**. Inspect the worksheet font, header color, gridlines, and borders. The **Apply Theme** and **Export Theme** tabs handle formatting themes.
+With the workbook active, run **Tableau: Open Formatting Panel**. Inspect fonts, colors, gridlines, and borders. The **Apply Theme** and **Export Theme** tabs handle formatting themes. This capture shows the original worksheet font size of **12**.
 
-![The live Workbook Formatting panel](../images/examples/workbook-formatting.png)
+![The live Workbook Formatting panel in 1.14.0](../images/examples/workbook-formatting-1.14.jpg)
+
+Change the worksheet font size to **14**, leave **Open the verified workbook in Tableau after writing** unchecked, and click **Apply Changes**. The demonstrated run saved the `font-size` value as **14** and created an exact copy of the original workbook in `.tableau-lsp-backups`.
+
+Click **Compare Backup**, choose that backup, and press **F7** for the accessible diff view. The saved change from **12** to **14** appears below; the sidebar still identifies the original workbook.
+
+![Backup comparison of the saved font-size change from 12 to 14](../images/examples/workbook-backup-diff-1.14.jpg)
 
 ## Generate and save a palette
 
 1. Collapse **Workbook**, **Workbook Formatting**, and **Format Stripper** to make room for **Palette Library**.
-2. Select **Retail Teal**. In **Advanced Gradient Generator**, set the base color to `#0F766E`, use seven steps, and select **Ease Out**.
+2. Select **Retail Teal**. In **Advanced Gradient Generator**, use base color `#5CB8B2`, nine steps, and **Ease Out**.
 3. Click **Generate**, then the arrow beside the preview to load the colors into the palette editor.
 4. Click **Save Palette to File** to write the palette and library to `config/Preferences.tps`.
 
-The 1.13.1 capture below shows the earlier two-step Save flow. Version 1.14.0 combines those steps in **Save Palette to File** and displays unsaved status.
+The capture shows **No unsaved palette changes**, the save confirmation, and all nine persisted colors in `Preferences.tps`. The other two palettes remain in the file.
 
-![Palette generator and the saved Preferences.tps colors](../images/examples/palette-editor.png)
+![The 1.14.0 palette editor and the saved Preferences.tps colors](../images/examples/palette-editor-1.14.jpg)
 
 ## Add a calculated field
 
@@ -74,17 +82,7 @@ IF SUM([Quantity]) != 0 THEN
 END
 ```
 
-This capture shows the completed form before clicking **Add to Workbook**.
-
-![Completed calculated-field form alongside the source calculation](../images/examples/add-calculation.png)
-
-After submission, the demo's saved XML contained the new field and its formula, and `.tableau-lsp-backups` contained a copy of the original workbook.
-
-## Compare the saved change
-
-Click **Compare Backup**, choose the generated backup, and inspect the native VS Code diff. The new `<column>` and `<calculation>` are highlighted in green. Version 1.14.0 retains the original workbook as the source while the diff is active.
-
-![Backup comparison highlighting the persisted calculated field](../images/examples/workbook-backup-diff.png)
+Click **Add to Workbook**, then **Compare Backup** to inspect the new `<column>` and `<calculation>`. This optional exercise starts from a fresh copy; the current screenshots demonstrate the formatting edit above.
 
 ## Edit underlying XML with the agent tools
 
@@ -98,4 +96,4 @@ The registered export tool also saved the edited package and launched Tableau. T
 
 ## Verification
 
-The original 1.13.1 review passed 996 unit tests, 44 deterministic tests, and 22 real extension-host checks, with a teardown warning documented in its [review notes](../docs/review-2026-09-19.md). The [1.14.0 review](../docs/review-1.14.0.md) covers the timer fix, five agent tools, stricter XML checks, installed-package tests, and current verification limits.
+On September 20, typechecking and **1,058 unit tests** passed for the 1.14.0 source, and the released package passed **42 installed-VSIX checks**. Extraction outputs, the formatting edit and its backup, and all saved palette colors were also checked on disk after the interactive steps. See the [1.14.0 review](../docs/review-1.14.0.md#screenshot-refresh--september-20-2026) for the package checksum and verification limits.
