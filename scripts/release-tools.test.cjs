@@ -2,6 +2,48 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { verifyMarketplace } = require('./verify-marketplace.cjs');
 const { validateArtifact } = require('./release-artifact.cjs');
+const { resolveHostExecutable } = require('./host-test-utils.cjs');
+const fs = require('fs/promises');
+const path = require('path');
+const os = require('os');
+
+async function bundleFixture(t, executableName) {
+  const temporaryParent = path.resolve(os.tmpdir());
+  const root = await fs.mkdtemp(path.join(temporaryParent, 'tableau-host-resolver-'));
+  t.after(async () => {
+    if (path.dirname(root) !== temporaryParent || !path.basename(root).startsWith('tableau-host-resolver-')) throw new Error('Unsafe test cleanup path');
+    await fs.rm(root, { recursive: true, force: true });
+  });
+  const macos = path.join(root, 'Visual Studio Code.app', 'Contents', 'MacOS');
+  await fs.mkdir(macos, { recursive: true });
+  await fs.writeFile(path.join(path.dirname(macos), 'Info.plist'), `<plist><dict><key>CFBundleExecutable</key><string>${executableName}</string></dict></plist>`);
+  return macos;
+}
+
+test('current macOS bundles resolve the Code executable declared by Info.plist', async t => {
+  const macos = await bundleFixture(t, 'Code');
+  await fs.writeFile(path.join(macos, 'Code'), 'fixture');
+  assert.equal(await resolveHostExecutable(path.join(macos, 'Electron'), 'darwin'), path.join(macos, 'Code'));
+});
+
+test('older macOS bundles preserve their existing Electron executable', async t => {
+  const macos = await bundleFixture(t, 'Code');
+  await fs.writeFile(path.join(macos, 'Electron'), 'fixture');
+  assert.equal(await resolveHostExecutable(path.join(macos, 'Electron'), 'darwin'), path.join(macos, 'Electron'));
+});
+
+test('macOS bundle metadata cannot redirect execution outside MacOS', async t => {
+  const macos = await bundleFixture(t, '../outside');
+  await assert.rejects(resolveHostExecutable(path.join(macos, 'Electron'), 'darwin'), /safe CFBundleExecutable/);
+});
+
+test('non-macOS executable paths are retained and missing files still fail', async t => {
+  const macos = await bundleFixture(t, 'Code');
+  const executable = path.join(macos, 'Code.exe');
+  await fs.writeFile(executable, 'fixture');
+  assert.equal(await resolveHostExecutable(executable, 'win32'), executable);
+  await assert.rejects(resolveHostExecutable(path.join(macos, 'missing'), 'linux'), /ENOENT/);
+});
 
 test('429 stops public verification without waiting or retrying', async () => {
   let requests = 0;

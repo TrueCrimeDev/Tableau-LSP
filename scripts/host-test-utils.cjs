@@ -25,7 +25,28 @@ async function createProfile(kind) {
 }
 
 async function executablePath() {
-  return process.env.VSCODE_EXECUTABLE_PATH || downloadAndUnzipVSCode(process.env.VSCODE_VERSION || 'stable');
+  const executable = process.env.VSCODE_EXECUTABLE_PATH || await downloadAndUnzipVSCode(process.env.VSCODE_VERSION || 'stable');
+  return resolveHostExecutable(executable);
+}
+
+async function resolveHostExecutable(executable, platform = process.platform) {
+  try {
+    await fs.access(executable);
+    return executable;
+  } catch (error) {
+    if (platform !== 'darwin' || path.basename(path.dirname(executable)) !== 'MacOS') throw error;
+  }
+  // test-electron 2.x assumes Electron, whose compatibility symlink was removed
+  // from recent VS Code bundles. Use macOS's authoritative executable name.
+  const macos = path.dirname(executable);
+  const plist = await fs.readFile(path.join(path.dirname(macos), 'Info.plist'), 'utf8');
+  const name = plist.match(/<key>\s*CFBundleExecutable\s*<\/key>\s*<string>([^<]+)<\/string>/)?.[1];
+  if (!name || name === '.' || name === '..' || /[\\/]/.test(name) || path.isAbsolute(name)) {
+    throw new Error('VS Code Info.plist does not contain a safe CFBundleExecutable filename');
+  }
+  const resolved = path.join(macos, name);
+  if (!(await fs.stat(resolved)).isFile()) throw new Error('VS Code bundle executable is not a file');
+  return resolved;
 }
 
 function launchArgs(profile) {
@@ -60,4 +81,4 @@ async function installVsix(executable, profile, vsix) {
   });
 }
 
-module.exports = { root, createProfile, executablePath, launchArgs, installVsix };
+module.exports = { root, createProfile, executablePath, resolveHostExecutable, launchArgs, installVsix };
