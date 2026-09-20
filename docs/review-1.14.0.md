@@ -16,3 +16,9 @@ The update adds XML read/edit/export tools, fixes source-workbook selection afte
 Tableau Desktop 2026.1 launched with the exported sample but stopped at its license activation screen. Workbook rendering, connections and Tableau-side calculation evaluation remain unverified until activation is completed. The tool reports `launchRequested` separately from a saved export and leaves `tableauValidation` as `not_run`.
 
 The interactive check invoked the registered tools directly; it did not exercise a live Copilot model. Scripted model tests cover the participant's tool loop. GitHub Actions and public Marketplace publication are separate release checks: consult the workflow run and public listing for their current status.
+
+## Release verification — September 19, 2026
+
+- [Release verification](https://github.com/TrueCrimeDev/Tableau-LSP/actions/runs/35484906940) passed on Windows, macOS and Linux: 1,058 unit tests, 45 deterministic checks, and 40 real extension-host checks per platform. The production VSIX passed 42 installed-package checks.
+- [GitHub release 1.14.0](https://github.com/TrueCrimeDev/Tableau-LSP/releases/tag/v1.14.0) contains those tested bytes and the checksum/commit record. An independent download matched SHA256 `ce6087ceea336cd1185b7e2779437c66f336d43d1df459a30ef36c32a756c997`; local VS Code reports the installed extension as 1.14.0.
+- Marketplace publication was attempted once and rejected by Microsoft's **VSID Concurrency** limit. No retry was made. The public gallery still reported 1.5.8 after that attempt.

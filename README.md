@@ -4,6 +4,8 @@ Write Tableau calculations and inspect, edit, and format workbooks in VS Code.
 
 [Install from Marketplace](https://marketplace.visualstudio.com/items?itemName=TrueCrimeAudit.tableau-language-support) · [Download a VSIX](https://github.com/TrueCrimeDev/Tableau-LSP/releases) · [User guide](docs/user-guide.md) · [Changelog](CHANGELOG.md)
 
+**Latest build: [1.14.0 on GitHub](https://github.com/TrueCrimeDev/Tableau-LSP/releases/tag/v1.14.0).** Marketplace still serves 1.5.8 as of September 19, 2026; Microsoft's publisher service is blocking updates. Install the GitHub VSIX for the features below.
+
 ## Get started
 
 Requires **VS Code 1.95 or newer**.
