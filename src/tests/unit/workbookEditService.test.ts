@@ -264,6 +264,15 @@ describe('workbook file transactions', () => {
         expect(await fs.readFile(destination.fsPath, 'utf8')).toBe('existing file');
     });
 
+    it('rejects an export whose reviewed XML differs before creating the destination', async () => {
+        const workbook = fileUri('Book.twb');
+        const destination = fileUri('Reviewed copy.twb');
+        await fs.writeFile(workbook.fsPath, UPDATED);
+        await expect(new WorkbookEditService().saveCopy(workbook, destination, { expectedXml: ORIGINAL })).rejects.toThrow(/changed/);
+        await expect(fs.stat(destination.fsPath)).rejects.toThrow();
+        expect(await fs.readFile(workbook.fsPath, 'utf8')).toBe(UPDATED);
+    });
+
     it('restores a valid backup over damaged XML and backs up the damaged file', async () => {
         const workbook = fileUri('Book.twb');
         const backup = fileUri('Earlier.twb');

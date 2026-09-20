@@ -1,10 +1,7 @@
-trigger:
-  branches:
-    include:
-      - main
-  tags:
-    include:
-      - v*
+# Legacy, manual packaging pipeline. Releases are owned by the tested-artifact
+# gate in .github/workflows/publish.yml. This pipeline never publishes.
+trigger: none
+pr: none
 
 pool:
   vmImage: 'ubuntu-latest'
@@ -48,9 +45,3 @@ steps:
       ArtifactName: 'vsix'
       publishLocation: 'Container'
     displayName: 'Publish VSIX artifact'
-
-  - script: npx vsce publish --skip-duplicate -p $VSCE_PAT
-    displayName: 'Publish to marketplace'
-    condition: and(succeeded(), or(eq(variables['Build.SourceBranch'], 'refs/heads/main'), startsWith(variables['Build.SourceBranch'], 'refs/tags/v')))
-    env:
-      VSCE_PAT: $(VSCE_PAT)

@@ -274,6 +274,8 @@
     window.addEventListener('message', event => {
         const msg = event.data
         if (msg.type === 'formattingLoaded') {
+            const source = document.getElementById('workbook-source')
+            if (source) { source.textContent = 'Source workbook: ' + (msg.workbookName || 'Unknown') }
             state.elements = msg.elements
             state.pendingEdits = {}
             renderInspect()

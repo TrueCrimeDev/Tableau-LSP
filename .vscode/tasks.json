@@ -1,0 +1,64 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Copy synthetic demo",
+      "type": "process",
+      "command": "node",
+      "args": ["scripts/prepare-dev-demo.cjs"],
+      "problemMatcher": []
+    },
+    {
+      "label": "npm: build",
+      "type": "npm",
+      "script": "build",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "npm: watch",
+      "type": "npm",
+      "script": "watch",
+      "isBackground": true,
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": {
+        "owner": "esbuild",
+        "pattern": { "regexp": "^(.+):(\\d+):(\\d+): (.*)$", "file": 1, "line": 2, "column": 3, "message": 4 },
+        "background": { "activeOnStart": true, "beginsPattern": "\\[watch\\] build started", "endsPattern": "\\[watch\\] build finished" }
+      }
+    },
+    {
+      "label": "Prepare Extension Demo",
+      "dependsOn": ["Copy synthetic demo", "npm: build"],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "Watch Extension Demo",
+      "dependsOn": ["Copy synthetic demo", "npm: watch"],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "npm: typecheck",
+      "type": "npm",
+      "script": "typecheck",
+      "group": "test",
+      "problemMatcher": "$tsc"
+    },
+    {
+      "label": "npm: test:workbook-host",
+      "type": "npm",
+      "script": "test:workbook-host",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Package VSIX",
+      "type": "npm",
+      "script": "package",
+      "group": "build",
+      "problemMatcher": []
+    }
+  ]
+}

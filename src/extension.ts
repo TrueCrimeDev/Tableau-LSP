@@ -1,4 +1,4 @@
-import { ExtensionContext, ExtensionMode, commands, window, languages, workspace, env, Uri, ProgressLocation, debug, tasks, Task, TaskExecution, extensions, TextDocument } from 'vscode';
+import { ExtensionContext, ExtensionMode, commands, window, languages, workspace, env, Uri, ProgressLocation, extensions, TextDocument } from 'vscode';
 import { LanguageClient } from 'vscode-languageclient/node';
 import { SlashCommandProvider } from './slashCommandProvider.js';
 import { ActivationManager } from './activation/activationManager.js';
@@ -16,6 +16,8 @@ import { registerRunTestsCommand } from './commands/runTests.js';
 import { WorkbookFieldContextManager } from './services/workbookFieldContextManager.js';
 import { registerLocalTableauCommands } from './commands/localTableauCommands.js';
 import { registerWorkbookCommands } from './commands/workbookCommands.js';
+export { ReadWorkbookXmlTool, EditWorkbookXmlTool, SaveWorkbookCopyTool } from './chat/workbookXmlTools.js';
+import { buildAndReloadDevelopmentExtension } from './commands/buildDevelopmentExtension.js';
 
 let client: LanguageClient | undefined;
 let activationManager: ActivationManager;
@@ -84,27 +86,18 @@ export async function activate(context: ExtensionContext): Promise<void> {
 
         context.subscriptions.push(restartCommand);
 
-        // Development-only tooling: these assume a source checkout (an "npm: compile"
-        // task, a "Run Extension (VS Code)" debug config, `npm run test:*` scripts) that
-        // does not exist in a packaged/installed extension, so they only make sense
-        // inside the extension's own Extension Development Host.
+        // Development tools run against the source checkout. The development
+        // host may open a disposable demo without any source workspace tasks.
         if (context.extensionMode !== ExtensionMode.Production) {
             const compileAndReloadCommand = commands.registerCommand('tableau-language-support.compileAndReload', async () => {
                 try {
                     await window.withProgress(
                         {
                             location: ProgressLocation.Notification,
-                            title: 'Compiling and reloading Tableau Language Support...'
+                            title: 'Building and reloading Tableau Language Support...'
                         },
                         async () => {
-                            const compileTask = await findCompileTask();
-                            if (!compileTask) {
-                                throw new Error('Unable to find the "npm: compile" task. Run it once from Tasks > Run Task to generate it.');
-                            }
-
-                            const execution = await tasks.executeTask(compileTask);
-                            await waitForTaskCompletion(execution);
-                            await restartDebuggerSession();
+                            await buildAndReloadDevelopmentExtension(context.extensionPath);
                         }
                     );
                 } catch (error) {
@@ -325,48 +318,6 @@ async function restartExtension(context: ExtensionContext): Promise<void> {
         const errorMessage = error instanceof Error ? error.message : String(error);
         window.showErrorMessage(`Failed to restart Tableau Language Support: ${errorMessage}`);
         console.error('Tableau LSP: Restart failed:', error);
-    }
-}
-
-async function findCompileTask(): Promise<Task | undefined> {
-    const availableTasks = await tasks.fetchTasks({ type: 'npm' });
-    return availableTasks.find(task => {
-        if (task.name?.toLowerCase() === 'npm: compile') {
-            return true;
-        }
-
-        const definition = task.definition as { script?: string } | undefined;
-        return definition?.script === 'compile';
-    });
-}
-
-async function waitForTaskCompletion(execution: TaskExecution): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const disposable = tasks.onDidEndTaskProcess(event => {
-            if (event.execution === execution) {
-                disposable.dispose();
-                if (typeof event.exitCode === 'number' && event.exitCode !== 0) {
-                    reject(new Error(`"npm run compile" exited with code ${event.exitCode}`));
-                    return;
-                }
-
-                resolve();
-            }
-        });
-    });
-}
-
-async function restartDebuggerSession(): Promise<void> {
-    const session = debug.activeDebugSession;
-    if (session) {
-        await commands.executeCommand('workbench.action.debug.restart');
-        return;
-    }
-
-    const targetWorkspace = workspace.workspaceFolders?.[0];
-    const started = await debug.startDebugging(targetWorkspace, 'Run Extension (VS Code)');
-    if (!started) {
-        window.showInformationMessage('Compilation finished. Press F5 to launch the "Run Extension (VS Code)" configuration.');
     }
 }
 

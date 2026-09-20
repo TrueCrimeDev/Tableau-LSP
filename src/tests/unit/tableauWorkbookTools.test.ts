@@ -4,7 +4,7 @@ import {
     describeCalculationReceipt,
     normalizeCalculationInput,
 } from '../../chat/calculationPlan.js';
-import { TABLEAU_ADD_CALCULATION_TOOL, TABLEAU_LIST_FIELDS_TOOL } from '../../chat/tableauTools.js';
+import { TABLEAU_ADD_CALCULATION_TOOL, TABLEAU_TOOL_NAMES } from '../../chat/tableauTools.js';
 import { buildFieldInventory } from '../../chat/fieldInventory.js';
 import { join } from 'path';
 import { readFileSync } from 'fs';
@@ -60,7 +60,7 @@ describe('languageModelTools manifest', () => {
     // so drift between these two lists disables the feature with no error.
     it('contributes exactly the tools the extension registers', () => {
         expect(contributed.map(tool => tool.name).sort())
-            .toEqual([TABLEAU_ADD_CALCULATION_TOOL, TABLEAU_LIST_FIELDS_TOOL].sort());
+            .toEqual([...TABLEAU_TOOL_NAMES].sort());
     });
 
     it('never lets the model choose the write target', () => {

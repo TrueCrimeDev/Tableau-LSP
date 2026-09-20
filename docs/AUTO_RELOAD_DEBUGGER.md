@@ -1,46 +1,37 @@
-# Tableau LSP - Auto Reload Debugger Workflow
+# Develop and reload the extension
 
-This project now mirrors the Toolbox extension's fast reload experience so you can iterate on the language server without poking at the debugger manually. Everything runs against the `Tableau-LSP.code-workspace` file, which guarantees that every launched Extension Host window opens the same workspace + folder layout as the repo you have open now.
+Use Node.js 20 or newer and VS Code. In the source checkout, run `npm ci`, then open the repository folder in VS Code.
 
-## Reload entry points
+Press F5 with **Run Extension (synthetic demo)** selected. The tracked launch configuration uses the current VS Code executable on Windows, macOS, or Linux. It builds both extension and language server, copies the synthetic `examples` into `.vscode-dev/examples`, and opens that copy with a separate user-data profile and extensions directory. Your normal VS Code profile and private workbooks are not used.
 
-- **Restart the running debugger** - press `Ctrl+Shift+F5` to restart the existing `Run Extension (VS Code)` session after a build.
-- **Reload the Extension Host window** - `Ctrl+R` inside the debug window if you just need a window reload.
-- **Run the VS Code task** - `Tasks: Run Task` -> `Compile and Reload Debugger` executes the helper script (`auto-reload.sh` / `.cmd`).
-- **Use the command palette helper** - `Tableau LSP: Compile and Reload`. It compiles, waits for completion, and restarts (or launches) the debugger for you.
-- **Kick it off from the CLI** - run `./auto-reload.sh` (macOS/Linux) or `auto-reload.cmd` (Windows) to build from a shell and follow the prompts.
+The copy preserves edits between debug sessions. Stop the development host, then delete `.vscode-dev` to reset the demo and its isolated profile. These generated files are ignored by Git.
 
-All of these workflows assume that either a one-shot compile just finished or `npm run watch` is running so the extension host restart can pick up the already-emitted JavaScript from `out/`.
+## Change, build, and reload
 
-## Compile and reload command
+Choose **Watch Extension (synthetic demo)** to rebuild both entry points whenever their source changes. Source maps are enabled for both processes. After a successful build, run **Developer: Reload Window** in the development host or restart debugging from the source window.
 
-The command contribution `tableau-language-support.compileAndReload` is wired up in `src/extension.ts`. Trigger it from the Command Palette or wire it to a keybinding:
+The development-only **Tableau LSP: Compile and Reload** command also works inside the demo. It runs the shared `esbuild.mjs` script from the extension's source directory, waits for a successful build, then reloads that development window. It does not require a build task in the demo workspace. Node.js must be available on PATH. A build failure leaves the current window running and displays the error.
 
-1. It locates the `npm: compile` task (defined in `.vscode/tasks.json`) and runs it through the VS Code task service.
-2. The command waits for the task to exit successfully before touching the debugger, so you never reload stale bits.
-3. If a debug session is active it invokes `workbench.action.debug.restart`; otherwise it launches the `Run Extension (VS Code)` configuration so the new Extension Host opens the `Tableau-LSP.code-workspace` window automatically.
-4. Failures bubble up as a notification so you can inspect the compile errors without guessing which step failed.
+From a terminal in the checkout:
 
-## Tasks & npm scripts
+```sh
+npm run build       # extension + server with source maps
+npm run watch       # continuously rebuild both
+npm run typecheck   # TypeScript validation without overwriting bundles
+```
 
-- `.vscode/tasks.json` now includes `npm: compile` plus a `Compile and Reload Debugger` task that invokes the helper scripts.
-- `package.json` already exposes `npm run compile` and `npm run watch`. Keep `npm run watch` running while you iterate; it continuously rebuilds `out/` so your reload triggers are effectively instant.
-- You can set `npm: compile` as the default build task (`Tasks: Configure Default Build Task`) if you prefer running it via `Ctrl+Shift+B`.
+The `auto-reload.sh` and `auto-reload.cmd` helpers run the same build and print reload instructions. Production packaging uses the shared build with minification and excludes source maps from the VSIX. `npm run compile` is retained for older test scripts; prefer `build` for extension development because `compile` emits unbundled TypeScript output.
 
-## CLI helpers
+## Verify the installed package
 
-| File | When to use |
-| --- | --- |
-| `auto-reload.sh` | macOS/Linux contributors running inside a shell or terminal multiplexer |
-| `auto-reload.cmd` | Windows contributors working from Command Prompt/PowerShell |
+```sh
+npm run test:workbook-host
+npm run package -- --out tableau-language-support.vsix
+npm run test:vsix -- tableau-language-support.vsix
+```
 
-Both scripts simply `npm run compile`, then remind you to run the `Tableau LSP: Compile and Reload` command or press `Ctrl+Shift+F5` in VS Code.
+Host tests use disposable synthetic workbooks and fresh profiles beneath `.vscode-test`. On Linux without a display, prefix each host command with `xvfb-run -a`. Set `VSCODE_EXECUTABLE_PATH` to use an existing installation or `VSCODE_VERSION` to select a downloadable version; otherwise the runner uses stable VS Code.
 
-## Recommended workflow
+The VSIX smoke runner installs the supplied package into a fresh extensions directory. An empty test harness starts the host, and assertions confirm the Tableau extension loads from the installed package at the expected version before exercising workbook edits, backups, and copy preservation. Reports are written to `test-results`.
 
-1. Start `npm run watch` in a dedicated terminal to keep TypeScript output fresh.
-2. Launch the debugger once via `F5` (`Run Extension (VS Code)`).
-3. After each change either hit `Ctrl+Shift+F5` *or* run the `Tableau LSP: Compile and Reload` command to rebuild + restart in one shot.
-4. If you prefer task automation, run the **Compile and Reload Debugger** task or execute `auto-reload.(sh|cmd)` from the shell.
-
-With these pieces in place you now have the same compile -> reload loop from Toolbox, tailored to Tableau LSP's workspace structure.
+CI runs type checking, deterministic tests, unit tests, and workbook host tests on Linux, Windows, and macOS. Only then does it package and test the installed VSIX. Publishing calls that same reusable workflow, downloads its tested bytes, and validates their checksum, commit, version, and matching release tag. Release provenance requires a clean checkout. A failed or throttled publish is not automatically rerun. Public version checks use bounded backoff for stale successful responses and stop immediately on HTTP 429, reporting Retry-After when provided.

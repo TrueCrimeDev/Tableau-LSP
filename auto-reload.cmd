@@ -8,7 +8,7 @@ echo Tableau Language Support - Compile and Reload helper
 echo ----------------------------------------------------
 echo.
 
-call npm run compile
+call npm run build
 if errorlevel 1 (
   echo.
   echo Compilation failed. Fix the errors above and rerun this script.

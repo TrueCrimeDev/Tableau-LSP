@@ -1,16 +1,17 @@
 const path = require('path');
 const fs = require('fs/promises');
 const { runTests } = require('@vscode/test-electron');
+const { root, createProfile, executablePath, launchArgs } = require('./host-test-utils.cjs');
 
 (async () => {
-  const root = path.resolve(__dirname, '..');
   const result = path.join(root, 'test-results', 'workbook-host');
   await fs.mkdir(result, { recursive: true });
+  const profile = await createProfile('workbook-host');
   await runTests({
     extensionDevelopmentPath: root,
     extensionTestsPath: path.join(__dirname, 'workbook-host-tests.cjs'),
-    ...(process.env.VSCODE_EXECUTABLE_PATH ? { vscodeExecutablePath: process.env.VSCODE_EXECUTABLE_PATH } : {}),
+    vscodeExecutablePath: await executablePath(),
     extensionTestsEnv: { WORKBOOK_HOST_REPORT: path.join(result, 'report.json') },
-    launchArgs: ['--disable-extensions', '--disable-gpu', '--skip-welcome', '--disable-workspace-trust'],
+    launchArgs: [...launchArgs(profile), '--disable-extensions'],
   });
 })().catch(error => { console.error(error); process.exitCode = 1; });

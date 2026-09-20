@@ -32,6 +32,13 @@ the agent cannot infer from the workbook itself.
 
 <!-- e.g. "Never use COUNTD on the extract — it is slow at our row counts." -->
 -
+
+## Workbook edits and delivery
+
+<!-- Name sheets or connections the agent must preserve, and any export filename convention. -->
+- Use the Tableau workbook tools to inspect and edit XML. Keep packaged data and assets intact.
+- After editing, report the saved workbook and backup. Open an exported copy in Tableau when requested.
+- XML validation and a successful launch do not establish that Tableau rendered the workbook correctly.
 `;
 
 /**

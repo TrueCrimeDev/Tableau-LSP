@@ -11,4 +11,16 @@ Use the licensed Tableau installation on the machine where you normally work. Th
 
 Repeat with `.twb` and `.twbx` workbooks representative of your work, including any packaged extracts and images. Keep the original Tableau version: this extension preserves version metadata and does not convert or downgrade workbooks.
 
+## Check agent XML editing
+
+On another disposable copy, ask the VS Code agent to read the active workbook XML, change one known worksheet label or calculation, and save a separate workbook copy. Review the confirmation card's workbook, exact before/after XML, and output filename before approving. The available tools are `tableau_readWorkbookXml`, `tableau_editWorkbookXml`, and `tableau_saveWorkbookCopy`.
+
+Confirm that the saved edit has a complete backup and the exported copy has the expected name and format. Repeat steps 4–5 above on that exported copy. A successful launch only proves the launch request was accepted; activation can still prevent loading. Record separately whether its sheets render and its connections and calculation resolve.
+
+Also check stale edits: have the agent read the XML, change the workbook yourself before applying its edit, then confirm the tool asks for a fresh read rather than overwriting the newer state. A dirty packaged XML draft must be saved or reverted before another agent edit; exporting a copy should include the draft. Existing output files must not be overwritten.
+
+## Record the result
+
+Record the extension version, Tableau Desktop version, workbook format, original and edited behavior, whether a data connection was available, and whether backup restore succeeded. Keep sensitive workbooks and source paths out of public test reports. The checked-in synthetic examples are useful for extension behavior; they contain no live connection and do not prove Tableau Desktop rendering.
+
 The extension checks XML, ZIP contents and saved bytes. Successful Tableau loading, data connections and view rendering are separate checks completed in Tableau itself.

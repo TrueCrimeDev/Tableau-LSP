@@ -25,6 +25,8 @@ Markdown fences labeled `tableau` also receive syntax highlighting.
 
 Open **Tableau Tools** from the activity bar to browse the active workbook's datasources, calculated fields, fields, worksheets, and custom palettes.
 
+The **Source workbook** label identifies the workbook used by the sidebar. When you inspect a backup comparison, the sidebar keeps using the original workbook rather than either read-only snapshot.
+
 Click **Extract Calculations**, or run **Tableau: Extract Calculations** with the workbook active. The command writes `Extracted_Calculations.twbl` in the workspace root and opens it. Extraction resolves internal field names to captions, normalizes formulas, and filters duplicate or trivial calculations. See the [Extraction Guide](extraction-guide.md).
 
 ## Edit and recover workbooks
@@ -51,6 +53,8 @@ Verification checks XML, archive integrity, and saved contents. It does not prov
 
 The sidebar and **Tableau: Open Formatting Panel** inspect and edit worksheet fonts, colors, borders, and line styles. They use the same backup and verification layer as other workbook edits.
 
+The formatting panel also names its **Source workbook**. Changes apply to the workbook whose formatting is displayed, including while another workbook is still loading.
+
 ![Workbook Formatting panel](../images/examples/workbook-formatting.png)
 
 - **Format Stripper** removes selected borders, bold, font sizes, and font colors, with scan counts before applying changes.
@@ -60,7 +64,9 @@ The sidebar and **Tableau: Open Formatting Panel** inspect and edit worksheet fo
 
 Workspace palettes live in `config/Preferences.tps`. **Copy Preferences.tps to My Tableau Repository** makes them available to the local Tableau repository.
 
-The palette editor's **Save** updates its sidebar list. Use **File Actions → Save** to persist that list to `config/Preferences.tps`.
+The palette editor's **Save Palette to File** saves the edited palette and library to `config/Preferences.tps`. **Save Library to Preferences.tps**, at the top of the Palette Library, saves the library as listed; use **Save Palette to File** to include changes still in the editor.
+
+An unsaved indicator remains until saved palette data returns. Background refreshes preserve pending edits. **Reload File** reloads Preferences.tps and asks before discarding unsaved palette changes.
 
 **Open in Tableau after a verified formatting write** launches the saved workbook in the configured or newest discovered Tableau Desktop installation. It does not close an already-running Tableau process.
 
@@ -82,15 +88,31 @@ The Calc Bank also accepts selections through **Tableau: Add Selection to Calc B
 
 ## Use Copilot with a workbook
 
-With Copilot Chat and an available model, ask `@tableau` about the active workbook. Commands include `/new`, `/borders`, `/calcs`, and `/fields`.
+With Copilot Chat and an available model, ask `@tableau` about the active workbook. Commands include `/new`, `/edit`, `/export`, `/borders`, `/calcs`, and `/fields`. Each response names and links the selected workbook.
 
 ```text
 @tableau /fields
 @tableau what borders are set?
 @tableau add a profit ratio calculation
+@tableau /edit remove the row dividers from Sales Overview
+@tableau /export
 ```
 
-Workbook context comes from a parsed digest. Calculation writes show a confirmation card with the proposed formula and use the backup and verification workflow. Agent mode can access the complete field inventory through `#tableauFields` and propose a calculation through `#tableauAddCalculation`.
+The agent uses a workbook digest for orientation, then reads exact fields or XML before editing. Calculation and XML changes show a confirmation card and use the backup and verification workflow. XML editing covers formatting, worksheet and dashboard definitions, and other underlying workbook sections. Packaged `.twbx` files retain their embedded data and images.
+
+| Agent mode tool | Purpose |
+| --- | --- |
+| `#tableauFields` | Inspect the complete field inventory, with optional filters. |
+| `#tableauAddCalculation` | Add or update a calculated field using Tableau formula syntax. |
+| `#tableauXml` | Read exact workbook XML; search and pagination handle large files. |
+| `#tableauEditXml` | Apply reviewed, exact XML replacements to the workbook. |
+| `#tableauExport` | Save a new copy beside the original and optionally open it in Tableau. |
+
+An XML edit is tied to the workbook and revision the agent just read. If the file or selected workbook changes, the agent must reread before writing. Invalid XML, ambiguous replacements, and overwriting an existing export are rejected. Save or revert an unsaved packaged XML draft before another agent edit; an export can preserve the draft as a separate copy.
+
+`/export` saves `<workbook>-edited.twb` or `.twbx` beside its source, keeping relative connection paths intact, and opens that copy in Tableau. Ask for a different filename when one already exists. The result reports saving and launching separately: if Tableau is unavailable, the saved copy remains usable. Configure `tableau-language-support.local.executablePath` if automatic discovery misses your installation.
+
+Open the result in your target Tableau version to check sheets, calculation behavior, and data connections. Strict XML checks and package verification do not establish those results. Ask for a proposal or explanation explicitly when you want the agent to read without editing.
 
 Project `agent.md`, `instructions.md`, and `*.agent.md` files in the configured library folders accompany `@tableau` requests. Use **Tableau: Create Agent Instructions for @tableau** to scaffold naming and datasource conventions. Project guidance cannot override the built-in safety rules.
 

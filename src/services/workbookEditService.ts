@@ -30,6 +30,13 @@ export class WorkbookEditTransactionError extends Error {
     }
 }
 
+export class WorkbookCopyVerificationError extends Error {
+    public constructor(message: string, public readonly destination: vscode.Uri) {
+        super(message);
+        this.name = 'WorkbookCopyVerificationError';
+    }
+}
+
 /**
  * Apply a prevalidated workbook mutation, verify the persisted bytes, and roll
  * back to the exact original XML if any write/verification step fails.
@@ -153,7 +160,7 @@ export class WorkbookEditService {
     }
 
     /** Save an independently verified copy. The original and existing files are never overwritten. */
-    public async saveCopy(sourceUri: vscode.Uri, destinationUri: vscode.Uri): Promise<vscode.Uri> {
+    public async saveCopy(sourceUri: vscode.Uri, destinationUri: vscode.Uri, options: { expectedXml?: string } = {}): Promise<vscode.Uri> {
         sourceUri = resolveWorkbookSourceUri(sourceUri);
         destinationUri = resolveWorkbookSourceUri(destinationUri);
         this.requireSameFormat(sourceUri, destinationUri);
@@ -165,6 +172,9 @@ export class WorkbookEditService {
             await readWorkbookPackage(snapshot.currentBytes, sourceUri.fsPath);
             const bytes = snapshot.virtualEditorText === undefined ? snapshot.currentBytes
                 : await replaceWorkbookXml(snapshot.currentBytes, sourceUri.fsPath, snapshot.virtualEditorText);
+            if (options.expectedXml !== undefined && (await readWorkbookPackage(bytes, sourceUri.fsPath)).xml !== options.expectedXml.replace(/^\uFEFF/, '')) {
+                throw new Error('The workbook changed since the export was reviewed. Read it again before saving a copy.');
+            }
             await this.ensureUnchanged(sourceUri, snapshot);
             const temporary = vscode.Uri.joinPath(vscode.Uri.file(dirname(destinationUri.fsPath)), `.tableau-copy-${randomUUID()}.tmp`);
             let copied = false;
@@ -180,7 +190,7 @@ export class WorkbookEditService {
                     // A different process may have replaced this path. There is
                     // no compare-and-delete operation in FileSystemProvider, so
                     // retain the destination for inspection instead of deleting it.
-                    throw new Error(`The copy could not be verified. The destination was kept for inspection: ${error instanceof Error ? error.message : String(error)}`);
+                    throw new WorkbookCopyVerificationError(`The copy could not be verified. The destination was kept for inspection: ${error instanceof Error ? error.message : String(error)}`, destinationUri);
                 }
                 throw error;
             } finally {

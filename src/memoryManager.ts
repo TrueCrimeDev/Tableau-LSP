@@ -73,6 +73,10 @@ export class MemoryManager {
     private static instance: MemoryManager;
     private config: MemoryConfig;
     private monitoringTimer?: NodeJS.Timeout;
+    private started = false;
+    private readonly memoryUsageListener = (): void => {
+        void this.performMemoryCheck();
+    };
     private cacheMetadata = new Map<string, CacheEntryMetadata>();
     private activeDocuments = new Set<string>();
     private cleanupStats: CleanupStats[] = [];
@@ -93,7 +97,6 @@ export class MemoryManager {
         };
         
         this.lastMemoryStats = this.createEmptyStats();
-        this.startMemoryMonitoring();
     }
     
     /**
@@ -107,20 +110,35 @@ export class MemoryManager {
     }
     
     /**
+     * Start monitoring for the owning server's lifetime. Importing parser or
+     * statistics helpers must not create background work in other consumers.
+     */
+    start(): void {
+        this.started = true;
+        this.startMemoryMonitoring();
+    }
+
+    /**
      * Start automatic memory monitoring
      */
     private startMemoryMonitoring(): void {
-        if (!this.config.enableAutoCleanup) return;
+        if (!this.started || !this.config.enableAutoCleanup || this.monitoringTimer) return;
         
-        this.monitoringTimer = setInterval(() => {
-            this.performMemoryCheck();
-        }, this.config.monitoringIntervalMs);
+        this.monitoringTimer = setInterval(this.memoryUsageListener, this.config.monitoringIntervalMs);
         
         // Also monitor on process events
         if (typeof process !== 'undefined') {
-            process.on('memoryUsage', () => {
-                this.performMemoryCheck();
-            });
+            process.on('memoryUsage', this.memoryUsageListener);
+        }
+    }
+
+    private stopMemoryMonitoring(): void {
+        if (this.monitoringTimer) {
+            clearInterval(this.monitoringTimer);
+            this.monitoringTimer = undefined;
+        }
+        if (typeof process !== 'undefined') {
+            process.removeListener('memoryUsage', this.memoryUsageListener);
         }
     }
     
@@ -555,11 +573,12 @@ export class MemoryManager {
      * Configure memory management settings
      */
     configure(config: Partial<MemoryConfig>): void {
+        const previousConfig = this.config;
         this.config = { ...this.config, ...config };
         
-        // Restart monitoring if interval changed
-        if (config.monitoringIntervalMs && this.monitoringTimer) {
-            clearInterval(this.monitoringTimer);
+        if (previousConfig.monitoringIntervalMs !== this.config.monitoringIntervalMs ||
+            previousConfig.enableAutoCleanup !== this.config.enableAutoCleanup) {
+            this.stopMemoryMonitoring();
             this.startMemoryMonitoring();
         }
         
@@ -701,10 +720,8 @@ export class MemoryManager {
      * Shutdown memory manager
      */
     shutdown(): void {
-        if (this.monitoringTimer) {
-            clearInterval(this.monitoringTimer);
-            this.monitoringTimer = undefined;
-        }
+        this.started = false;
+        this.stopMemoryMonitoring();
         
         console.log('[MemoryManager] Shutdown completed');
     }

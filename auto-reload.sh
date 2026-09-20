@@ -10,7 +10,7 @@ echo ""
 
 (
   cd "${SCRIPT_DIR}"
-  npm run compile
+  npm run build
 )
 
 cat <<'EOF'

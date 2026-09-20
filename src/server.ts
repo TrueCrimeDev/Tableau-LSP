@@ -292,6 +292,7 @@ connection.onInitialize((params) => {
 });
 
 connection.onInitialized(() => {
+    startServerMonitoring();
     if (hasConfigurationCapability) {
         connection.client.register(DidChangeConfigurationNotification.type, undefined);
     }
@@ -563,25 +564,43 @@ connection.onDocumentRangeFormatting(async (params) => {
 
 // R7.2: Handle graceful shutdown with request flushing
 connection.onShutdown(async () => {
+    stopServerMonitoring();
     console.log('[Server] Shutting down - flushing pending requests...');
     await globalDebouncer.flushAllRequests();
     console.log('[Server] All pending requests flushed.');
-    
-    // R7.3: Shutdown memory manager
-    globalMemoryManager.shutdown();
-    console.log('[Server] Memory manager shutdown completed.');
 });
 
+connection.onExit(stopServerMonitoring);
+
+const monitoringTimers: NodeJS.Timeout[] = [];
+
+function startServerMonitoring(): void {
+    if (monitoringTimers.length > 0) return;
+    globalMemoryManager.start();
+    monitoringTimers.push(
+        setInterval(logDebouncerStats, 30000),
+        setInterval(logMemoryStats, 60000)
+    );
+}
+
+function stopServerMonitoring(): void {
+    for (const timer of monitoringTimers) {
+        clearInterval(timer);
+    }
+    monitoringTimers.length = 0;
+    globalMemoryManager.shutdown();
+}
+
 // R7.2: Add periodic stats logging for monitoring
-setInterval(() => {
+function logDebouncerStats(): void {
     const stats = globalDebouncer.getDebounceStats();
     if (stats.pendingRequests > 0) {
         console.log('[RequestDebouncer] Stats:', JSON.stringify(stats, null, 2));
     }
-}, 30000); // Log every 30 seconds if there are pending requests
+}
 
 // R7.3: Add periodic memory monitoring and logging
-setInterval(() => {
+function logMemoryStats(): void {
     const memoryStats = globalMemoryManager.getMemoryStats();
     const healthStatus = globalMemoryManager.getMemoryHealthStatus();
     
@@ -606,7 +625,7 @@ setInterval(() => {
             });
         }
     }
-}, 60000); // Log every minute if memory status is not healthy
+}
 
 documents.listen(connection);
 connection.listen();

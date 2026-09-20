@@ -26,7 +26,7 @@ export async function readCurrentWorkbookXml(uri: vscode.Uri): Promise<string> {
     return (await readWorkbookXml(uri)).xml;
 }
 
-async function launchEditedWorkbook(uri: vscode.Uri): Promise<string> {
+export async function launchEditedWorkbook(uri: vscode.Uri): Promise<string> {
     uri = resolveWorkbookSourceUri(uri);
     const config = vscode.workspace.getConfiguration('tableau-language-support');
     const configuredExecutable = config.get<string>('local.executablePath', '').trim();

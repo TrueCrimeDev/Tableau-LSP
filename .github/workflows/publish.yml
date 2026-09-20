@@ -3,41 +3,40 @@ name: Publish VS Code Extension
 on:
   workflow_dispatch:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
 
 permissions:
   contents: read
 
-jobs:
-  publish:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
+# Serialize Marketplace writes; a running publication is never canceled.
+concurrency:
+  group: marketplace-publish
+  cancel-in-progress: false
 
+jobs:
+  verify:
+    uses: ./.github/workflows/test.yml
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout the tested commit
+        uses: actions/checkout@v7
       - name: Use Node.js
         uses: actions/setup-node@v7
         with:
           node-version: '20'
-
-      - name: Install dependencies
+          cache: npm
+      - name: Install release tooling
         run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Package
-        run: npx vsce package --out tableau-language-support.vsix
-
-      - name: Upload VSIX artifact
-        uses: actions/upload-artifact@v7
+      - name: Download the artifact tested by this workflow
+        uses: actions/download-artifact@v8
         with:
-          name: vsix
-          path: tableau-language-support.vsix
-          if-no-files-found: error
-
-      - name: Publish
+          name: tested-vsix-${{ github.sha }}
+          path: release-artifacts
+      - name: Publish tested bytes once and verify the public version
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: npx vsce publish --packagePath tableau-language-support.vsix --skip-duplicate
+        run: npm run publish -- release-artifacts/tableau-language-support.vsix

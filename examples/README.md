@@ -35,9 +35,9 @@ With the workbook active, run **Tableau: Open Formatting Panel**. Inspect the wo
 1. Collapse **Workbook**, **Workbook Formatting**, and **Format Stripper** to make room for **Palette Library**.
 2. Select **Retail Teal**. In **Advanced Gradient Generator**, set the base color to `#0F766E`, use seven steps, and select **Ease Out**.
 3. Click **Generate**, then the arrow beside the preview to load the colors into the palette editor.
-4. Click **Save** in the palette editor to update the sidebar list, then **File Actions → Save** to write `config/Preferences.tps`.
+4. Click **Save Palette to File** to write the palette and library to `config/Preferences.tps`.
 
-The capture shows the seven generated colors in the editor and the saved XML. Both Save steps are required to persist this workflow.
+The 1.13.1 capture below shows the earlier two-step Save flow. Version 1.14.0 combines those steps in **Save Palette to File** and displays unsaved status.
 
 ![Palette generator and the saved Preferences.tps colors](../images/examples/palette-editor.png)
 
@@ -59,10 +59,20 @@ After submission, the demo's saved XML contained the new field and its formula, 
 
 ## Compare the saved change
 
-Click **Compare Backup**, choose the generated backup, and inspect the native VS Code diff. The new `<column>` and `<calculation>` are highlighted in green. Refocus the original `retail-demo.twb` before making another workbook edit.
+Click **Compare Backup**, choose the generated backup, and inspect the native VS Code diff. The new `<column>` and `<calculation>` are highlighted in green. Version 1.14.0 retains the original workbook as the source while the diff is active.
 
 ![Backup comparison highlighting the persisted calculated field](../images/examples/workbook-backup-diff.png)
 
+## Edit underlying XML with the agent tools
+
+In version 1.14.0, `@tableau /edit` can read and modify exact XML inside a `.twb` or `.twbx`. `@tableau /export` saves a separate copy and requests opening it in Tableau Desktop.
+
+This real 1.14.0 capture shows an edit made through the registered XML tool after its before/after confirmation was accepted. A disposable copy of Tableau's bundled Superstore sample was used; that workbook is not distributed in this repository. The datasource caption changed while the source workbook remained selected in the sidebar.
+
+![Registered agent XML edit shown in a backup comparison, with demo in the VS Code title](../images/examples/agent-xml-edit.png)
+
+The registered export tool also saved the edited package and launched Tableau. Tableau Desktop 2026.1 stopped at license activation, so this capture proves the persisted extension edit, not Tableau rendering.
+
 ## Verification
 
-The review passed type checking, 996 unit tests, 44 deterministic tests, and 22 real extension-host workbook checks. Live checks also returned function hover, completions, and the two Tableau language model tool registrations. The unit run emitted a worker teardown warning. See [review notes](../docs/review-2026-09-19.md) for scope and remaining findings.
+The original 1.13.1 review passed 996 unit tests, 44 deterministic tests, and 22 real extension-host checks, with a teardown warning documented in its [review notes](../docs/review-2026-09-19.md). The [1.14.0 review](../docs/review-1.14.0.md) covers the timer fix, five agent tools, stricter XML checks, installed-package tests, and current verification limits.

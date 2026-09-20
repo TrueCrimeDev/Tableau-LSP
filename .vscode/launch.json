@@ -1,0 +1,35 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Extension (synthetic demo)",
+      "type": "extensionHost",
+      "request": "launch",
+      "runtimeExecutable": "${execPath}",
+      "args": [
+        "--disable-extensions",
+        "--extensions-dir=${workspaceFolder}/.vscode-dev/extensions",
+        "--user-data-dir=${workspaceFolder}/.vscode-dev/user-data",
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "${workspaceFolder}/.vscode-dev/examples/Tableau Demo.code-workspace"
+      ],
+      "outFiles": ["${workspaceFolder}/out/**/*.js"],
+      "preLaunchTask": "Prepare Extension Demo"
+    },
+    {
+      "name": "Watch Extension (synthetic demo)",
+      "type": "extensionHost",
+      "request": "launch",
+      "runtimeExecutable": "${execPath}",
+      "args": [
+        "--disable-extensions",
+        "--extensions-dir=${workspaceFolder}/.vscode-dev/extensions",
+        "--user-data-dir=${workspaceFolder}/.vscode-dev/user-data",
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "${workspaceFolder}/.vscode-dev/examples/Tableau Demo.code-workspace"
+      ],
+      "outFiles": ["${workspaceFolder}/out/**/*.js"],
+      "preLaunchTask": "Watch Extension Demo"
+    }
+  ]
+}

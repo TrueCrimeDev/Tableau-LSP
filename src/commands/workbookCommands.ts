@@ -4,7 +4,7 @@ import { resolveWorkbookUri } from '../chat/activeWorkbook.js';
 import { WorkbookEditService } from '../services/workbookEditService.js';
 import { readCurrentWorkbookXml } from '../services/workbookMutationService.js';
 import { registerWorkbookXmlEditor } from '../services/workbookXmlEditor.js';
-import { resolveWorkbookSourceUri, workbookEditorKeys } from '../services/workbookUri.js';
+import { bindWorkbookPreview, resolveWorkbookSourceUri, unbindWorkbookSource, workbookEditorKeys } from '../services/workbookUri.js';
 import { LocalTableauConnectorHub } from '../services/localTableauConnectors.js';
 
 const prefix = 'tableau-language-support.workbook.';
@@ -17,7 +17,14 @@ export function registerWorkbookCommands(context: vscode.ExtensionContext): void
         provideTextDocumentContent: uri => previews.get(uri.toString()) ?? '',
     }));
     context.subscriptions.push(vscode.workspace.onDidCloseTextDocument(doc => {
-        if (doc.uri.scheme === 'tableau-preview') { previews.delete(doc.uri.toString()); }
+        if (doc.uri.scheme === 'tableau-preview') {
+            previews.delete(doc.uri.toString());
+            unbindWorkbookSource(doc.uri);
+        }
+    }));
+    context.subscriptions.push(new vscode.Disposable(() => {
+        for (const key of previews.keys()) { unbindWorkbookSource(vscode.Uri.parse(key)); }
+        previews.clear();
     }));
 
     async function target(candidate?: vscode.Uri): Promise<vscode.Uri> {
@@ -56,6 +63,8 @@ export function registerWorkbookCommands(context: vscode.ExtensionContext): void
         const right = vscode.Uri.from({ scheme: 'tableau-preview', path: `/${id}/current.twb` });
         previews.set(left.toString(), before);
         previews.set(right.toString(), after);
+        bindWorkbookPreview(left, source);
+        bindWorkbookPreview(right, source);
         await vscode.commands.executeCommand('vscode.diff', left, right, `${path.basename(source.fsPath)}: backup ↔ current`);
     }
 

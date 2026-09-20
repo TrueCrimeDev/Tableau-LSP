@@ -2,6 +2,22 @@
 
 All notable changes to the "tableau-language-support" extension will be documented in this file.
 
+## [1.14.0] - 2026-09-19
+
+### Added
+
+- Copilot can read and edit underlying `.twb` and `.twbx` XML, with exact replacement previews, workbook/revision checks, complete backups, and package verification. New `#tableauXml`, `#tableauEditXml`, and `#tableauExport` tools join the calculation tools; `@tableau /edit` and `/export` provide direct entry points.
+- Agent exports save a separate copy and can open it in Tableau Desktop. Results distinguish saved files, launch failures, and validation that still requires Tableau. Interrupted edits retain backup and recovery details.
+- Portable F5 configurations open disposable demo fixtures in isolated profiles. One esbuild configuration handles both entry points consistently for watching, source maps, and production minification.
+- CI runs real extension-host checks on three operating systems and installs the packaged VSIX. Publishing requires the tested artifact and its checksum, then verifies the public Marketplace version.
+
+### Fixed
+
+- Backup comparisons retain the source workbook in chat, the sidebar, and the formatting panel. Preview documents cannot become editable drafts.
+- Palette editor **Save Palette to File** now persists to Preferences.tps. Visible unsaved status and protected reloads clarify persistence and preserve drafts through refreshes.
+- Memory monitoring starts with the language server and stops on shutdown. Importing parser modules no longer leaks background timers into tests.
+- Strict XML validation rejects unescaped attributes, undeclared entities, invalid characters, and DOCTYPE declarations before workbook writes.
+
 ## [1.13.1] - 2026-09-11
 
 ### Fixed

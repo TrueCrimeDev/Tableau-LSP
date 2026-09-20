@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { basename } from 'path';
 import { TWBParser } from '../parsers/twbParser.js';
 import { resolveWorkbookSourceUri } from '../services/workbookUri.js';
+import { isWorkbookUri, workbookUriFromTab } from '../chat/activeWorkbook.js';
 import {
     readThemeFromXml,
     applyThemeEditsToXml,
@@ -18,6 +19,7 @@ import {
 
 let panel: vscode.WebviewPanel | undefined;
 let panelWorkbook: vscode.Uri | undefined;
+let panelGeneration = 0;
 
 export function registerFormattingPanel(context: vscode.ExtensionContext): void {
     const cmd = vscode.commands.registerCommand(
@@ -29,8 +31,7 @@ export function registerFormattingPanel(context: vscode.ExtensionContext): void 
     context.subscriptions.push(
         vscode.window.onDidChangeActiveTextEditor(editor => {
             if (!panel || !editor) { return; }
-            const p = editor.document.uri.path.toLowerCase();
-            if (/\.twbx?$/i.test(p)) { void refreshPanel(editor.document.uri); }
+            if (isWorkbookUri(editor.document.uri)) { void refreshPanel(editor.document.uri); }
         })
     );
 }
@@ -75,32 +76,33 @@ function openOrReveal(context: vscode.ExtensionContext): void {
         }
     });
 
-    panel.onDidDispose(() => { panel = undefined; panelWorkbook = undefined; });
+    panel.onDidDispose(() => { panel = undefined; panelWorkbook = undefined; panelGeneration++; });
 
     if (initialWorkbook) { void refreshPanel(initialWorkbook); }
 }
 
 function getWorkbookUri(): vscode.Uri | undefined {
+    // Actions must use the workbook whose formatting is currently displayed.
+    if (panelWorkbook) { return panelWorkbook; }
     const editor = vscode.window.activeTextEditor;
     if (editor) {
-        const p = editor.document.uri.path.toLowerCase();
-        if (/\.twbx?$/i.test(p)) { return resolveWorkbookSourceUri(editor.document.uri); }
+        if (isWorkbookUri(editor.document.uri)) { return resolveWorkbookSourceUri(editor.document.uri); }
     }
-    const tab = vscode.window.tabGroups.activeTabGroup.activeTab?.input as { uri?: vscode.Uri } | undefined;
-    if (tab?.uri && /\.twbx?$/i.test(tab.uri.path)) { return resolveWorkbookSourceUri(tab.uri); }
-    return panelWorkbook;
+    return workbookUriFromTab(vscode.window.tabGroups.activeTabGroup.activeTab ?? undefined);
 }
 
 async function refreshPanel(uri: vscode.Uri): Promise<void> {
     if (!panel) { return; }
+    const generation = ++panelGeneration;
     uri = resolveWorkbookSourceUri(uri);
-    panelWorkbook = uri;
     try {
         const parser = new TWBParser();
         const doc = await parser.parseWorkbook(uri);
         const elements = readThemeFromXml(doc.xml);
+        if (!panel || generation !== panelGeneration) { return; }
+        panelWorkbook = uri;
         panel.title = `Workbook Formatting — ${basename(uri.fsPath)}`;
-        await panel.webview.postMessage({ type: 'formattingLoaded', elements });
+        await panel.webview.postMessage({ type: 'formattingLoaded', elements, workbookName: basename(uri.fsPath) });
     } catch { /* silently ignore read errors */ }
 }
 
@@ -214,6 +216,7 @@ async function handleLocateElement(panelElement: string): Promise<void> {
 }
 
 export async function locateXmlElement(uri: vscode.Uri, panelElement: string): Promise<void> {
+    uri = resolveWorkbookSourceUri(uri);
     if (uri.path.toLowerCase().endsWith('.twbx')) {
         const editorUri = await vscode.commands.executeCommand<vscode.Uri>('tableau-language-support.workbook.editXml', uri);
         if (!editorUri) { return; }
@@ -254,6 +257,7 @@ function getPanelHtml(webview: vscode.Webview, context: vscode.ExtensionContext)
     <title>Workbook Formatting</title>
 </head>
 <body>
+    <div id="workbook-source" class="relaunch-option" role="status">Source workbook: loading…</div>
     <div class="tabs">
         <div class="tab active" data-tab="tab-inspect">Inspect &amp; Edit</div>
         <div class="tab" data-tab="tab-apply">Apply Theme</div>

@@ -11,18 +11,20 @@ import { NoWritableWorkbookError, resolveWorkbookUri, resolveWritableWorkbookUri
 import { addCalculationToWorkbook, readCurrentWorkbookXml } from '../services/workbookMutationService.js';
 import { basename } from 'path';
 import { readWorkbookXml } from '../services/workbookFieldContextManager.js';
+import { EditWorkbookXmlTool, ReadWorkbookXmlTool, SaveWorkbookCopyTool, TABLEAU_EDIT_XML_TOOL, TABLEAU_READ_XML_TOOL, TABLEAU_SAVE_COPY_TOOL } from './workbookXmlTools.js';
 
 /**
  * Language model tools that let any agent — the @tableau participant, Copilot
  * agent mode, or another extension — read the live workbook's full schema and
- * write calculated fields into it.
+ * write calculated fields, edit workbook XML, and export it for Tableau.
  *
- * Both are contributed in package.json under `languageModelTools`; the names
+ * All are contributed in package.json under `languageModelTools`; the names
  * here must match those entries.
  */
 
 export const TABLEAU_LIST_FIELDS_TOOL = 'tableau_listFields';
 export const TABLEAU_ADD_CALCULATION_TOOL = 'tableau_addCalculation';
+export const TABLEAU_TOOL_NAMES: readonly string[] = [TABLEAU_LIST_FIELDS_TOOL, TABLEAU_ADD_CALCULATION_TOOL, TABLEAU_READ_XML_TOOL, TABLEAU_EDIT_XML_TOOL, TABLEAU_SAVE_COPY_TOOL];
 
 /** Prefix that marks a failed tool call so the model cannot read it as success. */
 const TOOL_ERROR = 'TOOL ERROR — the workbook was NOT changed.';
@@ -210,7 +212,7 @@ class AddCalculationTool implements vscode.LanguageModelTool<AddCalculationInput
 /** The workbook tools this extension contributes, for a participant's request. */
 export function tableauToolSpecs(): vscode.LanguageModelChatTool[] {
     return vscode.lm.tools
-        .filter(tool => tool.name === TABLEAU_LIST_FIELDS_TOOL || tool.name === TABLEAU_ADD_CALCULATION_TOOL)
+        .filter(tool => TABLEAU_TOOL_NAMES.includes(tool.name))
         .map(tool => ({
             name: tool.name,
             description: tool.description,
@@ -225,6 +227,9 @@ export function registerTableauLanguageModelTools(context: vscode.ExtensionConte
     }
     context.subscriptions.push(
         vscode.lm.registerTool(TABLEAU_LIST_FIELDS_TOOL, new ListFieldsTool()),
-        vscode.lm.registerTool(TABLEAU_ADD_CALCULATION_TOOL, new AddCalculationTool())
+        vscode.lm.registerTool(TABLEAU_ADD_CALCULATION_TOOL, new AddCalculationTool()),
+        vscode.lm.registerTool(TABLEAU_READ_XML_TOOL, new ReadWorkbookXmlTool()),
+        vscode.lm.registerTool(TABLEAU_EDIT_XML_TOOL, new EditWorkbookXmlTool()),
+        vscode.lm.registerTool(TABLEAU_SAVE_COPY_TOOL, new SaveWorkbookCopyTool())
     );
 }

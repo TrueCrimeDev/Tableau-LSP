@@ -17,12 +17,14 @@ const DEFAULT_QUESTIONS: Record<string, string> = {
     calcs: 'List every calculation with its formula and explain what each one does.',
     fields: 'List the datasource fields with their datatypes and roles.',
     new: 'Create a calculated field in this workbook. Ask me what it should compute if the request is not already clear.',
+    edit: 'Edit this workbook XML using the Tableau tools. Ask which change I want if I have not described it yet.',
+    export: 'Save a separate copy of the current workbook and open that copy in Tableau Desktop.',
 };
 
 const KNOWN_FOCUS = new Set<string>(['borders', 'calcs', 'fields']);
 
 /** Bounds the tool loop so a model that keeps calling tools cannot spin. */
-const MAX_TOOL_ROUNDS = 5;
+const MAX_TOOL_ROUNDS = 10;
 
 /**
  * Recognises a request to author or change a calculated field. Such a request
@@ -108,7 +110,7 @@ export function describeChatError(error: unknown): string {
 function availableTools(request: vscode.ChatRequest): vscode.LanguageModelChatTool[] {
     const tools = tableauToolSpecs();
     const names = new Set(tools.map(tool => tool.name));
-    for (const reference of request.toolReferences) {
+    for (const reference of request.toolReferences ?? []) {
         if (names.has(reference.name)) {
             continue;
         }
@@ -155,6 +157,7 @@ async function runToolLoop(
         messages.push(vscode.LanguageModelChatMessage.Assistant(parts));
         const results: vscode.LanguageModelToolResultPart[] = [];
         for (const call of calls) {
+            if (token.isCancellationRequested) { return; }
             results.push(await invokeChatTool(request, call, token));
         }
         messages.push(vscode.LanguageModelChatMessage.User(results));
@@ -225,7 +228,7 @@ async function handleRequest(
             request.prompt,
             request.command,
             workbookName,
-            uri.path.toLowerCase().endsWith('.twb') ? uri.toString() : undefined,
+            uri.toString(),
             instructions
         ));
     } catch (error: unknown) {
@@ -236,7 +239,8 @@ async function handleRequest(
     const usingInstructions = instructions.length
         ? ` · using ${instructions.map(source => `\`${source.label}\``).join(', ')}`
         : '';
-    stream.markdown(`Analyzing \`${fileName}\`${usingInstructions}\n\n`);
+    stream.markdown(`Working with \`${fileName}\`${usingInstructions}\n\n`);
+    stream.reference(uri);
 
     // Instructions and workbook data first, then the conversation so far, then
     // what was just asked. A follow-up like "now make it a percentage" is
@@ -266,6 +270,8 @@ export function registerTableauChatParticipant(context: vscode.ExtensionContext)
     participant.followupProvider = {
         provideFollowups: () => [
             { prompt: '', label: 'Create a calculated field', command: 'new' },
+            { prompt: '', label: 'Edit workbook XML', command: 'edit' },
+            { prompt: '', label: 'Save copy and open in Tableau', command: 'export' },
             { prompt: '', label: 'Scan borders & dividers', command: 'borders' },
             { prompt: '', label: 'Explain the calculations', command: 'calcs' },
             { prompt: '', label: 'List datasource fields', command: 'fields' },

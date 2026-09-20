@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { TextDecoder } from 'util';
 import { resolveWorkbookSourceUri } from '../services/workbookUri.js';
+import { isWorkbookUri, workbookUriFromTab } from '../chat/activeWorkbook.js';
 import { basename, dirname, join } from 'path';
 
 import {
@@ -490,7 +491,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                 return;
             }
 
-            const payload = message as { type?: string; palettes?: unknown; palette?: unknown; paletteName?: unknown; path?: string; formula?: string; title?: string; options?: unknown; edits?: unknown; mode?: string; json?: string; element?: string; calculation?: unknown; commonCalculation?: unknown; commonCalculationName?: unknown; relaunch?: boolean; commandId?: unknown; themeName?: unknown; index?: unknown; };
+            const payload = message as { type?: string; palettes?: unknown; palette?: unknown; paletteName?: unknown; path?: string; formula?: string; title?: string; options?: unknown; edits?: unknown; mode?: string; json?: string; element?: string; calculation?: unknown; commonCalculation?: unknown; commonCalculationName?: unknown; relaunch?: boolean; commandId?: unknown; themeName?: unknown; index?: unknown; hasUnsavedChanges?: boolean; };
             switch (payload.type) {
                 case 'openPreferencesTemplate':
                     void this.openPreferencesTemplate();
@@ -500,6 +501,9 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'requestPalettes':
                     void this.postPaletteData();
+                    break;
+                case 'reloadPalettes':
+                    void this.reloadPalettes(payload.hasUnsavedChanges === true);
                     break;
                 case 'requestContext':
                     void this.postContextData();
@@ -689,9 +693,8 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         log.info(LOG_CAT, `resolveWebviewView [${BUILD_STAMP}]: view mounted, visible=${view.visible}`);
         log.info(LOG_CAT, `resolveWebviewView: workspace.textDocuments count=${vscode.workspace.textDocuments.length}`);
         for (const doc of vscode.workspace.textDocuments) {
-            const p = doc.uri.path.toLowerCase();
-            if (p.endsWith('.twb') || p.endsWith('.twbx')) {
-                this.lastWorkbookUri = doc.uri;
+            if (isWorkbookUri(doc.uri)) {
+                this.lastWorkbookUri = resolveWorkbookSourceUri(doc.uri);
                 log.info(LOG_CAT, `resolveWebviewView: found .twb in textDocuments: ${doc.uri.fsPath}`);
                 break;
             }
@@ -715,9 +718,8 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         this.context.subscriptions.push(
             vscode.window.onDidChangeActiveTextEditor(editor => {
                 if (editor) {
-                    const p = editor.document.uri.path.toLowerCase();
-                    if (p.endsWith('.twb') || p.endsWith('.twbx')) {
-                        this.lastWorkbookUri = editor.document.uri;
+                    if (isWorkbookUri(editor.document.uri)) {
+                        this.lastWorkbookUri = resolveWorkbookSourceUri(editor.document.uri);
                         void this.postWorkbookData();
                         void this.scanWorkbookFormatting();
                     }
@@ -728,9 +730,8 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         // Listen for newly opened documents (catches first-time file open before editor focus)
         this.context.subscriptions.push(
             vscode.workspace.onDidOpenTextDocument(doc => {
-                const p = doc.uri.path.toLowerCase();
-                if (p.endsWith('.twb') || p.endsWith('.twbx')) {
-                    this.lastWorkbookUri = doc.uri;
+                if (isWorkbookUri(doc.uri)) {
+                    this.lastWorkbookUri = resolveWorkbookSourceUri(doc.uri);
                     void this.postWorkbookData();
                     void this.scanWorkbookFormatting();
                 }
@@ -745,15 +746,11 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
             vscode.window.tabGroups.onDidChangeTabs(event => {
                 for (const tab of event.changed) {
                     if (!tab.isActive) { continue; }
-                    const input = tab.input as { uri?: vscode.Uri } | null | undefined;
-                    const uri = input?.uri;
+                    const uri = workbookUriFromTab(tab);
                     if (uri) {
-                        const p = uri.path.toLowerCase();
-                        if (p.endsWith('.twb') || p.endsWith('.twbx')) {
-                            this.lastWorkbookUri = uri;
-                            void this.postWorkbookData();
-                            void this.scanWorkbookFormatting();
-                        }
+                        this.lastWorkbookUri = uri;
+                        void this.postWorkbookData();
+                        void this.scanWorkbookFormatting();
                     }
                 }
             })
@@ -823,14 +820,8 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
     private findWorkbookUriFromTabs(): vscode.Uri | undefined {
         for (const group of vscode.window.tabGroups.all) {
             for (const tab of group.tabs) {
-                const input = tab.input as { uri?: vscode.Uri } | null | undefined;
-                const uri = input?.uri;
-                if (uri) {
-                    const p = uri.path.toLowerCase();
-                    if (p.endsWith('.twb') || p.endsWith('.twbx')) {
-                        return uri;
-                    }
-                }
+                const uri = workbookUriFromTab(tab);
+                if (uri) { return uri; }
             }
         }
         return undefined;
@@ -1080,9 +1071,8 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         let workbookUri: vscode.Uri | undefined;
         const activeEditor = vscode.window.activeTextEditor;
         if (activeEditor) {
-            const p = activeEditor.document.uri.path.toLowerCase();
-            if (p.endsWith('.twb') || p.endsWith('.twbx')) {
-                workbookUri = activeEditor.document.uri;
+            if (isWorkbookUri(activeEditor.document.uri)) {
+                workbookUri = resolveWorkbookSourceUri(activeEditor.document.uri);
             }
         }
         if (!workbookUri && this.lastWorkbookUri) {
@@ -1162,7 +1152,18 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private async postPaletteData(): Promise<void> {
+    private async reloadPalettes(hasUnsavedChanges: boolean): Promise<void> {
+        if (hasUnsavedChanges) {
+            const choice = await vscode.window.showWarningMessage(
+                'Reload Preferences.tps and discard unsaved palette changes?',
+                { modal: true }, 'Discard and Reload'
+            );
+            if (choice !== 'Discard and Reload') { return; }
+        }
+        await this.postPaletteData(true);
+    }
+
+    private async postPaletteData(replaceDraft = false): Promise<void> {
         if (!this.view) {
             return;
         }
@@ -1178,6 +1179,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
 
             await this.view.webview.postMessage({
                 type: 'palettesLoaded',
+                replaceDraft,
                 palettes,
                 source: loadResult.source,
                 sourceLabel,
@@ -1204,8 +1206,7 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         let workbookUri: vscode.Uri | undefined;
         const activeEditor = vscode.window.activeTextEditor;
         if (activeEditor) {
-            const p = activeEditor.document.uri.path.toLowerCase();
-            if (p.endsWith('.twb') || p.endsWith('.twbx')) { workbookUri = activeEditor.document.uri; }
+            if (isWorkbookUri(activeEditor.document.uri)) { workbookUri = resolveWorkbookSourceUri(activeEditor.document.uri); }
         }
         if (!workbookUri && this.lastWorkbookUri) { workbookUri = this.lastWorkbookUri; }
         if (!workbookUri) {
@@ -1265,8 +1266,8 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         if (activeEditor) {
             const p = activeEditor.document.uri.path.toLowerCase();
             log.debug(LOG_CAT, `postWorkbookData: activeTextEditor path=${p}`);
-            if (p.endsWith('.twb') || p.endsWith('.twbx')) {
-                uri = activeEditor.document.uri;
+            if (isWorkbookUri(activeEditor.document.uri)) {
+                uri = resolveWorkbookSourceUri(activeEditor.document.uri);
                 this.lastWorkbookUri = uri;
                 source = 'activeTextEditor';
             }
@@ -1281,11 +1282,10 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
 
         if (!uri) {
             const visibleTwb = vscode.window.visibleTextEditors.find(e => {
-                const p = e.document.uri.path.toLowerCase();
-                return p.endsWith('.twb') || p.endsWith('.twbx');
+                return isWorkbookUri(e.document.uri);
             });
             if (visibleTwb) {
-                uri = visibleTwb.document.uri;
+                uri = resolveWorkbookSourceUri(visibleTwb.document.uri);
                 this.lastWorkbookUri = uri;
                 source = 'visibleTextEditors';
             }
@@ -1304,11 +1304,10 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         // Fallback: scan workspace.textDocuments directly
         if (!uri) {
             const openDoc = vscode.workspace.textDocuments.find(d => {
-                const p = d.uri.path.toLowerCase();
-                return p.endsWith('.twb') || p.endsWith('.twbx');
+                return isWorkbookUri(d.uri);
             });
             if (openDoc) {
-                uri = openDoc.uri;
+                uri = resolveWorkbookSourceUri(openDoc.uri);
                 this.lastWorkbookUri = uri;
                 source = 'workspace.textDocuments';
             }
@@ -1938,9 +1937,8 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         let uri: vscode.Uri | undefined;
         const activeEditor = vscode.window.activeTextEditor;
         if (activeEditor) {
-            const p = activeEditor.document.uri.path.toLowerCase();
-            if (p.endsWith('.twb') || p.endsWith('.twbx')) {
-                uri = activeEditor.document.uri;
+            if (isWorkbookUri(activeEditor.document.uri)) {
+                uri = resolveWorkbookSourceUri(activeEditor.document.uri);
             }
         }
         if (!uri && this.lastWorkbookUri) {
@@ -2158,9 +2156,8 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
         let workbookUri: vscode.Uri | undefined;
         const activeEditor = vscode.window.activeTextEditor;
         if (activeEditor) {
-            const p = activeEditor.document.uri.path.toLowerCase();
-            if (p.endsWith('.twb') || p.endsWith('.twbx')) {
-                workbookUri = activeEditor.document.uri;
+            if (isWorkbookUri(activeEditor.document.uri)) {
+                workbookUri = resolveWorkbookSourceUri(activeEditor.document.uri);
             }
         }
         if (!workbookUri && this.lastWorkbookUri) {
@@ -2434,9 +2431,8 @@ class ParsingGuideViewProvider implements vscode.WebviewViewProvider {
     private resolveStripTarget(): vscode.Uri | undefined {
         const activeEditor = vscode.window.activeTextEditor;
         if (activeEditor) {
-            const p = activeEditor.document.uri.path.toLowerCase();
-            if (p.endsWith('.twb') || p.endsWith('.twbx')) {
-                return activeEditor.document.uri;
+            if (isWorkbookUri(activeEditor.document.uri)) {
+                return resolveWorkbookSourceUri(activeEditor.document.uri);
             }
         }
         return this.lastWorkbookUri;
@@ -3329,6 +3325,26 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
     </div>
     <div class="sb">
 
+      <!-- File Actions -->
+      <div class="ssh">
+        <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
+        Preferences.tps
+      </div>
+      <div class="ssb"><div class="fs">
+        <div class="br">
+          <button class="bt bp" id="save-file" title="Write the palette library to workspace config/Preferences.tps"><svg class="ic"><use href="#i-save"/></svg> Save Library to Preferences.tps</button>
+          <button class="bt bs" id="reload-file"><svg class="ic"><use href="#i-refresh"/></svg> Reload File</button>
+        </div>
+        <div id="palette-unsaved-state" role="status" style="padding:4px 0;font-size:11px;color:var(--vscode-descriptionForeground)">No unsaved palette changes.</div>
+        <div id="palette-status" class="ib2" style="display:none">
+          <svg class="ic"><use href="#i-info"/></svg>
+          <span id="palette-status-text"></span>
+        </div>
+        <div id="palette-source" style="padding:4px 0 0;font-size:11px;color:var(--vscode-descriptionForeground)">Source: not loaded yet</div>
+      </div></div>
+
+      <div class="sep"></div>
+
       <!-- My Palettes -->
       <div class="ssh c">
         <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
@@ -3354,7 +3370,7 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         </div>
         <div class="fg"><label class="fl">Colors</label><div id="colors-list" class="cl"></div></div>
         <div class="br">
-          <button class="bt bp" id="save-palette" style="flex:2"><svg class="ic"><use href="#i-save"/></svg> Save</button>
+          <button class="bt bp" id="save-palette" style="flex:2" title="Write this palette and the library to workspace config/Preferences.tps"><svg class="ic"><use href="#i-save"/></svg> Save Palette to File</button>
           <button class="bt bs" id="new-palette" title="New"><svg class="ic"><use href="#i-plus"/></svg></button>
           <button class="bt bs" id="archive-palette" title="Archive"><svg class="ic"><use href="#i-archive"/></svg></button>
           <button class="bt bs" id="delete-palette" title="Delete" style="color:var(--vscode-errorForeground)"><svg class="ic"><use href="#i-trash"/></svg></button>
@@ -3439,25 +3455,6 @@ function getGuideHtml(webview: vscode.Webview, context: vscode.ExtensionContext,
         </div>
       </div>
       <div class="ssb" id="theme-list"></div>
-
-      <div class="sep"></div>
-
-      <!-- File Actions -->
-      <div class="ssh">
-        <span class="cv"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>
-        File Actions
-      </div>
-      <div class="ssb"><div class="fs">
-        <div class="br">
-          <button class="bt bp" id="save-file"><svg class="ic"><use href="#i-save"/></svg> Save</button>
-          <button class="bt bs" id="reload-file"><svg class="ic"><use href="#i-refresh"/></svg> Reload</button>
-        </div>
-        <div id="palette-status" class="ib2" style="display:none">
-          <svg class="ic"><use href="#i-info"/></svg>
-          <span id="palette-status-text"></span>
-        </div>
-        <div id="palette-source" style="padding:4px 0 0;font-size:11px;color:var(--vscode-descriptionForeground)">Source: not loaded yet</div>
-      </div></div>
     </div>
 
 

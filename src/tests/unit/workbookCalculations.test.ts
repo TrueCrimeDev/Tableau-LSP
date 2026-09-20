@@ -37,7 +37,7 @@ describe('workbook calculated-field mutation', () => {
         '<workbook><datasources/></workbook><extra/>',
         '<workbook><datasources/><datasources/></workbook>',
     ])('rejects XML that is not one workbook root with direct datasources: %s', xml => {
-        expect(() => validateWorkbookXml(xml)).toThrow(/not a Tableau workbook/i);
+        expect(() => validateWorkbookXml(xml)).toThrow(WorkbookCalculationError);
     });
 
     it('allows normal declarations, comments and unknown workbook metadata', () => {

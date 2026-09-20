@@ -1,5 +1,5 @@
 import { TokenType, tokenize } from '../lexer.js';
-import { XMLParser, XMLValidator } from 'fast-xml-parser';
+import { SaxesParser } from 'saxes';
 import { createHash } from 'crypto';
 import { CalculationSemanticContext, SemanticField, validateCalculationSemantics } from '../calculationSemantics.js';
 
@@ -58,26 +58,36 @@ interface DatasourceBlock extends WorkbookDatasourceInfo {
 }
 
 function validateXml(xml: string): void {
-    const result = XMLValidator.validate(xml);
-    if (result !== true) {
-        const detail = typeof result === 'object'
-            ? `${result.err.msg} (line ${String(result.err.line)}, column ${String(result.err.col)})`
-            : 'Unknown XML validation error';
-        throw new WorkbookCalculationError(`Workbook XML is not well formed: ${detail}`, 'INVALID_WORKBOOK_XML');
+    const parser = new SaxesParser({ xmlns: true });
+    let depth = 0;
+    let rootName: string | undefined;
+    let datasourceContainers = 0;
+    parser.on('opentag', tag => {
+        if (depth === 0) {
+            rootName = tag.name;
+        } else if (depth === 1 && tag.name === 'datasources') {
+            datasourceContainers++;
+        }
+        depth++;
+    });
+    parser.on('closetag', () => { depth--; });
+    // Workbook edits do not need DTDs. Reject them rather than interpreting
+    // declarations or installing any external entity/DOCTYPE resolver.
+    parser.on('doctype', () => {
+        throw new Error('DOCTYPE declarations are not supported in workbook XML.');
+    });
+    try {
+        // The default error handler throws on malformed XML, including invalid
+        // attribute characters, entity references and unpaired surrogates.
+        // SAX events inspect the root without constructing or rewriting a tree.
+        parser.write(xml).close();
+    } catch (error) {
+        throw new WorkbookCalculationError(
+            `Workbook XML is not well formed: ${error instanceof Error ? error.message : String(error)}`,
+            'INVALID_WORKBOOK_XML'
+        );
     }
-    // Well-formedness alone accepts multiple roots, while text searches can
-    // mistake comments or nested foreign documents for a Tableau workbook.
-    const parsed: unknown = new XMLParser({
-        preserveOrder: true,
-        ignoreAttributes: true,
-        ignoreDeclaration: true,
-        ignorePiTags: true,
-        processEntities: false,
-    }).parse(xml);
-    const root: unknown = Array.isArray(parsed) && parsed.length === 1 ? parsed[0] : undefined;
-    const children = typeof root === 'object' && root !== null && 'workbook' in root ? root.workbook : undefined;
-    if (!Array.isArray(children) || children.filter(child =>
-        typeof child === 'object' && child !== null && Object.prototype.hasOwnProperty.call(child, 'datasources')).length !== 1) {
+    if (rootName !== 'workbook' || datasourceContainers !== 1) {
         throw new WorkbookCalculationError('The document is not a Tableau workbook with datasources.', 'INVALID_WORKBOOK');
     }
 }

@@ -520,6 +520,8 @@ const themePresets = [
 
 const state = {
   palettes: [],
+  savedPalettes: [],
+  palettesLoaded: false,
   selectedName: '',
   scaleColors: [],
   blendColors: [],
@@ -679,10 +681,12 @@ if (requiredElements.some((element) => !element)) {
 
   paletteNameInput.addEventListener('input', () => {
     state.editor.name = paletteNameInput.value
+    renderPaletteSaveState()
   })
 
   paletteTypeSelect.addEventListener('change', () => {
     state.editor.type = paletteTypeSelect.value
+    renderPaletteSaveState()
   })
 
   colorsList.addEventListener('click', (event) => {
@@ -750,7 +754,7 @@ if (requiredElements.some((element) => !element)) {
         colors: palette.colors.slice(),
       }
       renderAll()
-      setStatus('Palette saved to the sidebar list.', 'success')
+      savePaletteLibrary()
     })
   }
 
@@ -851,16 +855,13 @@ if (requiredElements.some((element) => !element)) {
 
   if (saveFileButton) {
     saveFileButton.addEventListener('click', () => {
-      vscode.postMessage({
-        type: 'savePalettes',
-        palettes: state.palettes,
-      })
+      savePaletteLibrary()
     })
   }
 
   if (reloadFileButton) {
     reloadFileButton.addEventListener('click', () => {
-      vscode.postMessage({ type: 'requestPalettes' })
+      vscode.postMessage({ type: 'reloadPalettes', hasUnsavedChanges: hasUnsavedPaletteChanges() })
     })
   }
 
@@ -1800,6 +1801,14 @@ window.addEventListener('message', (event) => {
       updateSourceLabel(message.context.sourceLabel, message.context.sourceUri)
     }
     if (message.type === 'palettesLoaded') {
+      const preserveDraft = state.palettesLoaded && hasUnsavedPaletteChanges() && !message.replaceDraft
+      state.savedPalettes = coercePaletteList(message.palettes)
+      state.palettesLoaded = true
+      if (preserveDraft) {
+        updateSourceLabel(message.sourceLabel, message.sourcePath)
+        renderPaletteSaveState()
+        return
+      }
       state.palettes = coercePaletteList(message.palettes)
       const selected = state.selectedName
         ? state.palettes.find((item) => item.name === state.selectedName)
@@ -2365,6 +2374,28 @@ function renderAll() {
       state.editor.type || 'regular',
     )
   }
+  renderPaletteSaveState()
+}
+
+function hasUnsavedPaletteChanges() {
+  const saved = state.savedPalettes.find((palette) => palette.name === state.editor.name)
+  const editorHasContent = state.editor.name.trim() || state.editor.colors.length > 0
+  return JSON.stringify(state.palettes) !== JSON.stringify(state.savedPalettes) ||
+    Boolean(editorHasContent && JSON.stringify(state.editor) !== JSON.stringify(saved))
+}
+
+function renderPaletteSaveState() {
+  const status = document.getElementById('palette-unsaved-state')
+  if (status) {
+    status.textContent = hasUnsavedPaletteChanges()
+      ? 'Unsaved palette changes. Use Save Palette to File for editor changes.'
+      : 'No unsaved palette changes.'
+  }
+}
+
+function savePaletteLibrary() {
+  vscode.postMessage({ type: 'savePalettes', palettes: state.palettes })
+  setStatus('Saving palette library to config/Preferences.tps…', 'info')
 }
 
 function renderPaletteList() {
@@ -2418,6 +2449,7 @@ function renderPaletteList() {
 }
 
 function renderColors() {
+  renderPaletteSaveState()
   if (!colorsList) {
     return
   }
@@ -2782,7 +2814,7 @@ function renderFileCard(data) {
     '<div class="wb-file-name" title="' +
     safePath +
     '">' +
-    fileName +
+    'Source workbook: ' + fileName +
     '</div>' +
     '<div class="wb-file-meta">' +
     meta +

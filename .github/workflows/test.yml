@@ -2,44 +2,90 @@ name: Test Suite
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
   schedule:
-    # Run tests daily at 2 AM UTC
     - cron: '0 2 * * *'
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   test:
     runs-on: ${{ matrix.os }}
-
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        node-version: [20.x]
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v7
+      - name: Checkout tested commit
+        uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Type check
+        run: npm run typecheck
+      - name: Test release safeguards
+        run: npm run test:release
+      - name: Run deterministic feature tests
+        run: npm run test:deterministic
+      - name: Run unit tests
+        run: npm run test:unit -- --runInBand
+      - name: Build extension and server
+        run: npm run build
+      - name: Run real workbook extension host (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a node scripts/run-workbook-host-tests.cjs
+      - name: Run real workbook extension host (Windows/macOS)
+        if: runner.os != 'Linux'
+        run: node scripts/run-workbook-host-tests.cjs
+      - name: Upload workbook host report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: workbook-host-${{ matrix.os }}-${{ github.sha }}
+          path: test-results/workbook-host/report.json
+          if-no-files-found: warn
 
-    - name: Setup Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v7
-      with:
-        node-version: ${{ matrix.node-version }}
-        cache: 'npm'
-
-    - name: Install dependencies
-      run: npm ci
-
-    - name: Type check
-      run: npm run typecheck
-
-    - name: Run deterministic feature tests
-      run: npm run test:deterministic
-
-    - name: Run unit tests
-      run: npm run test:unit
-
-    - name: Build project
-      run: npm run build
+  package:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout same tested commit
+        uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Package production VSIX
+        run: |
+          mkdir -p release-artifacts
+          npm run package -- --out release-artifacts/tableau-language-support.vsix
+      - name: Install and exercise the exact packaged VSIX
+        run: xvfb-run -a npm run test:vsix -- release-artifacts/tableau-language-support.vsix
+      - name: Record tested artifact checksum and commit
+        run: npm run release:manifest -- release-artifacts/tableau-language-support.vsix
+      - name: Upload tested release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: tested-vsix-${{ github.sha }}
+          path: release-artifacts/
+          if-no-files-found: error
+      - name: Upload installed VSIX host report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: vsix-smoke-${{ github.sha }}
+          path: test-results/vsix-smoke/report.json
+          if-no-files-found: warn

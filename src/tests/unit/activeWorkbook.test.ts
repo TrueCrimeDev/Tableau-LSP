@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { resolveWorkbookUri, resolveWritableWorkbookUri } from '../../chat/activeWorkbook.js';
-import { bindWorkbookSource, unbindWorkbookSource } from '../../services/workbookUri.js';
+import { bindWorkbookPreview, bindWorkbookSource, unbindWorkbookSource, workbookEditorKeys } from '../../services/workbookUri.js';
 
 /**
  * Which staged query the resolver issued. The directory stage is scoped to a
@@ -252,6 +252,35 @@ describe('resolveWritableWorkbookUri', () => {
         windowState.activeTextEditor = { document: { uri: remote } };
 
         await expect(resolveWritableWorkbookUri()).rejects.toThrow('local filesystem');
+    });
+
+    it('resolves both sides of a backup comparison to the source without treating snapshots as drafts', async () => {
+        const source = uri(`${ROOT_A}/Packaged.twbx`);
+        const preview = (name: string) => ({ ...uri(`/comparison/${name}.twb`), scheme: 'tableau-preview', toString: () => `tableau-preview:/comparison/${name}.twb` }) as vscode.Uri;
+        const before = preview('backup');
+        const after = preview('current');
+        bindWorkbookPreview(before, source);
+        bindWorkbookPreview(after, source);
+        try {
+            for (const resource of [before, after]) {
+                windowState.activeTextEditor = { document: { uri: resource } };
+                await expect(resolveWritableWorkbookUri()).resolves.toEqual(source);
+            }
+            windowState.activeTextEditor = undefined;
+            windowState.tabGroups.activeTabGroup.activeTab = { input: { original: before, modified: after } };
+            await expect(resolveWritableWorkbookUri()).resolves.toEqual(source);
+            expect(workbookEditorKeys(source)).toEqual([]);
+        } finally {
+            unbindWorkbookSource(before);
+            unbindWorkbookSource(after);
+        }
+    });
+
+    it('ignores a stale comparison after its source binding is gone', async () => {
+        const stale = { ...uri('/comparison/current.twb'), scheme: 'tableau-preview' } as vscode.Uri;
+        windowState.activeTextEditor = { document: { uri: stale } };
+        windowState.tabGroups.all = [{ tabs: [tab(stale), tab(uri(WORKBOOK_A))] }];
+        await expect(resolveWritableWorkbookUri()).resolves.toMatchObject({ fsPath: WORKBOOK_A });
     });
 
     it('refuses when no workbook can be resolved at all', async () => {

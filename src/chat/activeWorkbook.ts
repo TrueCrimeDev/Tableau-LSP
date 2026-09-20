@@ -13,13 +13,22 @@ const WORKBOOK_GLOB = '*.{twb,twbx}';
 const EXCLUDE_GLOB = '**/{node_modules,.git,.worktrees,.tableau-lsp-backups}/**';
 
 export function isWorkbookUri(uri: vscode.Uri | undefined): uri is vscode.Uri {
+    if (uri?.scheme === 'tableau-preview' && resolveWorkbookSourceUri(uri) === uri) {
+        return false;
+    }
     const path = uri?.path.toLowerCase() ?? '';
     return path.endsWith('.twb') || path.endsWith('.twbx');
 }
 
+export function workbookUriFromTab(tab: vscode.Tab | undefined): vscode.Uri | undefined {
+    const input = tab?.input as { uri?: vscode.Uri; modified?: vscode.Uri } | null | undefined;
+    const uri = input?.uri ?? input?.modified;
+    return isWorkbookUri(uri) ? resolveWorkbookSourceUri(uri) : undefined;
+}
+
 function tabUri(tab: vscode.Tab | undefined): vscode.Uri | undefined {
-    const input = tab?.input as { uri?: vscode.Uri } | null | undefined;
-    return input?.uri;
+    const input = tab?.input as { uri?: vscode.Uri; modified?: vscode.Uri } | null | undefined;
+    return input?.uri ?? input?.modified;
 }
 
 /**
@@ -101,10 +110,7 @@ export async function resolveWorkbookUri(): Promise<vscode.Uri | undefined> {
     if (active && isWorkbookUri(active.document.uri)) {
         return resolveWorkbookSourceUri(active.document.uri);
     }
-    const twbOf = (tab: vscode.Tab | undefined): vscode.Uri | undefined => {
-        const uri = tabUri(tab);
-        return isWorkbookUri(uri) ? resolveWorkbookSourceUri(uri) : undefined;
-    };
+    const twbOf = workbookUriFromTab;
     const activeTabWorkbook = twbOf(vscode.window.tabGroups.activeTabGroup.activeTab ?? undefined);
     if (activeTabWorkbook) {
         return activeTabWorkbook;
