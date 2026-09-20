@@ -10,6 +10,8 @@ Write Tableau calculations and inspect, edit, and format workbooks in VS Code.
 
 Requires **VS Code 1.95 or newer**.
 
+Editing and exporting workbook files needs no Tableau account. Open and check the results on the computer that has Tableau installed. [Install on your work computer →](docs/user-guide.md#install-on-your-tableau-work-computer)
+
 1. Install **Tableau Language Support** by **TrueCrimeAudit**. For a GitHub build, download the `.vsix` from Releases and run **Extensions: Install from VSIX…**.
 2. Open a folder containing a `.twb` or `.twbx` workbook, then open **Tableau Tools** in the activity bar.
 3. Open or create a `.twbl` file to write calculations with workbook-aware field completion, hover help, diagnostics, and formatting.

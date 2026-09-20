@@ -2,6 +2,17 @@
 
 [Installation and overview](../README.md) · [Screenshot walkthrough](../examples/README.md)
 
+## Install on your Tableau work computer
+
+You can develop and test this extension on one computer and use it on another. The development computer does not need a Tableau account or installation. Workbook inspection, XML editing, backups, and file exports run in VS Code; Tableau is needed where you open and check the finished workbook.
+
+1. On your work computer, download `tableau-language-support.vsix` from [GitHub Releases](https://github.com/TrueCrimeDev/Tableau-LSP/releases/latest). In VS Code, run **Extensions: Install from VSIX…**, choose that file, and reload if prompted. Installing the packaged extension does not require cloning this repository or running npm.
+2. Open a folder containing a disposable copy of a workbook that already works in your Tableau installation. Keep plain `.twb` files beside their source data so relative paths resolve; `.twbx` files retain their packaged assets.
+3. Use **Tableau Tools** to inspect and edit it. For AI edits, use Copilot Chat with an accessible model, ask `@tableau /edit` for the change, and review the proposed XML before approving. Tableau sign-in and the AI model's access are separate requirements.
+4. Use **Save a Workbook Copy and Open in Tableau**, or ask `@tableau /export`. Check the copy's sheets, calculations, and connections in the work computer's Tableau installation. Follow the [workbook roundtrip check](workbook-roundtrip-check.md) for a first-use test.
+
+If automatic launch misses Tableau, set `tableau-language-support.local.executablePath` to that computer's Tableau executable, or open the exported file from Tableau itself. No Tableau activation is needed on the development computer.
+
 ## Write calculations
 
 Open a `.twbl` file. Completion suggests functions, keywords, and known fields; hover shows function signatures and field details. Use the Problems panel for supported syntax and semantic diagnostics.
