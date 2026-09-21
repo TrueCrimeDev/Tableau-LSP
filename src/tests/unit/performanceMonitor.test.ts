@@ -392,7 +392,8 @@ describe('Performance Monitor', () => {
             expect(stats?.averageDuration).toBeGreaterThan(0);
             expect(stats?.minDuration).toBeGreaterThan(0);
             expect(stats?.maxDuration).toBeGreaterThan(0);
-            expect(stats?.totalDuration).toBe(stats?.averageDuration * iterations);
+            // Dividing and multiplying the total can introduce floating-point rounding.
+            expect(stats?.totalDuration).toBeCloseTo(stats?.averageDuration * iterations, 10);
         });
     });
 });
