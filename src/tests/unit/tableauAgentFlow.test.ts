@@ -36,7 +36,10 @@ jest.mock('vscode', () => {
         workspace: { textDocuments: [] },
     };
 });
-jest.mock('../../chat/activeWorkbook.js', () => ({ resolveWorkbookUri: jest.fn(), resolveWritableWorkbookUri: jest.fn() }));
+jest.mock('../../chat/activeWorkbook.js', () => ({
+    ...jest.requireActual('../../chat/activeWorkbook.js'),
+    resolveWorkbookUri: jest.fn(), resolveWritableWorkbookUri: jest.fn(),
+}));
 jest.mock('../../chat/projectInstructions.js', () => ({ loadProjectInstructions: jest.fn() }));
 jest.mock('../../services/workbookFieldContextManager.js', () => ({ readWorkbookXml: jest.fn() }));
 jest.mock('../../services/workbookMutationService.js', () => ({
@@ -133,7 +136,7 @@ describe('Tableau chat participant tool conversation', () => {
         registerTableauChatParticipant(context);
     });
 
-    async function run(scripts: Script[]) {
+    async function run(scripts: Script[], request: { prompt?: string; command?: string; history?: unknown[] } = {}) {
         let step = 0;
         let modelFailure: unknown;
         const snapshots: vscode.LanguageModelChatMessage[][] = [];
@@ -156,16 +159,75 @@ describe('Tableau chat participant tool conversation', () => {
             }
         });
         await handler({
-            prompt: 'Rename the Sales worksheet to Revenue, save a copy, and open it in Tableau.',
-            command: 'edit', model: { sendRequest }, toolInvocationToken: invocationToken, toolReferences: [],
+            prompt: request.prompt ?? 'Rename the Sales worksheet to Revenue, save a copy, and open it in Tableau.',
+            command: request.command ?? 'edit', model: { sendRequest }, toolInvocationToken: invocationToken, toolReferences: [],
         } as unknown as vscode.ChatRequest,
-        { history: [] } as unknown as vscode.ChatContext,
+        { history: request.history ?? [] } as unknown as vscode.ChatContext,
         { markdown, reference } as unknown as vscode.ChatResponseStream,
         token as vscode.CancellationToken);
         if (modelFailure) { throw modelFailure; }
         expect(step).toBe(scripts.length);
         return { markdown, reference, sendRequest, snapshots };
     }
+
+    it.each([
+        ['new', 'create a calculated field'],
+        ['edit', 'edit this workbook xml'],
+        ['export', 'save a separate copy'],
+        ['borders', 'border and divider'],
+        ['calcs', 'list every calculation'],
+        ['fields', 'list the datasource fields'],
+    ])('routes /%s through the participant with its default question and selected workbook', async (command, expectedQuestion) => {
+        const output = await run([messages => {
+            const question = messages[messages.length - 1].content[0] as vscode.LanguageModelTextPart;
+            expect(question.value.toLowerCase()).toContain(expectedQuestion);
+            expect((messages[0].content[0] as vscode.LanguageModelTextPart).value).toContain('# Workbook digest');
+            return [text('The selected workbook is available for this request.')];
+        }], { command, prompt: '' });
+        expect(output.reference).toHaveBeenCalledWith(source);
+        expect(readWorkbookXml).toHaveBeenCalledWith(source);
+        expect(output.markdown).toHaveBeenCalledWith('Working with `Book.twbx`\n\n');
+        expect(output.sendRequest).toHaveBeenCalledTimes(1);
+        expect(vscode.lm.invokeTool).not.toHaveBeenCalled();
+    });
+
+    it('replays prior request and response turns before the current follow-up', async () => {
+        await run([messages => {
+            expect(messages).toHaveLength(4);
+            expect(messages[1]).toMatchObject({ role: 'user', content: [{ value: '/new Create a profit ratio calculation.' }] });
+            expect(messages[2]).toMatchObject({ role: 'assistant', content: [{ value: 'Should the ratio use total sales?' }] });
+            expect(messages[3]).toMatchObject({ role: 'user', content: [{ value: 'Yes, divide total profit by total sales.' }] });
+            return [text('I will use total profit divided by total sales.')];
+        }], {
+            prompt: 'Yes, divide total profit by total sales.',
+            command: 'new',
+            history: [
+                { command: 'new', prompt: 'Create a profit ratio calculation.' },
+                { response: [{ value: new vscode.MarkdownString().appendText('Should the ratio use total sales?') }] },
+            ],
+        });
+    });
+
+    it('includes supplied project guidance in the actual model request and identifies its source', async () => {
+        jest.mocked(loadProjectInstructions).mockResolvedValue([{ label: 'tableau/agent.md', text: 'Use the Retail datasource.' }]);
+        const output = await run([messages => {
+            const context = (messages[0].content[0] as vscode.LanguageModelTextPart).value;
+            expect(context).toContain('Use the Retail datasource.');
+            expect(context).toContain('tableau/agent.md');
+            return [text('The project guidance is included.')];
+        }]);
+        expect(output.markdown).toHaveBeenCalledWith('Working with `Book.twbx` · using `tableau/agent.md`\n\n');
+    });
+
+    it('does not ask a model or invoke tools when no unambiguous workbook is selected', async () => {
+        jest.mocked(resolveWorkbookUri).mockResolvedValue(undefined);
+        const output = await run([]);
+        expect(output.markdown).toHaveBeenCalledWith(expect.stringContaining('No unambiguous Tableau workbook'));
+        expect(output.reference).not.toHaveBeenCalled();
+        expect(output.sendRequest).not.toHaveBeenCalled();
+        expect(readWorkbookXml).not.toHaveBeenCalled();
+        expect(vscode.lm.invokeTool).not.toHaveBeenCalled();
+    });
 
     it('reads, approves an XML edit, exports its new revision, and returns a truthful launch receipt through the real handler', async () => {
         const output = await run([
@@ -234,6 +296,36 @@ describe('Tableau chat participant tool conversation', () => {
         expect(copy).toHaveBeenCalledTimes(1);
         expect(output.markdown).toHaveBeenLastCalledWith(expect.stringContaining('could not be launched'));
         expect(applyWorkbookXmlMutation).not.toHaveBeenCalled();
+    });
+
+    it.each([false, undefined])('exports without launching Tableau when openInTableau is %s', async openInTableau => {
+        const prompt = 'Save a separate copy named Presentation.twbx without opening Tableau. Set openInTableau to false.';
+        const output = await run([
+            messages => {
+                expect(messages[messages.length - 1].content[0]).toMatchObject({ value: prompt });
+                return [call('read', TABLEAU_READ_XML_TOOL)];
+            },
+            messages => {
+                const read = JSON.parse(resultText(messages, 'read'));
+                return [call('export', TABLEAU_SAVE_COPY_TOOL, {
+                    workbookId: read.workbookId, expectedRevision: read.revision,
+                    fileName: 'Presentation.twbx', ...(openInTableau === undefined ? {} : { openInTableau }),
+                })];
+            },
+            messages => {
+                const saved = JSON.parse(resultText(messages, 'export'));
+                expect(saved).toMatchObject({ saved: true, launchRequested: false, tableauValidation: 'not_run' });
+                expect(saved).not.toHaveProperty('launchError');
+                return [text('Saved Presentation.twbx. Tableau was not launched, and rendering was not checked.')];
+            },
+        ], { command: 'export', prompt });
+        expect(confirmations).toHaveLength(1);
+        expect(confirmations[0].confirmationMessages?.title).toBe('Save a workbook copy?');
+        expect(copy).toHaveBeenCalledTimes(1);
+        expect(launchEditedWorkbook).not.toHaveBeenCalled();
+        expect(applyWorkbookXmlMutation).not.toHaveBeenCalled();
+        expect(xml).toBe(original);
+        expect(output.markdown).toHaveBeenLastCalledWith(expect.stringContaining('Tableau was not launched'));
     });
 
     it('does not invoke a queued edit when cancellation arrives with the model response', async () => {

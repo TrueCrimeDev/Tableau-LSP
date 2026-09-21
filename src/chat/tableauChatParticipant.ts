@@ -99,7 +99,7 @@ export function describeChatError(error: unknown): string {
             return 'Copilot declined the request (permissions or content policy). Try rephrasing.';
         }
         if (code === 'NotFound') {
-            return 'No language model is available. An active GitHub Copilot subscription is required for @tableau.';
+            return 'No language model is available. Select an accessible chat model and complete that provider\'s setup or sign-in, then try @tableau again.';
         }
     }
     const message = error instanceof Error ? error.message : String(error);

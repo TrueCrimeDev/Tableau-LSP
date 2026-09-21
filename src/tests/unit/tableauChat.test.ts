@@ -373,8 +373,10 @@ describe('composeTableauMessages', () => {
 });
 
 describe('describeChatError', () => {
-    it('maps missing-model errors to the Copilot-required message', () => {
-        expect(describeChatError({ code: 'NotFound' })).toContain('Copilot subscription');
+    it('maps missing-model errors to provider-neutral setup guidance', () => {
+        const message = describeChatError({ code: 'NotFound' });
+        expect(message).toContain('Select an accessible chat model');
+        expect(message).not.toContain('subscription');
     });
 
     it('maps blocked requests to the policy message', () => {
