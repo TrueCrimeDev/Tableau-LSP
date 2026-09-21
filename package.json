@@ -2,7 +2,7 @@
   "name": "tableau-language-support",
   "displayName": "Tableau Language Support",
   "description": "Tableau calculations, workbook XML editing, Copilot tools, formatting, and verified TWB/TWBX exports for Tableau Desktop",
-  "version": "1.14.0",
+  "version": "1.14.1",
   "publisher": "TrueCrimeAudit",
   "icon": "images/tableau-icon.png",
   "license": "MIT",

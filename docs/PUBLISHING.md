@@ -2,6 +2,14 @@
 
 The canonical release path is `.github/workflows/publish.yml`. The legacy Azure pipeline is manual packaging only; it has no automatic trigger and never publishes to the Marketplace.
 
+## GitHub-only installer releases
+
+For a manual-install VSIX release, push the reviewed version commit to `main` and wait for **Test Suite** to pass, including all three platforms and the installed-package job. Download `tested-vsix-<commit>` from that exact run. Verify the VSIX against its adjacent `release.json`, including the SHA256, extension identity, version, source commit, and passing installed-package evidence.
+
+Create a GitHub Release at that commit with an `installer-<version>` tag, such as `installer-1.14.1`, and attach the unchanged `tableau-language-support.vsix` and `release.json`. This tag is outside the Marketplace workflow's `v*` trigger. Use **Extensions: Install from VSIX…** on the destination computer, then check its installed version. Independently download the public asset and verify its checksum before sharing the link.
+
+Do not use a `v<version>` tag or dispatch **Publish VS Code Extension** for an installer-only release; those actions initiate Marketplace publication.
+
 ## GitHub release workflow
 
 Configure the repository secret `VSCE_PAT` with a Marketplace token authorized for the `TrueCrimeAudit` publisher and **Marketplace (Publish)** scope.

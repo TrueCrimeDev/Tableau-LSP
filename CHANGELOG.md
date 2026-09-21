@@ -2,6 +2,17 @@
 
 All notable changes to the "tableau-language-support" extension will be documented in this file.
 
+## [1.14.1] - 2026-09-21
+
+### Fixed
+
+- Missing-model guidance for `@tableau` now refers to the selected provider's setup instead of incorrectly requiring a Copilot subscription. Model credentials and API access still need to be configured in VS Code.
+
+### Changed
+
+- Added 11 participant-flow regression cases covering all six slash commands, conversation history, project guidance, workbook selection, and exports that do not launch Tableau.
+- Shortened the README, added current GUI examples, and documented testing without Tableau and installing the VSIX on a separate Tableau work computer.
+
 ## [1.14.0] - 2026-09-19
 
 ### Added
