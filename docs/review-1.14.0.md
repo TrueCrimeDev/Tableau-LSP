@@ -13,9 +13,9 @@ The update adds XML read/edit/export tools, fixes source-workbook selection afte
 
 ## Verification boundary
 
-Tableau Desktop 2026.1 launched with the exported sample on the development computer but stopped at its license activation screen. Workbook rendering, connections and Tableau-side calculation evaluation remain unverified in the target Tableau environment. The tool reports `launchRequested` separately from a saved export and leaves `tableauValidation` as `not_run`.
+Tableau Desktop 2026.1 launched with the exported sample but stopped at its license activation screen. Workbook rendering, connections and Tableau-side calculation evaluation remain unverified in the target Tableau environment. The tool reports `launchRequested` separately from a saved export and leaves `tableauValidation` as `not_run`.
 
-The intended deployment is a separate work computer with Tableau installed. The development computer does not need Tableau activation; final rendering checks belong on that work computer. Use the [work-computer installation steps](user-guide.md#install-on-your-tableau-work-computer) and the [roundtrip check](workbook-roundtrip-check.md) there.
+Use the [roundtrip check](workbook-roundtrip-check.md) to confirm rendering in a licensed Tableau installation.
 
 The interactive check invoked the registered tools directly; it did not exercise a live Copilot model. Scripted model tests cover the participant's tool loop. GitHub Actions and public Marketplace publication are separate release checks: consult the workflow run and public listing for their current status.
 

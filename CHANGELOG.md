@@ -11,7 +11,7 @@ All notable changes to the "tableau-language-support" extension will be document
 ### Changed
 
 - Added 11 participant-flow regression cases covering all six slash commands, conversation history, project guidance, workbook selection, and exports that do not launch Tableau.
-- Shortened the README, added current GUI examples, and documented testing without Tableau and installing the VSIX on a separate Tableau work computer.
+- Shortened the README, added current GUI examples, and documented testing without Tableau and installing from the VSIX.
 
 ## [1.14.0] - 2026-09-19
 

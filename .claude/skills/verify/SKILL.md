@@ -41,13 +41,13 @@ Rebuild between every scenario when comparing before/after.
    your launcher lives outside the repo (Node resolves from the file's dir,
    not cwd):
    ```bash
-   xvfb-run -a node /path/to/launch.js
+   REPO_DIR="$(wslpath "$(git rev-parse --show-toplevel)")" xvfb-run -a node /path/to/launch.js
    ```
 
 Launcher shape:
 
 ```js
-const REPO = '/mnt/c/Users/dev/Documents/Design/Coding/Tableau-LSP';
+const REPO = process.env.REPO_DIR; // WSL path to this repository
 const { runTests } = require(REPO + '/node_modules/@vscode/test-electron');
 runTests({
     extensionDevelopmentPath: REPO,

@@ -33,7 +33,7 @@ Use a fresh scratch copy for another run. Avoid the bare `@tableau /export` shor
 
 For automated verification, run `npm test` from the repository root after `npm ci`. It runs TypeScript, unit, deterministic workbook, and real VS Code extension-host checks without launching Tableau. For source debugging, F5 with **Run Extension (synthetic demo)** builds and opens an isolated demo profile.
 
-These checks establish the extension's behavior and saved file contents. Actual Tableau chart rendering, data connections, and calculation evaluation must be checked on your Tableau work computer.
+These checks establish the extension's behavior and saved file contents. Actual Tableau chart rendering, data connections, and calculation evaluation must be checked in Tableau.
 
 ## Calculation completion
 

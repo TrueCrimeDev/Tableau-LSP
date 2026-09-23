@@ -12,7 +12,7 @@ Requires **VS Code 1.95+**. Download the GitHub `.vsix`, then run **Extensions: 
 2. Select **Tableau LSP** in the activity bar to open **Tableau Tools**.
 3. Open a `.twbl` file for calculation completion, hover help, diagnostics, and formatting.
 
-Editing and exporting files needs no Tableau account. Check the results on your [Tableau work computer](docs/user-guide.md#install-on-your-tableau-work-computer), or start with the [synthetic demo](examples/README.md#open-the-demo).
+Editing and exporting files needs no Tableau account. [Install the VSIX](docs/user-guide.md#install), or start with the [synthetic demo](examples/README.md#open-the-demo).
 
 The [Marketplace listing](https://marketplace.visualstudio.com/items?itemName=TrueCrimeAudit.tableau-language-support) served 1.5.8 at the September 19 release check because Microsoft's publisher service blocked the update. Use the GitHub VSIX for 1.14.1.
 
