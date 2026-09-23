@@ -1,6 +1,6 @@
 # Screenshot walkthrough
 
-The five demo captures below show the released **Tableau Language Support 1.14.0** VSIX installed in **VS Code 1.138.0 on Windows**, taken on September 20, 2026. The title shows **1.14.0 / demo**. The separate agent-tool example also shows 1.14.0 and is described below.
+The five demo captures below show the released **Tableau Language Support 1.14.0** VSIX installed in **VS Code 1.138.0 on Windows**, taken on September 20, 2026. The separate agent-tool example also shows 1.14.0 and is described below.
 
 The included files contain synthetic fields, calculations, formatting, and palettes. The workbook is an extension demonstration fixture without a live data connection; Tableau Desktop rendering was not verified.
 
@@ -39,7 +39,7 @@ These checks establish the extension's behavior and saved file contents. Actual 
 
 Open [calculations.twbl](calculations.twbl), place the cursor inside `SUM`, and run **Trigger Suggest** to see matching functions. The inspector retains the workbook's field context while you edit calculations. **Show Hover** displays function documentation.
 
-![Function completion beside the workbook inspector, with 1.14.0 and demo in the title](../images/examples/calculation-completion-1.14.jpg)
+![Function completion beside the workbook inspector](../images/examples/calculation-completion-1.14.jpg)
 
 ## Extract calculations
 
@@ -90,7 +90,7 @@ In version 1.14.0, `@tableau /edit` can read and modify exact XML inside a `.twb
 
 This real 1.14.0 capture shows an edit made through the registered XML tool after its before/after confirmation was accepted. A disposable copy of Tableau's bundled Superstore sample was used; that workbook is not distributed in this repository. The datasource caption changed while the source workbook remained selected in the sidebar.
 
-![Registered agent XML edit shown in a backup comparison, with demo in the VS Code title](../images/examples/agent-xml-edit.png)
+![Registered agent XML edit shown in a backup comparison](../images/examples/agent-xml-edit.png)
 
 The registered export tool also saved the edited package and launched Tableau. Tableau Desktop 2026.1 stopped at license activation, so this capture proves the persisted extension edit, not Tableau rendering.
 

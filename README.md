@@ -28,7 +28,7 @@ The [Marketplace listing](https://marketplace.visualstudio.com/items?itemName=Tr
 
 ## See it working
 
-Actual **1.14.0** captures with **demo** in the window title.
+Actual captures of the released **1.14.0** extension.
 
 ![Calculation completion with the workbook inspector in VS Code 1.14.0](images/examples/calculation-completion-1.14.jpg)
 

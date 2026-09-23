@@ -1,7 +1,7 @@
 {
   "folders": [{ "name": "Retail Demo", "path": "." }],
   "settings": {
-    "window.title": "Tableau-LSP / demo / ${activeEditorShort}",
+    "window.title": "Tableau-LSP / ${activeEditorShort}",
     "window.commandCenter": false,
     "workbench.colorTheme": "Default Dark Modern",
     "editor.fontSize": 17,

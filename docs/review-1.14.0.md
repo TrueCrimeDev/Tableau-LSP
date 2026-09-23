@@ -31,7 +31,7 @@ The current repository is **TrueCrimeDev/Tableau-LSP**. The separate `tableau-la
 
 - Downloaded the released 1.14.0 VSIX and matched its SHA256 to `ce6087ceea336cd1185b7e2779437c66f336d43d1df459a30ef36c32a756c997`.
 - Reran typechecking, all **63 unit suites / 1,058 tests**, and **42 installed-VSIX checks** in VS Code 1.138.0. They passed. The installed-package test invokes registered reads and the packaged mutation implementations; it does not automate approval dialogs or a live Copilot model.
-- Installed those release bytes in a separate VS Code profile and captured five real screenshots with **1.14.0 / demo** in the window title. The [walkthrough](../examples/README.md) uses a scratch copy of the repository's synthetic demo.
+- Installed those release bytes in a separate VS Code profile and captured five real screenshots of the 1.14.0 release. The [walkthrough](../examples/README.md) uses a scratch copy of the repository's synthetic demo.
 - Verified the inspector's one datasource, nine fields, three calculations, and one worksheet. Function completion displayed the available `SUM` matches.
 - Confirmed both extraction paths: the sidebar writes `_Calculations.notes`; the Command Palette's **Tableau: Extract Calculations** writes and opens `Extracted_Calculations.twbl` with the complete field and worksheet inventory. Corrected the walkthrough's earlier conflation of these actions.
 - Changed worksheet font size from **12** to **14** through the formatting panel, checked the saved XML, and compared the unchanged original backup with the current file. The original workbook remained selected while viewing the diff.
