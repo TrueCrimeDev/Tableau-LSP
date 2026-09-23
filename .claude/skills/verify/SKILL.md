@@ -41,7 +41,7 @@ Rebuild between every scenario when comparing before/after.
    your launcher lives outside the repo (Node resolves from the file's dir,
    not cwd):
    ```bash
-   REPO_DIR="$(wslpath "$(git rev-parse --show-toplevel)")" xvfb-run -a node /path/to/launch.js
+   REPO_DIR="$(git rev-parse --show-toplevel)" xvfb-run -a node /path/to/launch.js
    ```
 
 Launcher shape:
