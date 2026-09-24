@@ -56,9 +56,6 @@ export class SlashCommandProvider implements vscode.CompletionItemProvider {
             '{ ${1|FIXED,INCLUDE,EXCLUDE|} ${2:[Dimension]} : ${3:AGG([Measure])} }'
         ]);
 
-
-
-
         // Additional useful templates
         this.addSlashCommand('/iif', 'Generate nested IIF statement template', [
             'IIF(${1:condition1}, ${2:value1},',
